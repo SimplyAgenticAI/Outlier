@@ -141,6 +141,26 @@ toggleEl.addEventListener("change", () => {
   say(toggleEl.checked ? "Capture on." : "Capture paused.", "ok");
 });
 
+// Chrome blocks the service worker from fetching any origin the extension
+// lacks host permission for. The manifest can't list every dashboard someone
+// might host, so permission for a custom one is requested at save time —
+// otherwise saving "succeeds" and every capture then fails silently.
+function ensureHostPermission(url) {
+  return new Promise((resolve) => {
+    let origin;
+    try {
+      origin = new URL(url).origin + "/*";
+    } catch (error) {
+      return resolve(false);
+    }
+    chrome.permissions.contains({ origins: [origin] }, (has) => {
+      if (has) return resolve(true);
+      // Must be called from a user gesture, which the click handler is.
+      chrome.permissions.request({ origins: [origin] }, (granted) => resolve(!!granted));
+    });
+  });
+}
+
 el("save-endpoint").addEventListener("click", async () => {
   const value = endpointEl.value.trim().replace(/\/+$/, "");
   if (!value) {
@@ -152,6 +172,14 @@ el("save-endpoint").addEventListener("click", async () => {
     return;
   }
 
+  say("Checking access…");
+  const allowed = await ensureHostPermission(value);
+  if (!allowed) {
+    say("Chrome blocked access to that address. Approve the permission prompt, " +
+        "then press Save & test again.", "err");
+    return;
+  }
+
   await chrome.storage.local.set({ endpoint: value });
   openLink.href = value;
   say("Saved. Testing…");
@@ -160,12 +188,13 @@ el("save-endpoint").addEventListener("click", async () => {
     if (chrome.runtime.lastError || !response || !response.ok) {
       dotEl.className = "dot off";
       statusEl.textContent = "offline";
-      say("Saved, but nothing answered there. Is the dashboard running?", "err");
+      const detail = (response && response.error) ? " " + response.error : "";
+      say("Saved, but nothing answered there." + detail, "err");
       return;
     }
     dotEl.className = "dot on";
     statusEl.textContent = "v" + response.version;
-    say("Connected to dashboard v" + response.version, "ok");
+    say("Connected to " + new URL(value).hostname + " (v" + response.version + ")", "ok");
   });
 });
 

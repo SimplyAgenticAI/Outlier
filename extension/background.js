@@ -34,6 +34,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function handleCapture(message) {
   const endpoint = await getEndpoint();
+
+  if (!(await hasHostPermission(endpoint))) {
+    return {
+      ok: false,
+      error: "No Chrome permission for " + endpoint + " — re-save it in the popup"
+    };
+  }
+
   try {
     const response = await fetch(`${endpoint}/api/capture`, {
       method: "POST",
@@ -54,14 +62,46 @@ async function handleCapture(message) {
   }
 }
 
+// A blocked origin and an unreachable server both surface as a TypeError from
+// fetch, which is why "could not reach the dashboard" was being reported for
+// what was actually a missing permission. Check the permission explicitly so
+// the two can be told apart.
+function hasHostPermission(endpoint) {
+  return new Promise((resolve) => {
+    let origin;
+    try {
+      origin = new URL(endpoint).origin + "/*";
+    } catch (error) {
+      return resolve(false);
+    }
+    chrome.permissions.contains({ origins: [origin] }, (has) => resolve(!!has));
+  });
+}
+
 async function testConnection() {
   const endpoint = await getEndpoint();
+
+  if (!(await hasHostPermission(endpoint))) {
+    return {
+      ok: false,
+      endpoint,
+      error: "Chrome hasn't granted access to " + endpoint +
+             ". Re-save it in the popup and approve the prompt."
+    };
+  }
+
   try {
     const response = await fetch(`${endpoint}/api/ping`);
     const data = await response.json();
-    return { ok: true, version: data.version, endpoint };
+    return {
+      ok: true,
+      version: data.version,
+      extension_version: data.extension_version,
+      is_local: data.is_local,
+      endpoint
+    };
   } catch (error) {
-    return { ok: false, endpoint };
+    return { ok: false, endpoint, error: "No response from " + endpoint };
   }
 }
 
