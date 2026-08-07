@@ -45,6 +45,7 @@
       articles: 0,     // role="article" nodes on the page
       candidates: 0,   // top-level ones (comments excluded)
       skipped: 0,      // rejected as shells / author-name-only
+      comments: 0,     // role=article nodes that were comments, not posts
       queued: 0,
       sent: 0,
       added: 0,
@@ -78,6 +79,12 @@
 
   /* ------------------------------------------------------ number parsing */
 
+  // No Facebook group post realistically clears this. A number above it came
+  // from something that isn't a reaction count — a follower total, an id, a
+  // year range — and one such value wrecks a group's median for every post
+  // scored against it.
+  var MAX_PLAUSIBLE_COUNT = 20000000;
+
   function parseCount(text) {
     if (!text) return 0;
     var match = String(text).replace(/,/g, "").match(/([\d.]+)\s*([KMB])?/i);
@@ -90,7 +97,9 @@
     if (suffix === "K") value *= 1e3;
     else if (suffix === "M") value *= 1e6;
     else if (suffix === "B") value *= 1e9;
-    return Math.round(value);
+
+    value = Math.round(value);
+    return value > MAX_PLAUSIBLE_COUNT ? 0 : value;
   }
 
   /* ------------------------------------------------------ source identity */
@@ -211,16 +220,67 @@
 
   var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
 
-  function extractBody(article, authorName) {
-    // Post copy sits in a dir="auto" block — but so does the header (author
-    // name), the engagement row, the comment composer, and every comment.
-    // Taking the plain longest block is how an author name ends up saved as
-    // the post body, so filter the known non-body shapes first.
+  /* The post/comment boundary.
+   *
+   * Facebook gives comments role="article" too, and does not reliably nest
+   * them inside the post's own article — so "exclude nested articles" let
+   * every comment through as a post. Worse, a comment is often longer than
+   * the caption, so picking the longest text block returned the comment even
+   * for posts that were correctly identified.
+   *
+   * Two structural facts fix both: a post offers Share (a comment offers
+   * Reply), and everything belonging to the post sits ABOVE the Like/Comment/
+   * Share bar while comments sit below it.
+   */
+
+  function findActionBar(article) {
+    var candidates = article.querySelectorAll('[role="button"], [aria-label]');
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      var label = (el.getAttribute("aria-label") || "").trim();
+      var text = (el.textContent || "").trim();
+      if (/^(like|comment|share)$/i.test(text)) return el;
+      if (/^(like|comment|share|leave a comment|send this to friends)/i.test(label)) return el;
+    }
+    return null;
+  }
+
+  // True when `el` sits after the action bar — i.e. in the comments.
+  function isBelowBar(el, bar) {
+    if (!bar || !el) return false;
+    return !!(bar.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  function looksLikePost(article) {
+    // A shared-post preview or a comment rendered inside another article.
+    if (article.parentElement && article.parentElement.closest('div[role="article"]')) {
+      return false;
+    }
+
+    var hasShare = !!article.querySelector(
+      '[aria-label*="Share" i], [aria-label*="Send this to friends" i]'
+    );
+    var hasReply = !!article.querySelector('[aria-label*="Reply" i]');
+
+    // Reply without Share is the comment signature.
+    if (hasReply && !hasShare) return false;
+
+    // Otherwise require some evidence this is a real feed post.
+    return hasShare || !!extractPermalink(article);
+  }
+
+  function extractBody(article, authorName, bar) {
+    // The caption is the longest text block ABOVE the action bar. Without the
+    // cutoff a long comment beats a short caption — which is how "that's
+    // funny, flat earthers will think this is a real picture" got saved as
+    // the body of a post captioned "Artemis 2 captures its first views".
     var blocks = article.querySelectorAll('div[dir="auto"], span[dir="auto"]');
     var best = "";
 
     for (var i = 0; i < blocks.length; i++) {
       var el = blocks[i];
+      if (isBelowBar(el, bar)) continue;          // comments live below it
+
       var text = el.innerText ? el.innerText.trim() : "";
       if (!text || text.length <= best.length) continue;
       if (CHROME_RE.test(text)) continue;
@@ -233,18 +293,15 @@
       var link = el.querySelector('a[role="link"]');
       if (link && (link.innerText || "").trim().length >= text.length - 2) continue;
 
-      // Anything sitting inside a nested article belongs to a comment.
-      if (el.parentElement && el.parentElement.closest('div[role="article"]') !== article) {
-        var owner = el.closest('div[role="article"]');
-        if (owner && owner !== article) continue;
-      }
+      // Belt and braces: anything owned by a different article isn't ours.
+      if (el.closest('div[role="article"]') !== article) continue;
 
       best = text;
     }
     return best.slice(0, 5000);
   }
 
-  function extractEngagement(article) {
+  function extractEngagement(article, bar) {
     var result = { likes: 0, comments: 0, shares: 0, video_plays: 0 };
 
     // Facebook splits counts across text nodes and aria-labels inconsistently
@@ -252,15 +309,29 @@
     // visible text shows only an icon. Searching one combined haystack of
     // every aria-label plus the visible text catches all of those variants —
     // matching only innerText is why real captures came back as zeros.
+    //
+    // The haystack stops at the action bar. Below it are per-comment reaction
+    // counts, and reading those gave posts their top comment's numbers.
     var labels = [];
     var labelled = article.querySelectorAll("[aria-label]");
     for (var i = 0; i < labelled.length; i++) {
-      // Skip nested comment subtrees so their counts aren't read as the post's.
-      var owner = labelled[i].closest('div[role="article"]');
-      if (owner && owner !== article) continue;
-      labels.push(labelled[i].getAttribute("aria-label"));
+      var el = labelled[i];
+      if (el.closest('div[role="article"]') !== article) continue;
+      if (isBelowBar(el, bar)) continue;
+      labels.push(el.getAttribute("aria-label"));
     }
-    var haystack = labels.join("\n") + "\n" + (article.innerText || "");
+
+    var visible = article.innerText || "";
+    if (bar) {
+      // Trim visible text at the action bar too, using the bar's own label as
+      // the split point.
+      var barText = (bar.textContent || "").trim();
+      if (barText) {
+        var cut = visible.indexOf(barText);
+        if (cut > 0) visible = visible.slice(0, cut);
+      }
+    }
+    var haystack = labels.join("\n") + "\n" + visible;
 
     function firstMatch(patterns) {
       for (var p = 0; p < patterns.length; p++) {
@@ -368,15 +439,15 @@
     STATS.candidates = 0;
 
     articles.forEach(function (article) {
-      // Comments are role="article" too. A top-level post has no *ancestor*
-      // article — closest() on the element itself always matches, so the check
-      // has to start from the parent.
-      var parent = article.parentElement;
-      if (parent && parent.closest('div[role="article"]')) return;
+      // Comments carry role="article" as well, and are not reliably nested
+      // inside the post — so this has to be a positive test for post-ness,
+      // not merely a nesting check.
+      if (!looksLikePost(article)) { STATS.comments++; return; }
       STATS.candidates++;
 
+      var bar = findActionBar(article);
       var author = extractAuthor(article);
-      var body = extractBody(article, author.name);
+      var body = extractBody(article, author.name, bar);
       var permalink = extractPermalink(article);
       var postId = extractPostId(article, permalink, body, author.name);
 
@@ -390,7 +461,7 @@
       SEEN.add(postId);
       found++;
 
-      var engagement = extractEngagement(article);
+      var engagement = extractEngagement(article, bar);
       if (engagement.likes || engagement.comments || engagement.shares) {
         STATS.withEngagement++;
       }
@@ -788,7 +859,12 @@
     // localhost while reading a hosted dashboard and never see your posts.
     hudBody.appendChild(row("Sending to", endpointLabel || "…",
                             endpointLabel ? "#7fa693" : null));
-    hudBody.appendChild(row("Posts on page", String(STATS.candidates)));
+    var where = source ? (source.kind === "group" ? "in this group"
+                                                 : "on this profile") : "on page";
+    hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
+    if (STATS.comments) {
+      hudBody.appendChild(row("Comments ignored", String(STATS.comments)));
+    }
     hudBody.appendChild(row(
       "Captured this group",
       SEEN.size + " / " + maxPosts,
@@ -928,6 +1004,9 @@
   // Also what the offline fixture tests drive.
   window.__outlier = {
     detectSource: detectSource,
+    looksLikePost: looksLikePost,
+    findActionBar: findActionBar,
+    isBelowBar: isBelowBar,
     extractBody: extractBody,
     extractAuthor: extractAuthor,
     extractEngagement: extractEngagement,

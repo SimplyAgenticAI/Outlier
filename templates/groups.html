@@ -5,24 +5,31 @@
 <section class="feed-head">
   <div>
     <h1>Groups &amp; profiles</h1>
-    <p class="sub">Every source you've captured from. Baselines are calculated per source.</p>
+    <p class="sub">Everything you've captured from. Baselines are per source.</p>
   </div>
 </section>
 
 {% if sources %}
 <section class="source-grid">
   {% for source in sources %}
-  <a class="glass source-card reveal spotlight{{ ' is-demo' if source.is_demo }}"
-     href="{{ url_for('group_detail', source_id=source.id) }}">
+  {# A div, not a link — the card carries its own actions, and nesting
+     buttons inside an anchor makes them unreachable. #}
+  <div class="glass source-card reveal spotlight{{ ' is-demo' if source.is_demo }}"
+       data-source-id="{{ source.id }}">
+
     <div class="source-head">
       <span class="kind-chip">{{ source.kind }}</span>
       {% if source.is_demo %}
         <span class="demo-chip" title="Generated sample content">sample</span>
       {% elif source.engagement_pct < 60 and source.post_count %}
-        <span class="demo-chip" title="Most posts captured without engagement counts — rescan with the latest extension">{{ source.engagement_pct }}% read</span>
+        <span class="demo-chip"
+              title="Most posts captured without engagement counts — re-scan with the current extension">{{ source.engagement_pct }}% read</span>
       {% endif %}
     </div>
-    <h2>{{ source.name }}</h2>
+
+    <a class="source-title" href="{{ url_for('group_detail', source_id=source.id) }}">
+      {{ source.name }}
+    </a>
 
     {% if source.stats %}
       {% if source.stats.has_baseline %}
@@ -44,23 +51,44 @@
       <p class="needs-data">
         <b class="warn-tone">Not scored.</b>
         Median engagement is {{ source.stats.baseline | round | int }} — too low to
-        compare against. Usually means these posts were captured before the
-        extension could read engagement counts. Re-capture to fix.
+        compare against. Usually means these were captured before the extension
+        could read engagement. Re-scan to fix.
       </p>
       {% else %}
       <p class="needs-data">
-        {{ source.stats.post_count }} posts — needs at least 8 for a reliable baseline.
+        {{ source.stats.post_count }} posts — needs
+        {{ 8 - source.stats.post_count }} more for a baseline.
       </p>
       {% endif %}
     {% else %}
       <p class="needs-data">No posts captured yet.</p>
     {% endif %}
-  </a>
+
+    {% if source.last_capture %}
+    <div class="source-when">Last captured {{ source.last_capture[:16] }}</div>
+    {% endif %}
+
+    <div class="source-actions">
+      <a class="mini-btn" href="{{ url_for('group_detail', source_id=source.id) }}">Posts</a>
+      {% if source.stats and source.stats.has_baseline %}
+      <a class="mini-btn" href="{{ url_for('ideas_page', source_id=source.id) }}">Ideas</a>
+      {% endif %}
+      {% if source.url and not source.is_demo %}
+      {# Straight back to the group to run a fresh scan. #}
+      <a class="mini-btn accent-btn" href="{{ source.url }}"
+         target="_blank" rel="noopener noreferrer">Re-scan ↗</a>
+      {% endif %}
+      <button class="mini-btn danger delete-source"
+              data-source-id="{{ source.id }}"
+              data-source-name="{{ source.name }}">Delete</button>
+    </div>
+
+  </div>
   {% endfor %}
 </section>
 {% else %}
 <div class="glass empty-panel">
-  <p>No sources yet. Install the extension and scroll a Facebook group to start capturing.</p>
+  <p>No sources yet. Install the extension and scan a Facebook group to start.</p>
   <a class="btn btn-primary" href="{{ url_for('capture') }}">Get the extension</a>
 </div>
 {% endif %}

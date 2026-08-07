@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Outlier — Facebook capture",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Captures posts from Facebook groups and profiles you're viewing, and sends them to your Outlier dashboard for outlier analysis.",
   "permissions": ["storage", "activeTab", "alarms"],
   "host_permissions": [
