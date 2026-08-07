@@ -200,8 +200,21 @@ def has_any_posts():
 
 
 def clear_demo_data():
+    """Remove demo posts and any source left with nothing behind it.
+
+    Capture-log rows reference sources, so they have to go first or the source
+    delete trips the foreign key. Saved/remix rows hang off posts and cascade
+    on their own.
+    """
     with get_db() as conn:
         conn.execute("DELETE FROM posts WHERE is_demo = 1")
-        conn.execute(
-            "DELETE FROM sources WHERE id NOT IN (SELECT DISTINCT source_id FROM posts)"
-        )
+
+        orphans = [
+            r["id"] for r in conn.execute(
+                "SELECT id FROM sources WHERE id NOT IN "
+                "(SELECT DISTINCT source_id FROM posts WHERE source_id IS NOT NULL)"
+            ).fetchall()
+        ]
+        for source_id in orphans:
+            conn.execute("DELETE FROM captures WHERE source_id = ?", (source_id,))
+            conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))

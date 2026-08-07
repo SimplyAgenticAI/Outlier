@@ -9,16 +9,18 @@
     --text: #eafff3;
     --muted: #7fa693;
     --faint: #567a67;
+    --ember: #e07a5f;
+    --gold: #d9b45f;
     --border: rgba(110, 231, 183, 0.14);
   }
   * { box-sizing: border-box; }
   body {
-    width: 280px; margin: 0; padding: 18px;
+    width: 290px; margin: 0; padding: 18px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     background: linear-gradient(180deg, #08160f, #050b07);
     color: var(--text);
   }
-  .head { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; }
+  .head { display: flex; align-items: center; gap: 9px; margin-bottom: 15px; }
   .mark {
     width: 26px; height: 26px; border-radius: 8px;
     background: linear-gradient(140deg, #10301f, #06120c);
@@ -29,22 +31,36 @@
   .mark .out { fill: var(--emerald-bright); }
   .name { font-weight: 700; font-size: 15px; }
 
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
   .stat {
-    padding: 14px; border-radius: 11px; margin-bottom: 12px;
+    padding: 11px 12px; border-radius: 10px;
     background: rgba(16,40,27,0.5); border: 1px solid var(--border);
   }
-  .stat-val { font-size: 26px; font-weight: 750; color: var(--emerald-bright); }
-  .stat-lab { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+  .stat-val { font-size: 21px; font-weight: 750; color: var(--emerald-bright); }
+  .stat-lab { font-size: 10.5px; color: var(--faint); margin-top: 1px; }
+
+  .btn {
+    width: 100%; padding: 10px; margin-bottom: 8px;
+    border-radius: 9px; border: none; cursor: pointer;
+    font-weight: 650; font-size: 13px;
+    background: linear-gradient(135deg, #34d399, #10b981); color: #04150c;
+  }
+  .btn.stop { background: rgba(224,122,95,0.92); color: #fff; }
+  .btn.ghost {
+    background: transparent; color: var(--muted);
+    border: 1px solid var(--border); font-weight: 550;
+  }
+  .btn:disabled { opacity: 0.45; cursor: not-allowed; }
 
   .row {
     display: flex; align-items: center; justify-content: space-between;
-    padding: 10px 0; border-top: 1px solid var(--border); font-size: 13px;
+    padding: 9px 0; border-top: 1px solid var(--border); font-size: 12.5px;
   }
   .row-label { color: var(--muted); }
-  .status { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12px; }
   .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
   .dot.on { background: var(--emerald); box-shadow: 0 0 8px rgba(52,211,153,0.8); }
-  .dot.off { background: #e07a5f; }
+  .dot.off { background: var(--ember); }
 
   .switch { position: relative; width: 38px; height: 21px; }
   .switch input { opacity: 0; width: 0; height: 0; }
@@ -60,16 +76,17 @@
   input:checked + .slider::before { transform: translateX(17px); background: var(--emerald-bright); }
 
   input[type="text"] {
-    width: 100%; padding: 8px 10px; margin-top: 6px;
+    width: 100%; padding: 8px 10px; margin-top: 5px;
     border-radius: 8px; border: 1px solid var(--border);
     background: rgba(6,20,13,0.6); color: var(--text); font-size: 12px;
   }
-  .btn {
-    width: 100%; margin-top: 12px; padding: 9px;
-    border-radius: 9px; border: none; cursor: pointer;
-    background: linear-gradient(135deg, #34d399, #10b981);
-    color: #04150c; font-weight: 650; font-size: 13px;
-  }
+  .field-label { font-size: 11.5px; color: var(--muted); }
+
+  .msg { font-size: 11.5px; margin-top: 8px; min-height: 15px; color: var(--muted); }
+  .msg.ok { color: var(--emerald-bright); }
+  .msg.err { color: var(--ember); }
+  .msg.warn { color: var(--gold); }
+
   .link {
     display: block; text-align: center; margin-top: 10px;
     color: var(--muted); font-size: 12px; text-decoration: none;
@@ -90,10 +107,19 @@
   <span class="name">Outlier</span>
 </div>
 
-<div class="stat">
-  <div class="stat-val" id="total">0</div>
-  <div class="stat-lab">posts captured</div>
+<div class="stats">
+  <div class="stat">
+    <div class="stat-val" id="captured">0</div>
+    <div class="stat-lab">captured here</div>
+  </div>
+  <div class="stat">
+    <div class="stat-val" id="total">0</div>
+    <div class="stat-lab">total all-time</div>
+  </div>
 </div>
+
+<button class="btn" id="start-btn">Start auto-scroll</button>
+<button class="btn ghost" id="scan-btn">Scan visible posts</button>
 
 <div class="row">
   <span class="row-label">Capturing</span>
@@ -108,12 +134,14 @@
   <span class="status"><span class="dot" id="dot"></span><span id="status-text">checking…</span></span>
 </div>
 
-<div style="margin-top:12px">
-  <span class="row-label" style="font-size:12px">Dashboard URL</span>
+<div style="margin-top:10px">
+  <span class="field-label">Dashboard URL</span>
   <input type="text" id="endpoint" placeholder="http://localhost:5050">
 </div>
 
-<button class="btn" id="save-endpoint">Save &amp; test</button>
+<button class="btn ghost" id="save-endpoint" style="margin-top:8px">Save &amp; test</button>
+<div class="msg" id="msg"></div>
+
 <a class="link" id="open-dashboard" href="#" target="_blank">Open dashboard →</a>
 
 <script src="popup.js"></script>
