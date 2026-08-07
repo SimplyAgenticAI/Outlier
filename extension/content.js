@@ -23,11 +23,19 @@
   var STATS = {
     articles: 0,     // role="article" nodes on the page
     candidates: 0,   // top-level ones (comments excluded)
+    skipped: 0,      // rejected as shells / author-name-only
     queued: 0,
     sent: 0,
     added: 0,
-    lastError: null
+    withEngagement: 0,   // how many carried a real reaction count
+    lastError: null,
+    log: []
   };
+
+  function logLine(text) {
+    STATS.log.unshift(new Date().toLocaleTimeString().slice(0, 8) + "  " + text);
+    if (STATS.log.length > 40) STATS.log.pop();
+  }
 
   /* ------------------------------------------------------ number parsing */
 
@@ -48,18 +56,38 @@
 
   /* ------------------------------------------------------ source identity */
 
+  // Facebook renders several <h1>s (nav landmarks like "Notifications" among
+  // them), so reading the first one names every group the same thing. The
+  // document title is the reliable source: "Frequency Healing | Facebook".
+  function nameFromTitle(fallback) {
+    var title = (document.title || "").replace(/\s*\|\s*Facebook\s*$/i, "").trim();
+    var junk = ["", "Facebook", "Notifications", "Home", "Watch", "Marketplace", "Groups"];
+    if (title && junk.indexOf(title) === -1) return title.slice(0, 120);
+    return fallback;
+  }
+
   function detectSource() {
     var url = location.href;
 
     var groupMatch = url.match(/\/groups\/([^/?#]+)/);
     if (groupMatch && groupMatch[1] !== "feed") {
-      var heading = document.querySelector('[role="main"] h1, h1');
+      var slug = groupMatch[1];
+      var name = nameFromTitle(null);
+
+      // Second try: the group's own header link back to itself carries its name.
+      if (!name) {
+        var selfLink = document.querySelector('a[href*="/groups/' + slug + '"]');
+        if (selfLink) {
+          var text = (selfLink.textContent || "").trim();
+          if (text && text.length < 120) name = text;
+        }
+      }
+
       return {
-        fb_id: "group:" + groupMatch[1],
+        fb_id: "group:" + slug,
         kind: "group",
-        name: heading ? heading.textContent.trim().slice(0, 120)
-                      : "Facebook group " + groupMatch[1],
-        url: location.origin + "/groups/" + groupMatch[1]
+        name: name || ("Facebook group " + slug),
+        url: location.origin + "/groups/" + slug
       };
     }
 
@@ -67,11 +95,10 @@
                     "events", "notifications", "messages", "profile.php", ""];
     var profileMatch = url.match(/facebook\.com\/([^/?#]*)/);
     if (profileMatch && reserved.indexOf(profileMatch[1]) === -1) {
-      var title = document.querySelector('[role="main"] h1, h1');
       return {
         fb_id: "profile:" + profileMatch[1],
         kind: "profile",
-        name: title ? title.textContent.trim().slice(0, 120) : profileMatch[1],
+        name: nameFromTitle(profileMatch[1]),
         url: location.origin + "/" + profileMatch[1]
       };
     }
@@ -130,53 +157,98 @@
     return { name: "Unknown", url: null };
   }
 
-  function extractBody(article) {
-    // Post copy sits in a dir="auto" block, but so do the header, the
-    // engagement row, and each comment. Take the longest block that isn't
-    // obviously chrome.
+  var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
+
+  function extractBody(article, authorName) {
+    // Post copy sits in a dir="auto" block — but so does the header (author
+    // name), the engagement row, the comment composer, and every comment.
+    // Taking the plain longest block is how an author name ends up saved as
+    // the post body, so filter the known non-body shapes first.
     var blocks = article.querySelectorAll('div[dir="auto"], span[dir="auto"]');
-    var longest = "";
+    var best = "";
+
     for (var i = 0; i < blocks.length; i++) {
-      var text = blocks[i].innerText ? blocks[i].innerText.trim() : "";
-      if (text.length <= longest.length) continue;
-      if (/^(like|comment|share|reply|see more|all reactions)$/i.test(text)) continue;
-      longest = text;
+      var el = blocks[i];
+      var text = el.innerText ? el.innerText.trim() : "";
+      if (!text || text.length <= best.length) continue;
+      if (CHROME_RE.test(text)) continue;
+
+      // The header block is just the author's name, sometimes with a timestamp.
+      if (authorName && text.replace(/\s+/g, " ") === authorName) continue;
+      if (authorName && text.indexOf(authorName) === 0 && text.length < authorName.length + 25) continue;
+
+      // A block whose text is entirely a link is navigation, not post copy.
+      var link = el.querySelector('a[role="link"]');
+      if (link && (link.innerText || "").trim().length >= text.length - 2) continue;
+
+      // Anything sitting inside a nested article belongs to a comment.
+      if (el.parentElement && el.parentElement.closest('div[role="article"]') !== article) {
+        var owner = el.closest('div[role="article"]');
+        if (owner && owner !== article) continue;
+      }
+
+      best = text;
     }
-    return longest.slice(0, 5000);
+    return best.slice(0, 5000);
   }
 
   function extractEngagement(article) {
     var result = { likes: 0, comments: 0, shares: 0, video_plays: 0 };
-    var text = article.innerText || "";
 
-    // Strategy 1 — the reaction bar exposes a total on its aria-label.
-    var reactionEl = article.querySelector(
-      '[aria-label*="reaction" i], [aria-label*="Like:" i], [aria-label*="reacted" i]'
-    );
-    if (reactionEl) {
-      result.likes = parseCount(reactionEl.getAttribute("aria-label"));
+    // Facebook splits counts across text nodes and aria-labels inconsistently
+    // between layouts, and often puts the number in an aria-label while the
+    // visible text shows only an icon. Searching one combined haystack of
+    // every aria-label plus the visible text catches all of those variants —
+    // matching only innerText is why real captures came back as zeros.
+    var labels = [];
+    var labelled = article.querySelectorAll("[aria-label]");
+    for (var i = 0; i < labelled.length; i++) {
+      // Skip nested comment subtrees so their counts aren't read as the post's.
+      var owner = labelled[i].closest('div[role="article"]');
+      if (owner && owner !== article) continue;
+      labels.push(labelled[i].getAttribute("aria-label"));
+    }
+    var haystack = labels.join("\n") + "\n" + (article.innerText || "");
+
+    function firstMatch(patterns) {
+      for (var p = 0; p < patterns.length; p++) {
+        var m = haystack.match(patterns[p]);
+        if (m) {
+          var n = parseCount(m[1]);
+          if (n) return n;
+        }
+      }
+      return 0;
     }
 
-    // Strategy 2 — the bare count rendered beside the reaction icons.
-    if (!result.likes) {
-      var reactionRow = article.querySelector('[aria-label*="See who reacted" i]');
-      if (reactionRow) result.likes = parseCount(reactionRow.textContent);
-    }
+    result.likes = firstMatch([
+      /([\d][\d.,]*\s*[KMB]?)\s*(?:people\s+)?reacted/i,
+      /(?:Like|reaction)s?:?\s*([\d][\d.,]*\s*[KMB]?)/i,
+      /([\d][\d.,]*\s*[KMB]?)\s+reactions?/i,
+      /See who reacted[^\d]*([\d][\d.,]*\s*[KMB]?)/i,
+      /([\d][\d.,]*\s*[KMB]?)\s+likes?\b/i
+    ]);
 
-    // Strategy 3 — a standalone number on its own line above the action row.
+    result.comments = firstMatch([
+      /([\d][\d.,]*\s*[KMB]?)\s+comments?/i,
+      /comments?:?\s*([\d][\d.,]*\s*[KMB]?)/i
+    ]);
+
+    result.shares = firstMatch([
+      /([\d][\d.,]*\s*[KMB]?)\s+shares?/i,
+      /shares?:?\s*([\d][\d.,]*\s*[KMB]?)/i
+    ]);
+
+    result.video_plays = firstMatch([
+      /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
+    ]);
+
+    // Last resort for reactions: a bare number sitting alone on its own line
+    // just above the Like/Comment/Share row.
     if (!result.likes) {
-      var loose = text.match(/(?:^|\n)\s*([\d][\d.,]*[KMB]?)\s*(?:\n|$)/);
+      var loose = (article.innerText || "").match(/(?:^|\n)\s*([\d][\d.,]*\s*[KMB]?)\s*\n(?=[\s\S]{0,80}(?:Like|Comment|Share))/i);
       if (loose) result.likes = parseCount(loose[1]);
     }
-
-    var commentMatch = text.match(/([\d][\d.,]*\s*[KMB]?)\s+comments?/i);
-    if (commentMatch) result.comments = parseCount(commentMatch[1]);
-
-    var shareMatch = text.match(/([\d][\d.,]*\s*[KMB]?)\s+shares?/i);
-    if (shareMatch) result.shares = parseCount(shareMatch[1]);
-
-    var playMatch = text.match(/([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i);
-    if (playMatch) result.video_plays = parseCount(playMatch[1]);
 
     return result;
   }
@@ -245,18 +317,27 @@
       if (parent && parent.closest('div[role="article"]')) return;
       STATS.candidates++;
 
-      var body = extractBody(article);
       var author = extractAuthor(article);
+      var body = extractBody(article, author.name);
       var permalink = extractPermalink(article);
       var postId = extractPostId(article, permalink, body, author.name);
 
       if (!postId || SEEN.has(postId)) return;
-      if (!body || body.length < 12) return;
+
+      // Reject shells: no text, or "text" that is just the author's name
+      // echoed out of the header.
+      if (!body || body.length < 12) { STATS.skipped++; return; }
+      if (body.replace(/\s+/g, " ") === author.name) { STATS.skipped++; return; }
 
       SEEN.add(postId);
       found++;
 
       var engagement = extractEngagement(article);
+      if (engagement.likes || engagement.comments || engagement.shares) {
+        STATS.withEngagement++;
+      }
+      logLine(engagement.likes + "r " + engagement.comments + "c " +
+              engagement.shares + "s  " + body.slice(0, 34));
 
       QUEUE.push({
         fb_post_id: source.fb_id + "-" + postId,
@@ -305,6 +386,7 @@
         STATS.sent += batch.length;
         STATS.added += response.new || 0;
         STATS.lastError = null;
+        logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
         renderHud();
       }
     );
@@ -361,67 +443,197 @@
     Object.keys(styles).forEach(function (key) { el.style[key] = styles[key]; });
   }
 
+  var hudLog, hudEndpoint;
+
+  function loadHudBox() {
+    try {
+      var saved = JSON.parse(localStorage.getItem("outlierHud") || "{}");
+      return {
+        width: saved.width || 380,
+        height: saved.height || 460,
+        right: saved.right !== undefined ? saved.right : 20,
+        bottom: saved.bottom !== undefined ? saved.bottom : 20
+      };
+    } catch (e) {
+      return { width: 380, height: 460, right: 20, bottom: 20 };
+    }
+  }
+
+  function saveHudBox() {
+    try {
+      localStorage.setItem("outlierHud", JSON.stringify({
+        width: parseInt(hud.style.width, 10),
+        height: parseInt(hud.style.height, 10),
+        right: parseInt(hud.style.right, 10),
+        bottom: parseInt(hud.style.bottom, 10)
+      }));
+    } catch (e) { /* private mode — position just won't persist */ }
+  }
+
   function buildHud() {
+    var box = loadHudBox();
+
     hud = document.createElement("div");
     styleEl(hud, {
-      position: "fixed", bottom: "18px", right: "18px", zIndex: "2147483647",
-      width: "232px", padding: "13px 15px", borderRadius: "13px",
-      background: "rgba(8, 22, 15, 0.94)", border: "1px solid rgba(110,231,183,0.28)",
-      boxShadow: "0 10px 34px rgba(0,0,0,0.5)", color: "#eafff3",
+      position: "fixed",
+      bottom: box.bottom + "px", right: box.right + "px",
+      width: box.width + "px", height: box.height + "px",
+      minWidth: "300px", minHeight: "240px",
+      zIndex: "2147483647",
+      display: "flex", flexDirection: "column",
+      padding: "0", borderRadius: "14px", overflow: "hidden",
+      background: "rgba(7, 20, 13, 0.97)",
+      border: "1px solid rgba(110,231,183,0.32)",
+      boxShadow: "0 16px 48px rgba(0,0,0,0.6)", color: "#eafff3",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      fontSize: "12px", lineHeight: "1.5", backdropFilter: "blur(10px)"
+      fontSize: "14px", lineHeight: "1.5",
+      resize: "both"   // native corner grip
     });
 
+    /* --- draggable header --- */
     var header = document.createElement("div");
     styleEl(header, {
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      marginBottom: "9px"
+      padding: "12px 15px", cursor: "move", flexShrink: "0",
+      background: "rgba(16,40,27,0.75)",
+      borderBottom: "1px solid rgba(110,231,183,0.18)"
     });
 
     var title = document.createElement("span");
     title.textContent = "Outlier";
-    styleEl(title, { fontWeight: "700", fontSize: "13px", letterSpacing: "-0.2px" });
+    styleEl(title, { fontWeight: "700", fontSize: "16px", letterSpacing: "-0.2px" });
+
+    var controls = document.createElement("span");
+    styleEl(controls, { display: "flex", gap: "12px", alignItems: "center" });
+
+    var collapse = document.createElement("span");
+    collapse.textContent = "–";
+    collapse.title = "Collapse";
+    styleEl(collapse, { cursor: "pointer", opacity: "0.6", fontSize: "20px", lineHeight: "1" });
 
     var close = document.createElement("span");
     close.textContent = "×";
-    close.title = "Hide";
-    styleEl(close, { cursor: "pointer", opacity: "0.5", fontSize: "16px", lineHeight: "1" });
+    close.title = "Hide until reload";
+    styleEl(close, { cursor: "pointer", opacity: "0.6", fontSize: "20px", lineHeight: "1" });
     close.addEventListener("click", function () { hud.style.display = "none"; });
 
+    controls.appendChild(collapse);
+    controls.appendChild(close);
     header.appendChild(title);
-    header.appendChild(close);
+    header.appendChild(controls);
 
+    var content = document.createElement("div");
+    styleEl(content, {
+      display: "flex", flexDirection: "column", flex: "1",
+      padding: "14px 15px", overflow: "hidden", minHeight: "0"
+    });
+
+    collapse.addEventListener("click", function () {
+      var hidden = content.style.display === "none";
+      content.style.display = hidden ? "flex" : "none";
+      hud.style.height = hidden ? loadHudBox().height + "px" : "auto";
+      collapse.textContent = hidden ? "–" : "+";
+    });
+
+    // Drag by the header. Position is kept in right/bottom so the panel stays
+    // anchored the same way it was authored.
+    var dragging = false, startX, startY, startRight, startBottom;
+    header.addEventListener("mousedown", function (event) {
+      if (event.target === close || event.target === collapse) return;
+      dragging = true;
+      startX = event.clientX; startY = event.clientY;
+      startRight = parseInt(hud.style.right, 10);
+      startBottom = parseInt(hud.style.bottom, 10);
+      event.preventDefault();
+    });
+    document.addEventListener("mousemove", function (event) {
+      if (!dragging) return;
+      hud.style.right = Math.max(0, startRight - (event.clientX - startX)) + "px";
+      hud.style.bottom = Math.max(0, startBottom - (event.clientY - startY)) + "px";
+    });
+    document.addEventListener("mouseup", function () {
+      if (!dragging) return;
+      dragging = false;
+      saveHudBox();
+    });
+    new ResizeObserver(function () { saveHudBox(); }).observe(hud);
+
+    /* --- stat rows --- */
     hudBody = document.createElement("div");
+    styleEl(hudBody, { flexShrink: "0" });
 
+    /* --- live log --- */
+    var logLabel = document.createElement("div");
+    logLabel.textContent = "Recent posts (reactions / comments / shares)";
+    styleEl(logLabel, {
+      fontSize: "11.5px", color: "#567a67", margin: "12px 0 6px", flexShrink: "0"
+    });
+
+    hudLog = document.createElement("div");
+    styleEl(hudLog, {
+      flex: "1", minHeight: "60px", overflowY: "auto",
+      padding: "8px 10px", borderRadius: "9px",
+      background: "rgba(4,14,9,0.7)", border: "1px solid rgba(110,231,183,0.14)",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+      fontSize: "11.5px", lineHeight: "1.65", color: "#7fa693",
+      whiteSpace: "pre", scrollbarWidth: "thin"
+    });
+
+    /* --- buttons --- */
     hudBtn = document.createElement("button");
     styleEl(hudBtn, {
-      width: "100%", marginTop: "10px", padding: "8px", borderRadius: "8px",
-      border: "none", cursor: "pointer", fontWeight: "650", fontSize: "12.5px"
+      width: "100%", marginTop: "12px", padding: "11px", borderRadius: "9px",
+      border: "none", cursor: "pointer", fontWeight: "700", fontSize: "14px",
+      flexShrink: "0"
     });
     hudBtn.addEventListener("click", function () {
       if (autoScrolling) stopAutoScroll("Stopped");
       else startAutoScroll();
     });
 
+    var rowBtns = document.createElement("div");
+    styleEl(rowBtns, { display: "flex", gap: "7px", marginTop: "7px", flexShrink: "0" });
+
     var manual = document.createElement("button");
-    manual.textContent = "Scan visible posts";
-    styleEl(manual, {
-      width: "100%", marginTop: "6px", padding: "7px", borderRadius: "8px",
-      border: "1px solid rgba(110,231,183,0.22)", cursor: "pointer",
-      background: "transparent", color: "#7fa693", fontSize: "12px"
+    manual.textContent = "Scan visible";
+    var dash = document.createElement("button");
+    dash.textContent = "Open dashboard";
+
+    [manual, dash].forEach(function (button) {
+      styleEl(button, {
+        flex: "1", padding: "9px", borderRadius: "8px",
+        border: "1px solid rgba(110,231,183,0.24)", cursor: "pointer",
+        background: "transparent", color: "#7fa693", fontSize: "12.5px"
+      });
     });
+
     manual.addEventListener("click", function () { scanPosts(); flush(); });
+    dash.addEventListener("click", function () {
+      chrome.storage.local.get(["endpoint"], function (state) {
+        window.open(state.endpoint || "http://localhost:5050", "_blank");
+      });
+    });
+
+    rowBtns.appendChild(manual);
+    rowBtns.appendChild(dash);
+
+    content.appendChild(hudBody);
+    content.appendChild(logLabel);
+    content.appendChild(hudLog);
+    content.appendChild(hudBtn);
+    content.appendChild(rowBtns);
 
     hud.appendChild(header);
-    hud.appendChild(hudBody);
-    hud.appendChild(hudBtn);
-    hud.appendChild(manual);
+    hud.appendChild(content);
     document.body.appendChild(hud);
   }
 
   function row(label, value, accent) {
     var line = document.createElement("div");
-    styleEl(line, { display: "flex", justifyContent: "space-between" });
+    styleEl(line, {
+      display: "flex", justifyContent: "space-between",
+      padding: "3px 0", fontSize: "13.5px"
+    });
 
     var l = document.createElement("span");
     l.textContent = label;
@@ -429,7 +641,7 @@
 
     var v = document.createElement("span");
     v.textContent = value;
-    styleEl(v, { color: accent || "#eafff3", fontWeight: "620" });
+    styleEl(v, { color: accent || "#eafff3", fontWeight: "700" });
 
     line.appendChild(l);
     line.appendChild(v);
@@ -441,32 +653,54 @@
     hudBody.textContent = "";
 
     var source = detectSource();
-    hudBody.appendChild(row("Page", source ? source.kind : "unsupported",
-                            source ? "#6ee7b7" : "#e07a5f"));
+    hudBody.appendChild(row(
+      source ? (source.kind === "group" ? "Group" : "Profile") : "Page",
+      source ? source.name.slice(0, 24) : "unsupported",
+      source ? "#6ee7b7" : "#e07a5f"
+    ));
     hudBody.appendChild(row("Posts on page", String(STATS.candidates)));
-    hudBody.appendChild(row("Captured", String(STATS.sent)));
-    hudBody.appendChild(row("New in dashboard", String(STATS.added), "#6ee7b7"));
+    hudBody.appendChild(row("Sent to dashboard", String(STATS.sent)));
+    hudBody.appendChild(row("New (not duplicates)", String(STATS.added), "#6ee7b7"));
+
+    // Engagement coverage is the number that matters: posts land with zeroed
+    // counts when the reaction selectors drift, and outlier scoring is
+    // meaningless without them. Surfacing the ratio makes that visible
+    // immediately rather than after a hundred useless captures.
+    var coverage = STATS.sent ? Math.round(STATS.withEngagement / STATS.sent * 100) : 0;
+    hudBody.appendChild(row(
+      "With engagement", STATS.sent ? coverage + "%" : "—",
+      coverage >= 60 ? "#6ee7b7" : (STATS.sent ? "#d9b45f" : "#7fa693")
+    ));
+
+    if (STATS.skipped) hudBody.appendChild(row("Skipped (no text)", String(STATS.skipped)));
     if (STATS.queued) hudBody.appendChild(row("Queued", String(STATS.queued)));
 
-    // When articles are present but none qualify, the extractors have drifted —
-    // surface that rather than showing a silent zero.
     if (STATS.articles > 0 && STATS.candidates === 0) {
       hudBody.appendChild(row("⚠ selectors", "drifted", "#d9b45f"));
+    }
+    if (STATS.sent >= 10 && coverage < 30) {
+      hudBody.appendChild(row("⚠ engagement", "not reading", "#d9b45f"));
     }
 
     if (STATS.lastError) {
       var err = document.createElement("div");
       err.textContent = STATS.lastError;
       styleEl(err, {
-        marginTop: "7px", paddingTop: "7px", fontSize: "11px", color: "#d9b45f",
-        borderTop: "1px solid rgba(110,231,183,0.14)"
+        marginTop: "9px", padding: "8px 10px", fontSize: "12.5px",
+        color: "#f0c274", borderRadius: "8px",
+        background: "rgba(217,180,95,0.12)",
+        border: "1px solid rgba(217,180,95,0.3)"
       });
       hudBody.appendChild(err);
     }
 
+    hudLog.textContent = STATS.log.length
+      ? STATS.log.join("\n")
+      : "Nothing captured yet.\nPress Start auto-scroll.";
+
     hudBtn.textContent = autoScrolling ? "Stop auto-scroll" : "Start auto-scroll";
     hudBtn.style.background = autoScrolling
-      ? "rgba(224,122,95,0.9)" : "linear-gradient(135deg, #34d399, #10b981)";
+      ? "rgba(224,122,95,0.92)" : "linear-gradient(135deg, #34d399, #10b981)";
     hudBtn.style.color = autoScrolling ? "#fff" : "#04150c";
   }
 

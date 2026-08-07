@@ -144,6 +144,19 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
+  var resetAll = document.getElementById("reset-all");
+  if (resetAll) {
+    resetAll.addEventListener("click", function () {
+      // Destructive and unrecoverable — confirm before firing.
+      if (!window.confirm("Delete every captured post, group, and saved item?\n\nThis cannot be undone.")) return;
+      toast("Deleting everything…");
+      fetch("/api/reset", { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function () { window.location.href = "/"; })
+        .catch(function () { toast("Reset failed", true); });
+    });
+  }
+
   /* ------------------------------------------------------------ remix */
 
   var remixBtn = document.getElementById("remix-btn");

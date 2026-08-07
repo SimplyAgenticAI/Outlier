@@ -12,7 +12,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "0.5"
+APP_VERSION = "0.6"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -25,6 +25,12 @@ def add_cors_headers(response):
         response.headers["Access-Control-Allow-Origin"] = "*"
         response.headers["Access-Control-Allow-Headers"] = "Content-Type"
         response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
+
+    # Pages reflect a database that changes while the tab sits open. Without
+    # this the browser serves a cached copy and newly captured posts appear
+    # to have vanished.
+    if response.mimetype == "text/html":
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
 
 
@@ -326,6 +332,24 @@ def api_demo():
 
     count = seed_demo_data()
     return jsonify({"ok": True, "seeded": count})
+
+
+@app.route("/api/reset", methods=["POST"])
+def api_reset():
+    """Wipe every captured post, keeping nothing but an empty schema.
+
+    Needed when a capture ran with broken extractors: those posts carry zeroed
+    engagement and wrong source names, which poisons every baseline they touch.
+    Re-capturing is the only fix, and that has to start from clean.
+    """
+    with db.get_db() as conn:
+        conn.execute("DELETE FROM remixes")
+        conn.execute("DELETE FROM saved")
+        conn.execute("DELETE FROM posts")
+        conn.execute("DELETE FROM captures")
+        conn.execute("DELETE FROM sources")
+        conn.execute("DELETE FROM authors")
+    return jsonify({"ok": True, "reset": True})
 
 
 @app.route("/api/export/<fmt>")
