@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Outlier — Capture{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div>
+    <h1>Capture</h1>
+    <p class="sub">The extension is the only way posts get in. Here's how to set it up.</p>
+  </div>
+</section>
+
+<section class="capture-grid">
+
+  <div class="glass install-panel reveal">
+    <h2>Install the extension</h2>
+    <ol class="steps">
+      <li>
+        <span class="step-n">1</span>
+        <div>
+          <b>Download the extension</b>
+          <p>An unpacked Chrome extension, zipped.</p>
+          <a class="btn btn-primary" href="{{ url_for('download_extension') }}">Download .zip</a>
+        </div>
+      </li>
+      <li>
+        <span class="step-n">2</span>
+        <div>
+          <b>Unzip it somewhere permanent</b>
+          <p>Chrome loads it from disk, so don't unzip into Downloads and clear it later.</p>
+        </div>
+      </li>
+      <li>
+        <span class="step-n">3</span>
+        <div>
+          <b>Load it in Chrome</b>
+          <p>Go to <code>chrome://extensions</code>, turn on <b>Developer mode</b>
+             (top right), click <b>Load unpacked</b>, and pick the unzipped folder.</p>
+        </div>
+      </li>
+      <li>
+        <span class="step-n">4</span>
+        <div>
+          <b>Open a Facebook group and scroll</b>
+          <p>Posts are captured as they render. The extension badge shows the running count.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="endpoint-box">
+      <span class="endpoint-label">Dashboard endpoint (already set in the extension)</span>
+      <code id="endpoint-url">{{ request.url_root }}api/capture</code>
+      <button class="copy-btn" data-copy-target="endpoint-url">Copy</button>
+    </div>
+  </div>
+
+  <div class="glass side-panel reveal">
+    <h2>How scoring works</h2>
+    <p>
+      Every post is compared to the <b>median post in its own group</b>, not to
+      posts everywhere. That's the difference between "this got a lot of likes"
+      and "this broke out."
+    </p>
+    <ul class="scoring-list">
+      <li><span class="tier-dot tier-breakout"></span><b>Breakout</b> — 5× the group median or more</li>
+      <li><span class="tier-dot tier-strong"></span><b>Strong outlier</b> — 3× to 5×</li>
+      <li><span class="tier-dot tier-above"></span><b>Above baseline</b> — 1.5× to 3×</li>
+      <li><span class="tier-dot tier-typical"></span><b>Typical</b> — around the median</li>
+    </ul>
+    <p class="fine">
+      Engagement is weighted: shares count 5×, comments 3×, reactions 1× —
+      shares put a post in front of a new audience, so they signal reach best.
+      A source needs 8+ posts before it gets scored at all.
+    </p>
+
+    <h2 class="mt">Sample data</h2>
+    <p>Load a labelled demo set to see the interface populated, then wipe it.</p>
+    <div class="demo-actions">
+      <button class="btn btn-ghost" id="load-demo">Load sample data</button>
+      <button class="btn btn-ghost danger" id="clear-demo">Clear sample data</button>
+    </div>
+
+    <h2 class="mt">Worth knowing</h2>
+    <p class="fine">
+      The extension reads posts already rendered in your own logged-in browser —
+      it doesn't use the Facebook API (no API exposes group engagement) and
+      doesn't log in for you. Automated collection is against Facebook's terms
+      of service, which matters if you later want to publish this on the Chrome
+      Web Store. For internal research use, it stays on your machine.
+    </p>
+  </div>
+
+</section>
+
+{% if recent_captures %}
+<section class="glass capture-log reveal">
+  <h2>Recent captures</h2>
+  <table>
+    <thead><tr><th>When</th><th>Source</th><th>Seen</th><th>New</th></tr></thead>
+    <tbody>
+      {% for capture in recent_captures %}
+      <tr>
+        <td>{{ capture.created_at }}</td>
+        <td>{{ capture.source_name or '—' }}</td>
+        <td>{{ capture.post_count }}</td>
+        <td class="accent">+{{ capture.new_count }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+{% endif %}
+
+{% endblock %}

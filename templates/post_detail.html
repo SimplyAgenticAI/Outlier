@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Outlier — {{ post.outlier_multiple }}× post{% endblock %}
+
+{% block content %}
+<a class="back-link" href="{{ url_for('feed') }}">← Back to feed</a>
+
+<section class="detail-grid">
+
+  <div class="glass detail-post reveal">
+    <div class="detail-head">
+      <div class="post-badge big tier-{{ post.tier }}">
+        <span class="multiple" data-countup="{{ post.outlier_multiple }}">{{ post.outlier_multiple }}</span><span class="times">×</span>
+        <span class="badge-label">{{ tier_labels[post.tier] }}</span>
+      </div>
+      <div>
+        <div class="detail-author">{{ post.author_name }}</div>
+        <a class="detail-source" href="{{ url_for('group_detail', source_id=post.source_id) }}">
+          {{ post.source_name }}
+        </a>
+      </div>
+    </div>
+
+    <p class="detail-body">{{ post.body }}</p>
+
+    <div class="detail-stats">
+      <div><span class="d-val">{{ "{:,}".format(post.likes) }}</span><span class="d-lab">reactions</span></div>
+      <div><span class="d-val">{{ "{:,}".format(post.comments) }}</span><span class="d-lab">comments</span></div>
+      <div><span class="d-val">{{ "{:,}".format(post.shares) }}</span><span class="d-lab">shares</span></div>
+      <div><span class="d-val">{{ post.baseline | round | int }}</span><span class="d-lab">group median</span></div>
+    </div>
+
+    {% if post.permalink %}
+    <a class="btn btn-ghost" href="{{ post.permalink }}" target="_blank" rel="noopener noreferrer">
+      Open on Facebook
+    </a>
+    {% endif %}
+  </div>
+
+  <div class="glass remix-panel reveal">
+    <h2>Remix this post</h2>
+    <p class="sub">
+      Generate new posts that reuse what made this one work — same mechanic,
+      entirely new material.
+    </p>
+
+    {% if not remix_ready %}
+    <div class="notice inline">
+      Remixing needs an <code>ANTHROPIC_API_KEY</code> in the environment.
+      Add it and restart to enable this.
+    </div>
+    {% else %}
+    <div class="angle-picker">
+      {% for key, description in angles.items() %}
+      <label class="angle">
+        <input type="checkbox" name="angle" value="{{ key }}" {{ 'checked' if loop.index <= 3 }}>
+        <span class="angle-name">{{ key.replace('_', ' ') }}</span>
+        <span class="angle-desc">{{ description }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <button class="btn btn-primary" id="remix-btn" data-post-id="{{ post.id }}">
+      Generate variants
+    </button>
+    <div class="remix-status" id="remix-status"></div>
+    {% endif %}
+
+    <div id="remix-output">
+      {% for row in remixes %}
+        {% if row.parsed %}
+        <div class="remix-result">
+          <p class="why"><b>Why it worked:</b> {{ row.parsed.why_it_worked }}</p>
+          {% for variant in row.parsed.variants %}
+          <div class="variant">
+            <div class="variant-head">
+              <span class="variant-angle">{{ variant.angle }}</span>
+              <button class="copy-btn" data-copy-target="v{{ loop.index }}-{{ row.id }}">Copy</button>
+            </div>
+            <p class="variant-body" id="v{{ loop.index }}-{{ row.id }}">{{ variant.body }}</p>
+          </div>
+          {% endfor %}
+        </div>
+        {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+</section>
+{% endblock %}

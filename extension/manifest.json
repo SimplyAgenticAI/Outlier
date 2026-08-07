@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Outlier — Facebook capture",
+  "version": "0.4.0",
+  "description": "Captures posts from Facebook groups and profiles you're viewing, and sends them to your Outlier dashboard for outlier analysis.",
+  "permissions": ["storage"],
+  "host_permissions": [
+    "http://localhost:5050/*",
+    "http://127.0.0.1:5050/*",
+    "https://*.facebook.com/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://www.facebook.com/*", "https://web.facebook.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Outlier"
+  }
+}

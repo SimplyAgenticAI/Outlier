@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Outlier — Groups{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div>
+    <h1>Groups &amp; profiles</h1>
+    <p class="sub">Every source you've captured from. Baselines are calculated per source.</p>
+  </div>
+</section>
+
+{% if sources %}
+<section class="source-grid">
+  {% for source in sources %}
+  <a class="glass source-card reveal" href="{{ url_for('group_detail', source_id=source.id) }}">
+    <div class="source-head">
+      <span class="kind-chip">{{ source.kind }}</span>
+      {% if source.member_count %}
+      <span class="member-count">{{ "{:,}".format(source.member_count) }} members</span>
+      {% endif %}
+    </div>
+    <h2>{{ source.name }}</h2>
+
+    {% if source.stats %}
+      {% if source.stats.has_baseline %}
+      <div class="source-stats">
+        <div>
+          <span class="s-val" data-countup="{{ source.stats.post_count }}">{{ source.stats.post_count }}</span>
+          <span class="s-lab">posts</span>
+        </div>
+        <div>
+          <span class="s-val accent" data-countup="{{ source.stats.outlier_count }}">{{ source.stats.outlier_count }}</span>
+          <span class="s-lab">outliers</span>
+        </div>
+        <div>
+          <span class="s-val" data-countup="{{ source.stats.top_multiple }}">{{ source.stats.top_multiple }}</span><span class="s-unit">×</span>
+          <span class="s-lab">best</span>
+        </div>
+      </div>
+      {% else %}
+      <p class="needs-data">
+        {{ source.stats.post_count }} posts — needs at least 8 for a reliable baseline.
+      </p>
+      {% endif %}
+    {% else %}
+      <p class="needs-data">No posts captured yet.</p>
+    {% endif %}
+  </a>
+  {% endfor %}
+</section>
+{% else %}
+<div class="glass empty-panel">
+  <p>No sources yet. Install the extension and scroll a Facebook group to start capturing.</p>
+  <a class="btn btn-primary" href="{{ url_for('capture') }}">Get the extension</a>
+</div>
+{% endif %}
+
+{% endblock %}

@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<style>
+  :root {
+    --emerald: #34d399;
+    --emerald-bright: #6ee7b7;
+    --text: #eafff3;
+    --muted: #7fa693;
+    --faint: #567a67;
+    --border: rgba(110, 231, 183, 0.14);
+  }
+  * { box-sizing: border-box; }
+  body {
+    width: 280px; margin: 0; padding: 18px;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: linear-gradient(180deg, #08160f, #050b07);
+    color: var(--text);
+  }
+  .head { display: flex; align-items: center; gap: 9px; margin-bottom: 16px; }
+  .mark {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: linear-gradient(140deg, #10301f, #06120c);
+    border: 1px solid rgba(110,231,183,0.3);
+    display: grid; place-items: center;
+  }
+  .mark svg { width: 17px; height: 17px; fill: var(--faint); }
+  .mark .out { fill: var(--emerald-bright); }
+  .name { font-weight: 700; font-size: 15px; }
+
+  .stat {
+    padding: 14px; border-radius: 11px; margin-bottom: 12px;
+    background: rgba(16,40,27,0.5); border: 1px solid var(--border);
+  }
+  .stat-val { font-size: 26px; font-weight: 750; color: var(--emerald-bright); }
+  .stat-lab { font-size: 11.5px; color: var(--faint); margin-top: 2px; }
+
+  .row {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 0; border-top: 1px solid var(--border); font-size: 13px;
+  }
+  .row-label { color: var(--muted); }
+  .status { display: flex; align-items: center; gap: 6px; font-size: 12.5px; }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+  .dot.on { background: var(--emerald); box-shadow: 0 0 8px rgba(52,211,153,0.8); }
+  .dot.off { background: #e07a5f; }
+
+  .switch { position: relative; width: 38px; height: 21px; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider {
+    position: absolute; inset: 0; cursor: pointer; border-radius: 21px;
+    background: rgba(110,231,183,0.14); transition: 0.2s;
+  }
+  .slider::before {
+    content: ""; position: absolute; height: 15px; width: 15px; left: 3px; bottom: 3px;
+    background: var(--muted); border-radius: 50%; transition: 0.2s;
+  }
+  input:checked + .slider { background: rgba(52,211,153,0.35); }
+  input:checked + .slider::before { transform: translateX(17px); background: var(--emerald-bright); }
+
+  input[type="text"] {
+    width: 100%; padding: 8px 10px; margin-top: 6px;
+    border-radius: 8px; border: 1px solid var(--border);
+    background: rgba(6,20,13,0.6); color: var(--text); font-size: 12px;
+  }
+  .btn {
+    width: 100%; margin-top: 12px; padding: 9px;
+    border-radius: 9px; border: none; cursor: pointer;
+    background: linear-gradient(135deg, #34d399, #10b981);
+    color: #04150c; font-weight: 650; font-size: 13px;
+  }
+  .link {
+    display: block; text-align: center; margin-top: 10px;
+    color: var(--muted); font-size: 12px; text-decoration: none;
+  }
+  .link:hover { color: var(--emerald-bright); }
+</style>
+</head>
+<body>
+
+<div class="head">
+  <span class="mark">
+    <svg viewBox="0 0 24 24">
+      <circle cx="5" cy="18" r="1.8"/><circle cx="9" cy="16" r="1.8"/>
+      <circle cx="13" cy="17" r="1.8"/><circle cx="17" cy="15" r="1.8"/>
+      <circle class="out" cx="19" cy="5" r="2.6"/>
+    </svg>
+  </span>
+  <span class="name">Outlier</span>
+</div>
+
+<div class="stat">
+  <div class="stat-val" id="total">0</div>
+  <div class="stat-lab">posts captured</div>
+</div>
+
+<div class="row">
+  <span class="row-label">Capturing</span>
+  <label class="switch">
+    <input type="checkbox" id="toggle" checked>
+    <span class="slider"></span>
+  </label>
+</div>
+
+<div class="row">
+  <span class="row-label">Dashboard</span>
+  <span class="status"><span class="dot" id="dot"></span><span id="status-text">checking…</span></span>
+</div>
+
+<div style="margin-top:12px">
+  <span class="row-label" style="font-size:12px">Dashboard URL</span>
+  <input type="text" id="endpoint" placeholder="http://localhost:5050">
+</div>
+
+<button class="btn" id="save-endpoint">Save &amp; test</button>
+<a class="link" id="open-dashboard" href="#" target="_blank">Open dashboard →</a>
+
+<script src="popup.js"></script>
+</body>
+</html>

@@ -1,0 +1,56 @@
+{# The signature card. The multiple badge is the whole product in one glyph:
+   how many times over its own group's median this post landed. #}
+<article class="post-card reveal tier-{{ post.tier }}" data-post-id="{{ post.id }}">
+
+  <div class="post-badge">
+    <span class="multiple" data-countup="{{ post.outlier_multiple }}">{{ post.outlier_multiple }}</span><span class="times">×</span>
+    <span class="badge-label">{{ tier_labels[post.tier] }}</span>
+  </div>
+
+  <div class="post-main">
+    <div class="post-meta">
+      <span class="author">{{ post.author_name }}</span>
+      <span class="dot-sep">·</span>
+      <a class="source" href="{{ url_for('group_detail', source_id=post.source_id) }}">{{ post.source_name }}</a>
+      <span class="dot-sep">·</span>
+      <span class="type-chip">{{ post.post_type }}</span>
+      {% if post.still_climbing %}
+      <span class="climbing-chip" title="Less than 48h old — still accumulating engagement">still climbing</span>
+      {% endif %}
+    </div>
+
+    <a class="post-body" href="{{ url_for('post_detail', post_id=post.id) }}">{{ post.body }}</a>
+
+    <div class="baseline-bar" title="This post vs the median post in {{ post.source_name }}">
+      <div class="baseline-track">
+        <div class="baseline-fill" data-fill="{{ [post.outlier_multiple / 8 * 100, 100] | min }}"></div>
+        <div class="baseline-marker" title="Group median"></div>
+      </div>
+      <span class="baseline-caption">
+        {{ post.weighted_engagement }} vs {{ post.baseline | round | int }} median
+      </span>
+    </div>
+
+    <div class="post-stats">
+      <span><b>{{ "{:,}".format(post.likes) }}</b> reactions</span>
+      <span><b>{{ "{:,}".format(post.comments) }}</b> comments</span>
+      <span><b>{{ "{:,}".format(post.shares) }}</b> shares</span>
+    </div>
+  </div>
+
+  <div class="post-actions">
+    <button class="icon-btn save-btn {{ 'is-saved' if post.is_saved }}"
+            data-post-id="{{ post.id }}" title="Save to library">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>
+      </svg>
+    </button>
+    <a class="icon-btn" href="{{ url_for('post_detail', post_id=post.id) }}" title="Open and remix">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 12h12M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>
+  </div>
+
+</article>

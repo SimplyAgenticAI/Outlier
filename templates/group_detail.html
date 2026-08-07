@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Outlier — {{ source.name }}{% endblock %}
+
+{% block content %}
+<a class="back-link" href="{{ url_for('groups') }}">← All groups</a>
+
+<section class="feed-head">
+  <div>
+    <h1>{{ source.name }}</h1>
+    <p class="sub">
+      <span class="kind-chip">{{ source.kind }}</span>
+      {% if source.member_count %}{{ "{:,}".format(source.member_count) }} members{% endif %}
+      {% if stats and stats.has_baseline %}
+        · median post scores <b>{{ stats.baseline | round | int }}</b>
+      {% endif %}
+    </p>
+  </div>
+  <div class="filters">
+    <a class="filter" href="{{ url_for('api_export', fmt='markdown', source_id=source.id) }}">Export .md</a>
+    <a class="filter" href="{{ url_for('api_export', fmt='json', source_id=source.id) }}">Export .json</a>
+    <a class="filter" href="{{ url_for('api_export', fmt='csv', source_id=source.id) }}">Export .csv</a>
+  </div>
+</section>
+
+{% if stats and not stats.has_baseline %}
+<div class="glass notice">
+  Only {{ stats.post_count }} posts captured. Outlier scores need at least 8 posts
+  in a source before the median means anything — keep scrolling this group to fill it in.
+</div>
+{% endif %}
+
+{% if posts %}
+<section class="post-list">
+  {% for post in posts %}
+    {% include "_post_card.html" %}
+  {% endfor %}
+</section>
+{% else %}
+<div class="glass empty-panel"><p>No posts captured from this source yet.</p></div>
+{% endif %}
+
+{% endblock %}

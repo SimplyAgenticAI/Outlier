@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Outlier — Feed{% endblock %}
+
+{% block content %}
+
+{% if not has_data %}
+  {# Empty state carries the animated scatter — one dot breaks away from the
+     pack, which is the whole idea of the product in a single graphic. #}
+  <section class="empty-hero">
+    <svg class="scatter" viewBox="0 0 400 200" aria-hidden="true">
+      <line class="scatter-baseline" x1="20" y1="150" x2="380" y2="150"/>
+      {% for x, y, d in [(45,155,0),(75,146,1),(105,158,2),(135,143,3),(165,152,4),
+                          (195,147,5),(225,156,6),(255,144,7),(285,151,8),(315,149,9)] %}
+      <circle class="scatter-dot" cx="{{ x }}" cy="{{ y }}" r="4" style="--d: {{ d * 0.12 }}s"/>
+      {% endfor %}
+      <circle class="scatter-outlier" cx="345" cy="45" r="7"/>
+    </svg>
+
+    <h1>Nothing captured yet</h1>
+    <p class="empty-lead">
+      Outlier ranks posts by how far they beat the median post in their own group —
+      so a breakout in a small group outranks a mediocre post from a big page.
+      To do that it needs posts, and posts come from the extension.
+    </p>
+
+    <div class="empty-actions">
+      <a class="btn btn-primary" href="{{ url_for('capture') }}">Install the extension</a>
+      <button class="btn btn-ghost" id="load-demo">Load sample data instead</button>
+    </div>
+    <p class="empty-note">Sample data is clearly labelled and can be wiped in one click.</p>
+  </section>
+
+{% else %}
+
+  <section class="stat-row">
+    <div class="stat glass reveal">
+      <span class="stat-value" data-countup="{{ stats.top_multiple }}">{{ stats.top_multiple }}</span><span class="stat-unit">×</span>
+      <span class="stat-label">Biggest outlier</span>
+    </div>
+    <div class="stat glass reveal">
+      <span class="stat-value" data-countup="{{ stats.breakout_count }}">{{ stats.breakout_count }}</span>
+      <span class="stat-label">Breakout posts</span>
+    </div>
+    <div class="stat glass reveal">
+      <span class="stat-value" data-countup="{{ stats.post_count }}">{{ stats.post_count }}</span>
+      <span class="stat-label">Posts captured</span>
+    </div>
+    <div class="stat glass reveal">
+      <span class="stat-value" data-countup="{{ stats.source_count }}">{{ stats.source_count }}</span>
+      <span class="stat-label">Groups tracked</span>
+    </div>
+  </section>
+
+  <section class="feed-head">
+    <div>
+      <h1>Outlier feed</h1>
+      <p class="sub">Ranked by how far each post beat the median in its own group.</p>
+    </div>
+    <div class="filters">
+      {% for key, label in [('all','All'),('breakout','Breakout'),('strong','Strong'),('above','Above baseline')] %}
+      <a class="filter {{ 'active' if tier_filter == key }}"
+         href="{{ url_for('feed', tier=key) }}">{{ label }}</a>
+      {% endfor %}
+    </div>
+  </section>
+
+  {% if posts %}
+  <section class="post-list">
+    {% for post in posts %}
+      {% include "_post_card.html" %}
+    {% endfor %}
+  </section>
+  {% else %}
+  <div class="glass empty-panel">
+    <p>No posts in this band yet. Capture more, or widen the filter.</p>
+  </div>
+  {% endif %}
+
+{% endif %}
+
+{% endblock %}

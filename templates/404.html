@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Outlier — Not found{% endblock %}
+
+{% block content %}
+<section class="empty-hero">
+  <h1>Not found</h1>
+  <p class="empty-lead">That post or group isn't in the database.</p>
+  <a class="btn btn-primary" href="{{ url_for('feed') }}">Back to the feed</a>
+</section>
+{% endblock %}
