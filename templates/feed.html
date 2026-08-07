@@ -51,19 +51,41 @@
     </div>
   </section>
 
+  {% if comment_count %}
+  {# Posts and comments are ranked against their own kind, so switching view
+     is switching population — not filtering one list. #}
+  <div class="kind-switch">
+    <a class="kind-tab {{ 'active' if kind == 'post' }}"
+       href="{{ url_for('feed', kind='post', samples='1' if show_samples else None) }}">
+      Posts
+    </a>
+    <a class="kind-tab {{ 'active' if kind == 'comment' }}"
+       href="{{ url_for('feed', kind='comment', samples='1' if show_samples else None) }}">
+      Comments <span class="kind-count">{{ comment_count }}</span>
+    </a>
+  </div>
+  {% endif %}
+
   <section class="feed-head">
     <div>
-      <h1>Outlier feed</h1>
-      <p class="sub">Ranked by how far each post beat the median in its own group.</p>
+      <h1>{{ 'Top comments' if kind == 'comment' else 'Outlier feed' }}</h1>
+      <p class="sub">
+        {% if kind == 'comment' %}
+          Comments ranked against other comments in the same group — what the
+          room responds to, not what gets posted.
+        {% else %}
+          Ranked by how far each post beat the median in its own group.
+        {% endif %}
+      </p>
     </div>
     <div class="filters">
       {% for key, label in [('all','All'),('breakout','Breakout'),('strong','Strong'),('above','Above baseline')] %}
       <a class="filter {{ 'active' if tier_filter == key }}"
-         href="{{ url_for('feed', tier=key, samples='1' if show_samples else None) }}">{{ label }}</a>
+         href="{{ url_for('feed', tier=key, kind=kind, samples='1' if show_samples else None) }}">{{ label }}</a>
       {% endfor %}
       {% if sample_count and real_count %}
       <a class="filter {{ 'active' if show_samples }}"
-         href="{{ url_for('feed', tier=tier_filter, samples=None if show_samples else '1') }}"
+         href="{{ url_for('feed', tier=tier_filter, kind=kind, samples=None if show_samples else '1') }}"
          title="{{ sample_count }} generated sample posts">
         {{ 'Hide' if show_samples else 'Show' }} samples
       </a>

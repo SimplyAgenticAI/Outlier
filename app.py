@@ -15,7 +15,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "1.5"
+APP_VERSION = "1.6"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -81,13 +81,25 @@ def feed():
     """The outlier feed — posts ranked by how far they beat their own baseline."""
     tier_filter = request.args.get("tier", "all")
     show_samples = request.args.get("samples") == "1"
+    # Posts and comments are separate populations with separate baselines, so
+    # they get separate views rather than one mixed ranking.
+    kind = request.args.get("kind", "post")
+    if kind not in ("post", "comment"):
+        kind = "post"
 
     all_posts = _fetch_posts()
     scored = outliers.score_posts(all_posts)
 
     real_count = sum(1 for s in scored if not s["is_demo"])
+    comment_count = sum(
+        1 for s in scored
+        if (s.get("item_type") or "post") == "comment" and s["has_baseline"]
+    )
 
-    visible = [s for s in scored if s["has_baseline"]]
+    visible = [
+        s for s in scored
+        if s["has_baseline"] and (s.get("item_type") or "post") == kind
+    ]
     # Once there are real captures, sample posts stop being helpful and start
     # being noise you have to mentally filter — so hide them by default.
     if real_count and not show_samples:
@@ -105,6 +117,8 @@ def feed():
         real_count=real_count,
         sample_count=len(scored) - real_count,
         show_samples=show_samples,
+        kind=kind,
+        comment_count=comment_count,
         # Distinguishes "nothing captured" from "captured, but not enough of
         # any one group to score" — completely different problems.
         unscored_count=sum(1 for s in scored if not s["has_baseline"]),

@@ -1,6 +1,6 @@
 {# The signature card. The multiple badge is the whole product in one glyph:
    how many times over its own group's median this post landed. #}
-<article class="post-card reveal spotlight tilt tier-{{ post.tier }}{{ ' is-demo' if post.is_demo }}"
+<article class="post-card reveal spotlight tilt tier-{{ post.tier }}{{ ' is-demo' if post.is_demo }}{{ ' is-comment' if post.item_type == 'comment' }}"
          data-post-id="{{ post.id }}">
 
   <div class="post-badge">
@@ -15,6 +15,9 @@
       <a class="source" href="{{ url_for('group_detail', source_id=post.source_id) }}">{{ post.source_name }}</a>
       <span class="dot-sep">·</span>
       <span class="type-chip">{{ post.post_type }}</span>
+      {% if post.item_type == 'comment' %}
+      <span class="comment-chip" title="A comment, scored against other comments">comment</span>
+      {% endif %}
       {% if post.is_demo %}
       <span class="demo-chip" title="Generated sample content — not a real Facebook post">sample</span>
       {% endif %}
@@ -38,7 +41,9 @@
     <div class="post-stats">
       <span><b>{{ "{:,}".format(post.likes) }}</b> reactions</span>
       <span><b>{{ "{:,}".format(post.comments) }}</b> comments</span>
+      {% if post.item_type != 'comment' %}
       <span><b>{{ "{:,}".format(post.shares) }}</b> shares</span>
+      {% endif %}
     </div>
   </div>
 

@@ -64,7 +64,13 @@ CREATE TABLE IF NOT EXISTS posts (
     video_plays   INTEGER DEFAULT 0,
     captured_at   TEXT DEFAULT CURRENT_TIMESTAMP,
     updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
-    is_demo       INTEGER DEFAULT 0
+    is_demo       INTEGER DEFAULT 0,
+    -- 'post' or 'comment'. Comments are worth collecting — a reply that
+    -- outperforms other replies says what the room actually responds to —
+    -- but they must never share a baseline with posts, since their
+    -- engagement is an order of magnitude smaller.
+    item_type     TEXT DEFAULT 'post',
+    parent_fb_id  TEXT                    -- for comments: the post they sit under
 );
 
 CREATE TABLE IF NOT EXISTS saved (
@@ -137,6 +143,23 @@ def get_db():
 def init_db():
     with get_db() as conn:
         conn.executescript(SCHEMA)
+        _migrate(conn)
+
+
+def _migrate(conn):
+    """Add columns that arrived after a database was first created.
+
+    CREATE TABLE IF NOT EXISTS silently does nothing for an existing table, so
+    new columns have to be added explicitly or an upgraded install breaks on
+    the first query that mentions them.
+    """
+    existing = {row["name"] for row in conn.execute("PRAGMA table_info(posts)")}
+
+    if "item_type" not in existing:
+        conn.execute("ALTER TABLE posts ADD COLUMN item_type TEXT DEFAULT 'post'")
+        conn.execute("UPDATE posts SET item_type = 'post' WHERE item_type IS NULL")
+    if "parent_fb_id" not in existing:
+        conn.execute("ALTER TABLE posts ADD COLUMN parent_fb_id TEXT")
 
 
 def upsert_source(conn, fb_id, kind, name, url=None, member_count=None):
@@ -211,8 +234,9 @@ def upsert_post(conn, source_id, author_id, post):
         """
         INSERT INTO posts (
             fb_post_id, source_id, author_id, body, permalink, post_type,
-            posted_at, likes, comments, shares, video_plays, is_demo
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            posted_at, likes, comments, shares, video_plays, is_demo,
+            item_type, parent_fb_id
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             post["fb_post_id"],
@@ -227,6 +251,8 @@ def upsert_post(conn, source_id, author_id, post):
             post.get("shares", 0),
             post.get("video_plays", 0),
             post.get("is_demo", 0),
+            post.get("item_type", "post"),
+            post.get("parent_fb_id"),
         ),
     )
     return True

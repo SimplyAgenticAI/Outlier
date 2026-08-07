@@ -45,7 +45,7 @@
       articles: 0,     // role="article" nodes on the page
       candidates: 0,   // top-level ones (comments excluded)
       skipped: 0,      // rejected as shells / author-name-only
-      comments: 0,     // role=article nodes that were comments, not posts
+      commentsFound: 0,  // captured as comments, scored separately
       queued: 0,
       sent: 0,
       added: 0,
@@ -202,19 +202,51 @@
     return "h" + hashString(author + "|" + body.slice(0, 200));
   }
 
-  function extractAuthor(article) {
+  // Names that are chrome, not people.
+  var NOT_A_NAME = /^(like|comment|share|reply|see more|follow|join|group|admin|moderator|top contributor|author|·|\d+[hdwmy]|anonymous participant)$/i;
+
+  function extractAuthor(article, bar) {
+    // The author link lives in the post header, above the action bar. Casting
+    // wider than that picks up commenters, tagged users, and link previews —
+    // which is how posts ended up attributed to "Unknown" or to a commenter.
     var candidates = article.querySelectorAll(
-      'h2 a, h3 a, h4 a, strong a, span a[role="link"], a[role="link"] strong'
+      'h2 a[role="link"], h3 a[role="link"], h4 a[role="link"], ' +
+      'h2 a, h3 a, h4 a, strong a, a[role="link"] strong, ' +
+      'span a[role="link"], a[role="link"]'
     );
+
     for (var i = 0; i < candidates.length; i++) {
       var el = candidates[i];
-      var text = (el.textContent || "").trim();
-      var href = el.href || (el.closest("a") ? el.closest("a").href : "") || "";
-      if (text && text.length > 1 && text.length < 80 &&
-          href.indexOf("/groups/") === -1 && text.charAt(0) !== "#") {
-        return { name: text, url: href.split("?")[0] };
+      if (isBelowBar(el, bar)) continue;
+      if (el.closest('div[role="article"]') !== article) continue;
+
+      var text = (el.textContent || "").trim().replace(/\s+/g, " ");
+      var anchor = el.tagName === "A" ? el : el.closest("a");
+      var href = (anchor && anchor.href) || "";
+
+      if (!text || text.length < 2 || text.length > 80) continue;
+      if (NOT_A_NAME.test(text)) continue;
+      if (text.charAt(0) === "#") continue;
+      // A link into the group itself is the group name, not a person.
+      if (href.indexOf("/groups/") !== -1 && href.indexOf("/user/") === -1) continue;
+      // Reject anything that is plainly a timestamp or a bare number.
+      if (/^\d[\d.,:\s]*$/.test(text)) continue;
+
+      return { name: text, url: href ? href.split("?")[0] : null };
+    }
+
+    // Fallback: a profile URL in the header still identifies the author even
+    // when the visible name is rendered in a way the selectors miss.
+    var profile = article.querySelector(
+      'a[href*="/user/"], a[href*="profile.php"], a[href*="facebook.com/"][role="link"]'
+    );
+    if (profile && !isBelowBar(profile, bar)) {
+      var slug = (profile.href || "").split("?")[0].replace(/\/$/, "").split("/").pop();
+      if (slug && !/^\d+$/.test(slug) && slug !== "groups") {
+        return { name: slug.replace(/[._-]/g, " "), url: profile.href.split("?")[0] };
       }
     }
+
     return { name: "Unknown", url: null };
   }
 
@@ -249,6 +281,29 @@
   function isBelowBar(el, bar) {
     if (!bar || !el) return false;
     return !!(bar.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  // Which post a comment belongs to. Nested comments have the post as an
+  // ancestor; siblings are matched to the nearest preceding post instead.
+  function parentPostId(article, source) {
+    var owner = article.parentElement &&
+                article.parentElement.closest('div[role="article"]');
+    if (owner && looksLikePost(owner)) {
+      var link = extractPermalink(owner);
+      var id = extractPostId(owner, link, extractBody(owner, "", findActionBar(owner)), "");
+      return id ? source.fb_id + "-" + id : null;
+    }
+
+    var all = Array.prototype.slice.call(document.querySelectorAll('div[role="article"]'));
+    var index = all.indexOf(article);
+    for (var i = index - 1; i >= 0; i--) {
+      if (looksLikePost(all[i])) {
+        var pl = extractPermalink(all[i]);
+        var pid = extractPostId(all[i], pl, extractBody(all[i], "", findActionBar(all[i])), "");
+        return pid ? source.fb_id + "-" + pid : null;
+      }
+    }
+    return null;
   }
 
   function looksLikePost(article) {
@@ -441,12 +496,14 @@
     articles.forEach(function (article) {
       // Comments carry role="article" as well, and are not reliably nested
       // inside the post — so this has to be a positive test for post-ness,
-      // not merely a nesting check.
-      if (!looksLikePost(article)) { STATS.comments++; return; }
-      STATS.candidates++;
+      // not merely a nesting check. Comments are still captured, just tagged
+      // and scored against other comments rather than against posts.
+      var isPost = looksLikePost(article);
+      if (isPost) STATS.candidates++;
+      else STATS.commentsFound++;
 
       var bar = findActionBar(article);
-      var author = extractAuthor(article);
+      var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
       var permalink = extractPermalink(article);
       var postId = extractPostId(article, permalink, body, author.name);
@@ -465,21 +522,24 @@
       if (engagement.likes || engagement.comments || engagement.shares) {
         STATS.withEngagement++;
       }
-      logLine(engagement.likes + "r " + engagement.comments + "c " +
-              engagement.shares + "s  " + body.slice(0, 34));
+      logLine((isPost ? "" : "↳ ") + engagement.likes + "r " +
+              engagement.comments + "c " + engagement.shares + "s  " +
+              body.slice(0, 30));
 
       QUEUE.push({
         fb_post_id: source.fb_id + "-" + postId,
         body: body,
         permalink: permalink,
-        post_type: extractPostType(article),
+        post_type: isPost ? extractPostType(article) : "comment",
         posted_at: extractTimestamp(article),
         author_name: author.name,
         author_url: author.url,
         likes: engagement.likes,
         comments: engagement.comments,
         shares: engagement.shares,
-        video_plays: engagement.video_plays
+        video_plays: engagement.video_plays,
+        item_type: isPost ? "post" : "comment",
+        parent_fb_id: isPost ? null : parentPostId(article, source)
       });
     });
 
@@ -744,8 +804,12 @@
     // defeats the point of resizing it. Everything inside is sized in em, so
     // scaling the root font-size scales the whole panel together.
     function rescale() {
-      var width = hud.getBoundingClientRect().width || 380;
-      var scale = Math.max(0.85, Math.min(width / 380, 2.1));
+      var rect = hud.getBoundingClientRect();
+      // Scaling on width alone made the text grow when dragged wider, which
+      // pushed the buttons past the bottom edge. Take whichever axis grew
+      // least so the contents always still fit vertically.
+      var scale = Math.min((rect.width || 380) / 380, (rect.height || 460) / 460);
+      scale = Math.max(0.85, Math.min(scale, 2.1));
       hud.style.fontSize = (13 * scale).toFixed(2) + "px";
     }
 
@@ -814,9 +878,20 @@
     rowBtns.appendChild(manual);
     rowBtns.appendChild(dash);
 
-    content.appendChild(hudBody);
-    content.appendChild(logLabel);
-    content.appendChild(hudLog);
+    // Stats and log share one scrollable region; the buttons are pinned below
+    // it. Previously the stats block could not shrink, so as rows were added
+    // it pushed the controls past the bottom edge of the panel.
+    var scroller = document.createElement("div");
+    styleEl(scroller, {
+      flex: "1", minHeight: "0", overflowY: "auto", overflowX: "hidden",
+      display: "flex", flexDirection: "column"
+    });
+
+    scroller.appendChild(hudBody);
+    scroller.appendChild(logLabel);
+    scroller.appendChild(hudLog);
+
+    content.appendChild(scroller);
     content.appendChild(hudBtn);
     content.appendChild(rowBtns);
 
@@ -862,8 +937,8 @@
     var where = source ? (source.kind === "group" ? "in this group"
                                                  : "on this profile") : "on page";
     hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
-    if (STATS.comments) {
-      hudBody.appendChild(row("Comments ignored", String(STATS.comments)));
+    if (STATS.commentsFound) {
+      hudBody.appendChild(row("Comments captured", String(STATS.commentsFound)));
     }
     hudBody.appendChild(row(
       "Captured this group",

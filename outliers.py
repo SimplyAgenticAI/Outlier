@@ -30,6 +30,11 @@ MIN_SAMPLE = 8
 # "8647x breakout", so such sources are marked unscored instead.
 MIN_BASELINE = 8
 
+# Comments run far lower than posts, so the posts threshold would leave most
+# groups' comments permanently unscored. Low enough to admit real discussion,
+# high enough that a median of 1 or 2 still can't manufacture outliers.
+MIN_BASELINE_COMMENT = 3
+
 # Ratios above this are not informative, only alarming. Anything this far out
 # is already the top of the feed; the exact figure adds nothing.
 MAX_MULTIPLE = 99.9
@@ -88,20 +93,28 @@ def score_posts(posts):
 
     Returns a list of dicts with the original fields plus the scoring output.
     """
+    # Grouped by source AND item type. A comment pulling 200 reactions where
+    # comments typically get 5 is a genuine standout; measured against posts
+    # averaging 8,000 it looks like a failure. They are different populations
+    # and need different medians.
     by_source = {}
     for post in posts:
-        by_source.setdefault(post["source_id"], []).append(post)
+        key = (post["source_id"], post.get("item_type") or "post")
+        by_source.setdefault(key, []).append(post)
 
     scored = []
-    for source_id, group_posts in by_source.items():
+    for _key, group_posts in by_source.items():
         engagements = [weighted_engagement(p) for p in group_posts]
         baseline = _median(engagements)
         mad = _mad(engagements, baseline)
 
-        # Both conditions must hold for a ratio to mean anything: enough posts
+        is_comment = (group_posts[0].get("item_type") or "post") == "comment"
+        floor = MIN_BASELINE_COMMENT if is_comment else MIN_BASELINE
+
+        # Both conditions must hold for a ratio to mean anything: enough items
         # to have a median, and a median far enough from zero to divide by.
-        sufficient = len(group_posts) >= MIN_SAMPLE and baseline >= MIN_BASELINE
-        low_baseline = baseline < MIN_BASELINE
+        sufficient = len(group_posts) >= MIN_SAMPLE and baseline >= floor
+        low_baseline = baseline < floor
 
         for post in group_posts:
             eng = weighted_engagement(post)
