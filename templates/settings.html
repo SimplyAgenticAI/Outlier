@@ -130,7 +130,7 @@
           {% elif source.stats and source.stats.low_baseline %}
             <span class="warn-tone" title="Median engagement too low to compare against — re-capture this group">baseline too low</span>
           {% else %}
-            <span class="muted">needs {{ 8 - source.post_count if source.post_count < 8 else 0 }} more</span>
+            <span class="muted">needs {{ 8 - source.stats.post_count if source.stats and source.stats.post_count < 8 else 0 }} more posts</span>
           {% endif %}
         </td>
         <td class="row-actions">

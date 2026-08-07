@@ -15,7 +15,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "1.6"
+APP_VERSION = "1.7"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -60,16 +60,23 @@ def _fetch_posts(source_id=None, limit=None):
 
 
 def _global_stats(scored):
-    breakouts = [s for s in scored if s["tier"] == "breakout"]
+    """Headline numbers. Posts and comments are counted apart — labelling a
+    comment total as "posts captured" overstates what was actually collected."""
+    posts = [s for s in scored if (s.get("item_type") or "post") == "post"]
+    comments = [s for s in scored if (s.get("item_type") or "post") == "comment"]
+    breakouts = [s for s in posts if s["tier"] == "breakout"]
+
     with db.get_db() as conn:
         source_count = conn.execute(
             "SELECT COUNT(*) AS n FROM sources"
         ).fetchone()["n"]
+
     return {
-        "post_count": len(scored),
+        "post_count": len(posts),
+        "comment_count": len(comments),
         "source_count": source_count,
         "breakout_count": len(breakouts),
-        "top_multiple": scored[0]["outlier_multiple"] if scored else 0,
+        "top_multiple": max((s["outlier_multiple"] for s in posts), default=0),
     }
 
 

@@ -181,17 +181,36 @@ TIER_LABELS = {
 }
 
 
-def source_stats(posts):
-    """Per-source rollup for the Groups page."""
-    engagements = [weighted_engagement(p) for p in posts]
-    baseline = _median(engagements)
-    scored = score_posts(posts)
-    outlier_posts = [s for s in scored if s["tier"] in ("breakout", "strong")]
+def source_stats(items):
+    """Per-source rollup, reported for posts and comments separately.
+
+    A single median across both is meaningless: comments run an order of
+    magnitude lower, so mixing them drags a group's baseline below the floor
+    and reports a perfectly healthy group as unscoreable. The headline numbers
+    describe posts; comments are carried alongside.
+    """
+    posts = [p for p in items if (p.get("item_type") or "post") == "post"]
+    comments = [p for p in items if (p.get("item_type") or "post") == "comment"]
+
+    post_engagements = [weighted_engagement(p) for p in posts]
+    baseline = _median(post_engagements)
+
+    scored = score_posts(items)
+    scored_posts = [s for s in scored if (s.get("item_type") or "post") == "post"]
+    scored_comments = [s for s in scored if (s.get("item_type") or "post") == "comment"]
+
+    outlier_posts = [s for s in scored_posts if s["tier"] in ("breakout", "strong")]
+    top_comments = [s for s in scored_comments if s["tier"] in ("breakout", "strong")]
+
     return {
         "post_count": len(posts),
+        "comment_count": len(comments),
+        "total_count": len(items),
         "baseline": round(baseline, 1),
         "outlier_count": len(outlier_posts),
+        "top_comment_count": len(top_comments),
         "has_baseline": len(posts) >= MIN_SAMPLE and baseline >= MIN_BASELINE,
-        "low_baseline": baseline < MIN_BASELINE,
-        "top_multiple": scored[0]["outlier_multiple"] if scored else 0,
+        "low_baseline": bool(posts) and baseline < MIN_BASELINE,
+        "top_multiple": max((s["outlier_multiple"] for s in scored_posts), default=0),
+        "comments_scored": any(s["has_baseline"] for s in scored_comments),
     }

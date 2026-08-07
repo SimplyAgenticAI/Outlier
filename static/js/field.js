@@ -1,9 +1,12 @@
-/* Animated background: a drifting field of data points with a few outliers
- * breaking away from the pack — the product's thesis as ambient motion.
+/* Animated background: a meadow that grows.
  *
- * Kept deliberately cheap: particle count scales to viewport area, the
- * neighbour search is capped, and the loop stops entirely when the tab is
- * hidden or the user prefers reduced motion.
+ * Blades sprout from the bottom edge and sway on a slow wind, with a few
+ * growing well above the rest and catching the light — the product's thesis
+ * as organic growth rather than a starfield.
+ *
+ * Kept cheap: blade count scales to viewport width, everything is a single
+ * quadratic curve, and the loop stops when the tab is hidden or the user
+ * prefers reduced motion.
  */
 
 (function () {
@@ -19,43 +22,63 @@
 
   var ctx = canvas.getContext("2d", { alpha: true });
   var width = 0, height = 0, dpr = 1;
-  var particles = [];
+  var blades = [];
+  var motes = [];
   var mouse = { x: -9999, y: -9999 };
   var running = true;
   var frame = 0;
+  var time = 0;
 
-  var LINK_DISTANCE = 132;     // px at which two points draw a connection
-  var LINK_DISTANCE_SQ = LINK_DISTANCE * LINK_DISTANCE;
-  var MOUSE_RADIUS = 150;
-  var MOUSE_RADIUS_SQ = MOUSE_RADIUS * MOUSE_RADIUS;
+  var MOUSE_RADIUS = 170;
 
-  function particleCount() {
-    // One point per ~26k css px², clamped so phones stay smooth and huge
-    // monitors don't tip the O(n²) link pass into jank.
-    return Math.max(26, Math.min(78, Math.round((width * height) / 26000)));
+  function bladeCount() {
+    // Roughly one blade per 9px of width, bounded so phones stay smooth and
+    // ultrawides don't draw hundreds of curves per frame.
+    return Math.max(40, Math.min(150, Math.round(width / 9)));
   }
 
-  function makeParticle(isOutlier) {
+  function makeBlade(index, total) {
+    // Outliers are rare and much taller — the one that broke away.
+    var isOutlier = index % 11 === 4;
+    var baseHeight = height * (isOutlier ? 0.30 : 0.13);
+
+    return {
+      x: (index / total) * width + (Math.random() - 0.5) * 14,
+      height: baseHeight * (0.65 + Math.random() * 0.7),
+      // Thicker blades read as nearer; drawn later so they sit in front.
+      depth: isOutlier ? 1 : 0.35 + Math.random() * 0.5,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.4 + Math.random() * 0.5,
+      lean: (Math.random() - 0.5) * 0.5,
+      outlier: isOutlier,
+      // Staggered so the meadow grows in rather than appearing at once.
+      grown: 0,
+      growRate: 0.006 + Math.random() * 0.012
+    };
+  }
+
+  function makeMote() {
     return {
       x: Math.random() * width,
-      y: Math.random() * height,
-      vx: (Math.random() - 0.5) * 0.22,
-      vy: (Math.random() - 0.5) * 0.22,
-      radius: isOutlier ? 2.4 + Math.random() * 1.2 : 1 + Math.random() * 1.1,
-      outlier: isOutlier,
-      phase: Math.random() * Math.PI * 2,   // desynchronises the glow pulse
-      drift: isOutlier ? -0.12 - Math.random() * 0.1 : 0   // outliers rise
+      y: height + Math.random() * height * 0.5,
+      radius: 0.8 + Math.random() * 1.6,
+      drift: (Math.random() - 0.5) * 0.18,
+      rise: 0.18 + Math.random() * 0.34,
+      phase: Math.random() * Math.PI * 2,
+      alpha: 0.16 + Math.random() * 0.3
     };
   }
 
   function build() {
-    var count = particleCount();
-    particles = [];
-    for (var i = 0; i < count; i++) {
-      // Roughly one in nine breaks away — enough to notice, rare enough to read
-      // as exceptional rather than decorative.
-      particles.push(makeParticle(i % 9 === 0));
-    }
+    var count = bladeCount();
+    blades = [];
+    for (var i = 0; i < count; i++) blades.push(makeBlade(i, count));
+    // Near blades drawn last so depth reads correctly.
+    blades.sort(function (a, b) { return a.depth - b.depth; });
+
+    motes = [];
+    var moteCount = Math.max(10, Math.min(28, Math.round(width / 70)));
+    for (var m = 0; m < moteCount; m++) motes.push(makeMote());
   }
 
   function resize() {
@@ -73,80 +96,88 @@
   }
 
   function step() {
-    var i, p;
+    time += 0.006;
 
-    for (i = 0; i < particles.length; i++) {
-      p = particles[i];
+    for (var i = 0; i < blades.length; i++) {
+      var b = blades[i];
+      if (b.grown < 1) b.grown = Math.min(1, b.grown + b.growRate);
+    }
 
-      p.x += p.vx;
-      p.y += p.vy + p.drift;
-      p.phase += 0.016;
-
-      // Push away from the cursor so the field reacts to the reader.
-      var mdx = p.x - mouse.x;
-      var mdy = p.y - mouse.y;
-      var mdistSq = mdx * mdx + mdy * mdy;
-      if (mdistSq < MOUSE_RADIUS_SQ && mdistSq > 0.01) {
-        var mdist = Math.sqrt(mdistSq);
-        var push = (1 - mdist / MOUSE_RADIUS) * 0.9;
-        p.x += (mdx / mdist) * push;
-        p.y += (mdy / mdist) * push;
+    for (var m = 0; m < motes.length; m++) {
+      var mote = motes[m];
+      mote.y -= mote.rise;
+      mote.x += mote.drift + Math.sin(time * 2 + mote.phase) * 0.16;
+      // Recycle at the bottom rather than accumulating new objects.
+      if (mote.y < -12) {
+        mote.y = height + 12;
+        mote.x = Math.random() * width;
       }
-
-      // Wrap rather than bounce — bouncing makes the edges legible as walls.
-      if (p.x < -20) p.x = width + 20;
-      if (p.x > width + 20) p.x = -20;
-      if (p.y < -20) { p.y = height + 20; p.x = Math.random() * width; }
-      if (p.y > height + 20) p.y = -20;
     }
   }
 
   function draw() {
     ctx.clearRect(0, 0, width, height);
 
-    var i, j, a, b, dx, dy, distSq;
+    // One shared wind wave so the meadow moves together instead of each
+    // blade wobbling on its own.
+    var gust = Math.sin(time * 0.7) * 0.5 + Math.sin(time * 1.9) * 0.18;
 
-    // Links first so points sit on top of their own connections.
-    ctx.lineWidth = 1;
-    for (i = 0; i < particles.length; i++) {
-      a = particles[i];
-      for (j = i + 1; j < particles.length; j++) {
-        b = particles[j];
-        dx = a.x - b.x;
-        dy = a.y - b.y;
-        if (dx > LINK_DISTANCE || dx < -LINK_DISTANCE) continue;   // cheap reject
-        if (dy > LINK_DISTANCE || dy < -LINK_DISTANCE) continue;
+    for (var i = 0; i < blades.length; i++) {
+      var b = blades[i];
+      var h = b.height * b.grown;
+      if (h < 1) continue;
 
-        distSq = dx * dx + dy * dy;
-        if (distSq > LINK_DISTANCE_SQ) continue;
+      var sway = Math.sin(time * b.speed + b.phase) * 0.24 + gust * 0.5;
 
-        var strength = 1 - distSq / LINK_DISTANCE_SQ;
-        ctx.strokeStyle = "rgba(52, 211, 153, " + (strength * 0.14).toFixed(3) + ")";
-        ctx.beginPath();
-        ctx.moveTo(a.x, a.y);
-        ctx.lineTo(b.x, b.y);
-        ctx.stroke();
+      // The cursor parts the grass it passes over.
+      var dx = b.x - mouse.x;
+      if (mouse.y > height - b.height * 1.6 && dx > -MOUSE_RADIUS && dx < MOUSE_RADIUS) {
+        var push = (1 - Math.abs(dx) / MOUSE_RADIUS);
+        sway += (dx > 0 ? 1 : -1) * push * 0.9;
       }
-    }
 
-    for (i = 0; i < particles.length; i++) {
-      var p = particles[i];
-
-      if (p.outlier) {
-        var pulse = 0.55 + Math.sin(p.phase) * 0.45;
-        ctx.shadowBlur = 12 * pulse;
-        ctx.shadowColor = "rgba(52, 211, 153, 0.9)";
-        ctx.fillStyle = "rgba(110, 231, 183, " + (0.5 + pulse * 0.42).toFixed(3) + ")";
-      } else {
-        ctx.shadowBlur = 0;
-        ctx.fillStyle = "rgba(125, 170, 148, 0.32)";
-      }
+      var tipX = b.x + (b.lean + sway) * h * 0.42;
+      var tipY = height - h;
+      var ctrlX = b.x + (b.lean + sway) * h * 0.16;
+      var ctrlY = height - h * 0.55;
 
       ctx.beginPath();
-      ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(b.x, height);
+      ctx.quadraticCurveTo(ctrlX, ctrlY, tipX, tipY);
+
+      ctx.lineWidth = b.outlier ? 2 : 0.7 + b.depth * 1.1;
+      ctx.lineCap = "round";
+
+      if (b.outlier) {
+        ctx.strokeStyle = "rgba(110, 231, 183, " + (0.34 * b.grown).toFixed(3) + ")";
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = "rgba(52, 211, 153, 0.5)";
+      } else {
+        // Nearer blades slightly brighter, so the field has depth.
+        var alpha = (0.07 + b.depth * 0.14) * b.grown;
+        ctx.strokeStyle = "rgba(52, 211, 153, " + alpha.toFixed(3) + ")";
+        ctx.shadowBlur = 0;
+      }
+      ctx.stroke();
+
+      // A seed head on the tall ones, catching the light.
+      if (b.outlier && b.grown > 0.85) {
+        ctx.beginPath();
+        ctx.arc(tipX, tipY, 2.1, 0, Math.PI * 2);
+        ctx.fillStyle = "rgba(110, 231, 183, " + (0.5 + Math.sin(time * 2 + b.phase) * 0.28).toFixed(3) + ")";
+        ctx.fill();
+      }
     }
     ctx.shadowBlur = 0;
+
+    // Pollen drifting up through the meadow.
+    for (var m = 0; m < motes.length; m++) {
+      var mote = motes[m];
+      ctx.beginPath();
+      ctx.arc(mote.x, mote.y, mote.radius, 0, Math.PI * 2);
+      ctx.fillStyle = "rgba(167, 243, 208, " + mote.alpha.toFixed(3) + ")";
+      ctx.fill();
+    }
   }
 
   function loop() {

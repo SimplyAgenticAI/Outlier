@@ -46,6 +46,12 @@
           <span class="s-val" data-countup="{{ source.stats.top_multiple }}">{{ source.stats.top_multiple }}</span><span class="s-unit">×</span>
           <span class="s-lab">best</span>
         </div>
+        {% if source.stats.comment_count %}
+        <div>
+          <span class="s-val">{{ source.stats.comment_count }}</span>
+          <span class="s-lab">comments</span>
+        </div>
+        {% endif %}
       </div>
       {% elif source.stats.low_baseline %}
       <p class="needs-data">

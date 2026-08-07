@@ -46,6 +46,8 @@
       candidates: 0,   // top-level ones (comments excluded)
       skipped: 0,      // rejected as shells / author-name-only
       commentsFound: 0,  // captured as comments, scored separately
+      usingFallback: false,
+      fallbackNoted: false,
       queued: 0,
       sent: 0,
       added: 0,
@@ -306,22 +308,72 @@
     return null;
   }
 
-  function looksLikePost(article) {
-    // A shared-post preview or a comment rendered inside another article.
-    if (article.parentElement && article.parentElement.closest('div[role="article"]')) {
-      return false;
+  // Elements belonging to THIS article, excluding anything owned by a nested
+  // article. querySelector searches all descendants, and a post contains its
+  // own comments — so an unscoped lookup finds the comments' Reply buttons
+  // and concludes the post is a comment.
+  function ownQuery(article, selector) {
+    var found = article.querySelectorAll(selector);
+    for (var i = 0; i < found.length; i++) {
+      if (found[i].closest('div[role="article"]') === article) return found[i];
+    }
+    return null;
+  }
+
+  /* Post vs comment.
+   *
+   * A previous version gated on a single signal — Reply present and Share
+   * absent meant comment — which rejected every post the moment Share
+   * detection missed, and Share detection misses often because that button's
+   * label varies. Signals are weighed instead, so no single miss can zero out
+   * a whole scan.
+   */
+  function classify(article) {
+    var score = 0;
+    var reasons = [];
+
+    // Facebook labels comment containers explicitly. Strongest signal there is.
+    var ownLabel = article.getAttribute("aria-label") || "";
+    if (/^comment by/i.test(ownLabel) || /^reply by/i.test(ownLabel)) {
+      return { isPost: false, confident: true, why: "aria-label says comment" };
     }
 
-    var hasShare = !!article.querySelector(
-      '[aria-label*="Share" i], [aria-label*="Send this to friends" i]'
-    );
-    var hasReply = !!article.querySelector('[aria-label*="Reply" i]');
+    // Nested inside another article: a comment, or a shared-post preview.
+    if (article.parentElement && article.parentElement.closest('div[role="article"]')) {
+      return { isPost: false, confident: true, why: "nested in another article" };
+    }
 
-    // Reply without Share is the comment signature.
-    if (hasReply && !hasShare) return false;
+    // Feed items carry positional metadata; comments do not.
+    if (article.hasAttribute("aria-posinset")) { score += 3; reasons.push("posinset"); }
 
-    // Otherwise require some evidence this is a real feed post.
-    return hasShare || !!extractPermalink(article);
+    // A permalink to a post is definitional.
+    var link = extractPermalink(article);
+    if (link && /\/(posts|permalink|videos|reel)\//.test(link)) {
+      score += 3; reasons.push("permalink");
+    }
+
+    // Share belongs to posts — but only this article's own Share button.
+    if (ownQuery(article, '[aria-label*="Send this to friends" i], [aria-label*="Share" i]')) {
+      score += 2; reasons.push("share");
+    }
+
+    // Reply belongs to comments — again, only its own.
+    if (ownQuery(article, '[aria-label*="Reply" i]')) { score -= 2; reasons.push("reply"); }
+
+    // Posts show a share/comment tally; comments almost never do.
+    if (ownQuery(article, '[aria-label*="shares" i], [aria-label*="comments" i]')) {
+      score += 1; reasons.push("tally");
+    }
+
+    return {
+      isPost: score >= 2,
+      confident: score >= 3 || score <= -1,
+      why: reasons.join("+") || "no signals"
+    };
+  }
+
+  function looksLikePost(article) {
+    return classify(article).isPost;
   }
 
   function extractBody(article, authorName, bar) {
@@ -490,15 +542,41 @@
     var articles = document.querySelectorAll('div[role="article"]');
     STATS.articles = articles.length;
 
+    // Classify everything first. If not a single article scores as a post
+    // while plenty exist, the signals have drifted rather than the page being
+    // pure comments — fall back to "top-level article = post" so a scan
+    // degrades instead of silently returning nothing.
+    var verdicts = [];
+    var postCount = 0;
+    for (var v = 0; v < articles.length; v++) {
+      var verdict = classify(articles[v]);
+      verdicts.push(verdict);
+      if (verdict.isPost) postCount++;
+    }
+
+    var fallback = false;
+    if (postCount === 0 && articles.length >= 3) {
+      fallback = true;
+      for (var f = 0; f < articles.length; f++) {
+        // Keep the confident comment verdicts; promote only the ambiguous.
+        if (!verdicts[f].confident) verdicts[f] = { isPost: true, why: "fallback" };
+      }
+      if (!STATS.fallbackNoted) {
+        STATS.fallbackNoted = true;
+        logLine("⚠ post signals missing — treating top-level items as posts");
+      }
+    }
+    STATS.usingFallback = fallback;
+
     var found = 0;
     STATS.candidates = 0;
 
-    articles.forEach(function (article) {
+    articles.forEach(function (article, articleIndex) {
       // Comments carry role="article" as well, and are not reliably nested
       // inside the post — so this has to be a positive test for post-ness,
       // not merely a nesting check. Comments are still captured, just tagged
       // and scored against other comments rather than against posts.
-      var isPost = looksLikePost(article);
+      var isPost = verdicts[articleIndex].isPost;
       if (isPost) STATS.candidates++;
       else STATS.commentsFound++;
 
@@ -1080,6 +1158,8 @@
   window.__outlier = {
     detectSource: detectSource,
     looksLikePost: looksLikePost,
+    classify: classify,
+    ownQuery: ownQuery,
     findActionBar: findActionBar,
     isBelowBar: isBelowBar,
     extractBody: extractBody,
