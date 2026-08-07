@@ -82,6 +82,18 @@
   }
   .field-label { font-size: 11.5px; color: var(--muted); }
 
+  .limit-block {
+    padding: 11px 12px; margin-bottom: 10px; border-radius: 10px;
+    background: rgba(16,40,27,0.4); border: 1px solid var(--border);
+  }
+  .limit-head { display: flex; justify-content: space-between; align-items: baseline; }
+  .limit-val { font-size: 13px; font-weight: 700; color: var(--emerald-bright); }
+  input[type="range"] {
+    width: 100%; margin: 9px 0 4px; accent-color: var(--emerald);
+    background: transparent;
+  }
+  .limit-hint { font-size: 11px; color: var(--faint); line-height: 1.5; }
+
   .msg { font-size: 11.5px; margin-top: 8px; min-height: 15px; color: var(--muted); }
   .msg.ok { color: var(--emerald-bright); }
   .msg.err { color: var(--ember); }
@@ -120,6 +132,15 @@
 
 <button class="btn" id="start-btn">Start auto-scroll</button>
 <button class="btn ghost" id="scan-btn">Scan visible posts</button>
+
+<div class="limit-block">
+  <div class="limit-head">
+    <span class="row-label">Stop after</span>
+    <span class="limit-val" id="limit-val">200 posts</span>
+  </div>
+  <input type="range" id="max-posts" min="50" max="500" step="25" value="200">
+  <div class="limit-hint" id="limit-hint"></div>
+</div>
 
 <div class="row">
   <span class="row-label">Capturing</span>

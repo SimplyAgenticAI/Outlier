@@ -59,8 +59,15 @@
     <div class="filters">
       {% for key, label in [('all','All'),('breakout','Breakout'),('strong','Strong'),('above','Above baseline')] %}
       <a class="filter {{ 'active' if tier_filter == key }}"
-         href="{{ url_for('feed', tier=key) }}">{{ label }}</a>
+         href="{{ url_for('feed', tier=key, samples='1' if show_samples else None) }}">{{ label }}</a>
       {% endfor %}
+      {% if sample_count and real_count %}
+      <a class="filter {{ 'active' if show_samples }}"
+         href="{{ url_for('feed', tier=tier_filter, samples=None if show_samples else '1') }}"
+         title="{{ sample_count }} generated sample posts">
+        {{ 'Hide' if show_samples else 'Show' }} samples
+      </a>
+      {% endif %}
     </div>
   </section>
 
@@ -72,7 +79,27 @@
   </section>
   {% else %}
   <div class="glass empty-panel">
-    <p>No posts in this band yet. Capture more, or widen the filter.</p>
+    {% if unscored_count and not real_count %}
+      <p>
+        You've captured {{ unscored_count }} posts, but no group has enough yet
+        to score. A group needs <b>8+ posts with engagement</b> before there's a
+        median to compare against.
+      </p>
+      <a class="btn btn-primary" href="{{ url_for('groups') }}">See what's captured</a>
+    {% elif unscored_count %}
+      <p>
+        Nothing in this band. {{ unscored_count }} captured posts aren't scored
+        yet — their groups need more posts, or were captured without engagement
+        counts.
+      </p>
+      <a class="btn btn-ghost" href="{{ url_for('groups') }}">Check your groups</a>
+    {% elif tier_filter != 'all' %}
+      <p>No posts in the <b>{{ tier_filter }}</b> band. Try a wider filter.</p>
+      <a class="btn btn-ghost" href="{{ url_for('feed') }}">Show all</a>
+    {% else %}
+      <p>No scored posts yet. Capture a group to get started.</p>
+      <a class="btn btn-primary" href="{{ url_for('capture') }}">Capture a group</a>
+    {% endif %}
   </div>
   {% endif %}
 

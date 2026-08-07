@@ -14,6 +14,21 @@ from contextlib import contextmanager
 DATA_DIR = os.environ.get("DATA_DIR", os.path.join(os.path.dirname(__file__), "data"))
 DB_PATH = os.path.join(DATA_DIR, "outlier.db")
 
+
+def storage_is_ephemeral():
+    """True when the database will not survive the next deploy.
+
+    Render (and most PaaS free tiers) give each deploy a fresh filesystem.
+    A SQLite file written there is destroyed on every push — captures simply
+    vanish, with nothing in the UI to explain where they went. Detecting it
+    lets the app say so instead of silently losing a user's work.
+    """
+    if os.environ.get("DATA_DIR"):
+        return False   # explicitly pointed at a mounted disk
+    # RENDER is set on every Render instance; the generic PORT+no-DATA_DIR
+    # combination catches other PaaS hosts running the same way.
+    return bool(os.environ.get("RENDER") or os.environ.get("DYNO"))
+
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS sources (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

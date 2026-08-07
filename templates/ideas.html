@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Post ideas — Outlier{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div class="sage-title">
+    <span class="sage-orb"><span class="orb-core"></span></span>
+    <div>
+      <h1>Post ideas</h1>
+      <p class="sub">
+        {% if source %}
+          Modelled on what outperformed in <b>{{ source.name }}</b>.
+        {% else %}
+          Pick a group and Sage will write posts using the patterns that won there.
+        {% endif %}
+      </p>
+    </div>
+  </div>
+</section>
+
+{% if not configured %}
+<div class="glass notice reveal">
+  <b>Sage needs an API key.</b>
+  Add a Claude or OpenAI key in <a href="{{ url_for('settings') }}">Settings</a> first.
+</div>
+{% endif %}
+
+{% if source and not posts %}
+<div class="glass notice reveal">
+  <b>{{ source.name }} has no scored posts yet.</b>
+  A group needs 8 or more posts with engagement recorded before there's a
+  baseline — and a pattern worth copying. Scan it again to fill it in.
+</div>
+{% endif %}
+
+{% if sources %}
+<section class="glass panel reveal spotlight">
+  <div class="panel-head">
+    <h2>Choose a group</h2>
+    <span class="sub">Only groups with enough posts to score are listed.</span>
+  </div>
+  <div class="group-picker">
+    {% for s in sources %}
+    <button class="group-chip {{ 'selected' if source and s.id == source.id }}"
+            data-source-id="{{ s.id }}" data-source-name="{{ s.name }}">
+      <span class="gc-name">{{ s.name }}</span>
+      <span class="gc-meta">
+        {{ s.stats.post_count }} posts · best {{ s.stats.top_multiple }}×
+        {% if s.is_demo %}<span class="demo-chip">sample</span>{% endif %}
+      </span>
+    </button>
+    {% endfor %}
+  </div>
+
+  <button class="btn btn-primary" id="gen-ideas"
+          {{ 'disabled' if not configured or not source }}
+          data-source-id="{{ source.id if source else '' }}">
+    {% if source %}Write ideas for {{ source.name }}{% else %}Pick a group first{% endif %}
+  </button>
+  <div class="msg-line" id="ideas-status"></div>
+</section>
+{% else %}
+<div class="glass empty-panel">
+  <p>No group has enough scored posts yet. Capture a group first.</p>
+  <a class="btn btn-primary" href="{{ url_for('capture') }}">Capture a group</a>
+</div>
+{% endif %}
+
+{% if posts %}
+<section class="glass panel reveal">
+  <div class="panel-head">
+    <h2>What Sage is working from</h2>
+    <span class="sub">The top {{ posts|length }} outliers in this group.</span>
+  </div>
+  <ul class="basis-list">
+    {% for p in posts[:5] %}
+    <li>
+      <span class="basis-mult tier-{{ p.tier }}">{{ p.outlier_multiple }}×</span>
+      <span class="basis-body">{{ (p.body or '')[:110] }}{% if (p.body or '')|length > 110 %}…{% endif %}</span>
+    </li>
+    {% endfor %}
+  </ul>
+</section>
+{% endif %}
+
+<section id="ideas-output"></section>
+
+{% endblock %}

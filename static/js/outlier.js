@@ -306,6 +306,115 @@
     });
   }
 
+  /* ------------------------------------------------------------ ideas */
+
+  var genIdeas = document.getElementById("gen-ideas");
+  if (genIdeas) {
+    var ideasStatus = document.getElementById("ideas-status");
+    var ideasOutput = document.getElementById("ideas-output");
+
+    document.querySelectorAll(".group-chip").forEach(function (chip) {
+      chip.addEventListener("click", function () {
+        document.querySelectorAll(".group-chip").forEach(function (c) {
+          c.classList.remove("selected");
+        });
+        chip.classList.add("selected");
+        genIdeas.dataset.sourceId = chip.dataset.sourceId;
+        genIdeas.disabled = false;
+        genIdeas.textContent = "Write ideas for " + chip.dataset.sourceName;
+      });
+    });
+
+    genIdeas.addEventListener("click", function () {
+      var id = genIdeas.dataset.sourceId;
+      if (!id) return;
+
+      genIdeas.disabled = true;
+      var label = genIdeas.textContent;
+      genIdeas.textContent = "Writing…";
+      ideasStatus.className = "msg-line";
+      ideasStatus.textContent = "Reading the group's outliers and drafting posts.";
+
+      fetch("/api/ideas/" + id, { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not generate ideas");
+          renderIdeas(data.result);
+          ideasStatus.textContent = "";
+        })
+        .catch(function (error) {
+          ideasStatus.className = "msg-line error";
+          ideasStatus.textContent = error.message;
+        })
+        .finally(function () {
+          genIdeas.disabled = false;
+          genIdeas.textContent = label;
+        });
+    });
+
+    function renderIdeas(result) {
+      ideasOutput.textContent = "";
+
+      var panel = document.createElement("div");
+      panel.className = "glass panel reveal in";
+
+      var head = document.createElement("h2");
+      head.textContent = "What's working here";
+      panel.appendChild(head);
+
+      var read = document.createElement("p");
+      read.className = "why";
+      // textContent throughout — model output is never injected as markup.
+      read.textContent = result.read || "";
+      panel.appendChild(read);
+
+      (result.ideas || []).forEach(function (idea, index) {
+        var id = "idea-" + index;
+
+        var block = document.createElement("div");
+        block.className = "variant";
+        block.style.animationDelay = (index * 90) + "ms";
+
+        var top = document.createElement("div");
+        top.className = "variant-head";
+
+        var fmt = document.createElement("span");
+        fmt.className = "variant-angle";
+        fmt.textContent = idea.format || "text";
+
+        var copy = document.createElement("button");
+        copy.className = "copy-btn";
+        copy.dataset.copyTarget = id;
+        copy.textContent = "Copy post";
+
+        top.appendChild(fmt);
+        top.appendChild(copy);
+
+        var hook = document.createElement("div");
+        hook.className = "idea-hook";
+        hook.textContent = idea.hook || "";
+
+        var body = document.createElement("p");
+        body.className = "variant-body";
+        body.id = id;
+        body.textContent = idea.body || "";
+
+        var why = document.createElement("p");
+        why.className = "idea-why";
+        why.textContent = idea.why || "";
+
+        block.appendChild(top);
+        block.appendChild(hook);
+        block.appendChild(body);
+        block.appendChild(why);
+        panel.appendChild(block);
+      });
+
+      ideasOutput.appendChild(panel);
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   /* ------------------------------------------------------------ Sage */
 
   var chatForm = document.getElementById("chat-form");

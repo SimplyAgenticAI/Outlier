@@ -269,6 +269,157 @@ def ask(messages):
     return _ask_anthropic(config, messages)
 
 
+IDEAS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "read": {
+            "type": "string",
+            "description": "Two or three sentences on what is actually working in this group, grounded in the numbers.",
+        },
+        "ideas": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "hook": {"type": "string", "description": "The opening line on its own."},
+                    "body": {"type": "string", "description": "The full post, ready to publish."},
+                    "why": {"type": "string", "description": "One sentence: which observed pattern this borrows, and from which post."},
+                    "format": {"type": "string", "description": "text, photo, video, or link."},
+                },
+                "required": ["hook", "body", "why", "format"],
+                "additionalProperties": False,
+            },
+        },
+    },
+    "required": ["read", "ideas"],
+    "additionalProperties": False,
+}
+
+IDEAS_SYSTEM = SYSTEM + """
+
+Right now you are writing new post ideas for one specific group.
+
+Work from what the outliers in that group have in common — the hook shape, the
+degree of specificity, whether there is a personal stake, the length, the
+register. Then write posts that use those mechanics on entirely new material.
+
+Hard rules:
+- Never reuse an original's story, numbers, names, or examples. You are
+  borrowing structure, not content.
+- Match the group's register. A blunt, plainly-typed group should not get
+  polished marketing copy.
+- No hashtag stuffing, no emoji walls, no "comment YES below" engagement bait
+  unless the group's own winners do that.
+- Each idea must cite which observed pattern it borrows and from which post.
+- If the group's data is too thin or its engagement was not recorded, say so
+  in `read` and return fewer ideas rather than inventing a pattern."""
+
+
+def generate_ideas(source_name, posts, count=3):
+    """Write new post ideas modelled on what outperformed in one group."""
+    config = get_config()
+    if not config["has_key"]:
+        return None, "No API key set. Add one in Settings to generate ideas."
+
+    if not posts:
+        return None, "No scored posts in this group yet."
+
+    lines = []
+    for post in posts[:15]:
+        lines.append(
+            f"[{post['outlier_multiple']}x {post['tier']}] "
+            f"{post['likes']} reactions / {post['comments']} comments / "
+            f"{post['shares']} shares · {post['post_type']}\n"
+            f"{(post['body'] or '').strip()[:400]}\n"
+        )
+
+    user_content = (
+        f"Group: {source_name}\n"
+        f"Median post scores {posts[0]['baseline']:.0f} on the weighted scale.\n\n"
+        f"Its top-performing posts, best first:\n\n"
+        + "\n---\n".join(lines)
+        + f"\n\nWrite {count} new post ideas for this group."
+    )
+
+    messages = [{"role": "user", "content": user_content}]
+
+    if config["provider"] == "openai":
+        return _ideas_openai(config, messages)
+    return _ideas_anthropic(config, messages)
+
+
+def _ideas_anthropic(config, messages):
+    try:
+        import anthropic
+    except ImportError:
+        return None, "The anthropic package is not installed."
+
+    client = anthropic.Anthropic(api_key=config["key"])
+    try:
+        response = client.messages.create(
+            model=config["model"] or ANTHROPIC_MODEL,
+            max_tokens=8000,
+            system=IDEAS_SYSTEM,
+            thinking={"type": "adaptive"},
+            output_config={
+                "effort": "high",
+                "format": {"type": "json_schema", "schema": IDEAS_SCHEMA},
+            },
+            messages=messages,
+        )
+    except anthropic.AuthenticationError:
+        return None, "That Anthropic key was rejected."
+    except anthropic.APIStatusError as exc:
+        return None, f"Anthropic error ({exc.status_code}): {exc.message}"
+    except anthropic.APIConnectionError:
+        return None, "Could not reach Anthropic."
+
+    if response.stop_reason == "refusal":
+        return None, "The model declined this request."
+
+    text = next((b.text for b in response.content if b.type == "text"), None)
+    if not text:
+        return None, "No usable output."
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError:
+        return None, "Could not parse the response."
+
+
+def _ideas_openai(config, messages):
+    try:
+        import openai
+    except ImportError:
+        return None, "The openai package is not installed."
+
+    client = openai.OpenAI(api_key=config["key"])
+    try:
+        response = client.chat.completions.create(
+            model=config["model"] or OPENAI_MODEL,
+            max_tokens=8000,
+            response_format={"type": "json_object"},
+            messages=[{
+                "role": "system",
+                "content": IDEAS_SYSTEM + "\n\nRespond with JSON matching: "
+                           + json.dumps(IDEAS_SCHEMA),
+            }] + messages,
+        )
+    except openai.AuthenticationError:
+        return None, "That OpenAI key was rejected."
+    except openai.APIStatusError as exc:
+        return None, f"OpenAI error ({exc.status_code})."
+    except openai.APIConnectionError:
+        return None, "Could not reach OpenAI."
+
+    text = response.choices[0].message.content
+    if not text:
+        return None, "No usable output."
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError:
+        return None, "Could not parse the response."
+
+
 SUGGESTED = [
     "What's actually working across my groups right now?",
     "Which post should I remix first, and why that one?",

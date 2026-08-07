@@ -15,7 +15,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "1.1"
+APP_VERSION = "1.2"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -80,9 +80,18 @@ def _global_stats(scored):
 def feed():
     """The outlier feed — posts ranked by how far they beat their own baseline."""
     tier_filter = request.args.get("tier", "all")
-    scored = outliers.score_posts(_fetch_posts())
+    show_samples = request.args.get("samples") == "1"
+
+    all_posts = _fetch_posts()
+    scored = outliers.score_posts(all_posts)
+
+    real_count = sum(1 for s in scored if not s["is_demo"])
 
     visible = [s for s in scored if s["has_baseline"]]
+    # Once there are real captures, sample posts stop being helpful and start
+    # being noise you have to mentally filter — so hide them by default.
+    if real_count and not show_samples:
+        visible = [s for s in visible if not s["is_demo"]]
     if tier_filter != "all":
         visible = [s for s in visible if s["tier"] == tier_filter]
 
@@ -93,6 +102,12 @@ def feed():
         tier_filter=tier_filter,
         tier_labels=outliers.TIER_LABELS,
         has_data=bool(scored),
+        real_count=real_count,
+        sample_count=len(scored) - real_count,
+        show_samples=show_samples,
+        # Distinguishes "nothing captured" from "captured, but not enough of
+        # any one group to score" — completely different problems.
+        unscored_count=sum(1 for s in scored if not s["has_baseline"]),
         version=APP_VERSION,
         active="feed",
     )
@@ -128,7 +143,15 @@ def _sources_with_stats():
             round(source["engaged_count"] / source["post_count"] * 100)
             if source["post_count"] else 0
         )
-    return sources
+
+    # Real captures first, newest first. Sample data is a demonstration and
+    # should never sit above the group the user just scanned.
+    sources.sort(key=lambda s: (s["is_demo"], s["last_capture"] or ""), reverse=False)
+    sources.sort(key=lambda s: s["is_demo"])
+    real = [s for s in sources if not s["is_demo"]]
+    demo = [s for s in sources if s["is_demo"]]
+    real.sort(key=lambda s: s["last_capture"] or "", reverse=True)
+    return real + demo
 
 
 @app.route("/groups")
@@ -160,6 +183,71 @@ def sage_page():
         version=APP_VERSION,
         active="sage",
     )
+
+
+@app.route("/ideas")
+def ideas_page():
+    """Post ideas modelled on what outperformed in one group.
+
+    Reached straight from the extension when a scan finishes, so `source` is
+    the Facebook id rather than our row id.
+    """
+    fb_id = request.args.get("source")
+    source_id = request.args.get("source_id", type=int)
+
+    with db.get_db() as conn:
+        if fb_id:
+            row = conn.execute("SELECT * FROM sources WHERE fb_id = ?", (fb_id,)).fetchone()
+        elif source_id:
+            row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+        else:
+            row = None
+
+    sources = _sources_with_stats()
+    scoreable = [s for s in sources if s["stats"] and s["stats"]["has_baseline"]]
+
+    source = dict(row) if row else None
+    posts = []
+    if source:
+        posts = [
+            p for p in outliers.score_posts(_fetch_posts(source_id=source["id"]))
+            if p["has_baseline"]
+        ]
+
+    return render_template(
+        "ideas.html",
+        source=source,
+        posts=posts[:10],
+        sources=scoreable,
+        configured=sage.is_configured(),
+        version=APP_VERSION,
+        active="ideas",
+    )
+
+
+@app.route("/api/ideas/<int:source_id>", methods=["POST"])
+def api_ideas(source_id):
+    with db.get_db() as conn:
+        row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+    if not row:
+        return jsonify({"ok": False, "error": "Group not found"}), 404
+
+    scored = [
+        p for p in outliers.score_posts(_fetch_posts(source_id=source_id))
+        if p["has_baseline"]
+    ]
+    if not scored:
+        return jsonify({
+            "ok": False,
+            "error": "This group has no scored posts yet — it needs 8+ posts "
+                     "with engagement before there's a pattern to work from.",
+        }), 400
+
+    result, error = sage.generate_ideas(row["name"], scored)
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+
+    return jsonify({"ok": True, "result": result})
 
 
 @app.route("/api/sage", methods=["POST"])
@@ -351,6 +439,12 @@ def capture():
 
 
 # ---------------------------------------------------------------- ingest API
+
+
+@app.context_processor
+def inject_globals():
+    """Values every page needs, so no route can forget them."""
+    return {"ephemeral": db.storage_is_ephemeral()}
 
 
 def _is_local_dashboard():

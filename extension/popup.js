@@ -171,6 +171,40 @@ el("save-endpoint").addEventListener("click", async () => {
 
 /* ---------------------------------------------------------- init */
 
+/* ---------------------------------------------------------- scan limit */
+
+// Guidance rather than a bare number: the useful range is bounded at both
+// ends. Too few posts and there is no median to compare against; too many and
+// you are scoring year-old posts against this month's, which is not a fair
+// comparison and takes a long time to collect.
+const maxPostsEl = el("max-posts");
+const limitValEl = el("limit-val");
+const limitHintEl = el("limit-hint");
+
+function limitHint(n) {
+  if (n <= 75)  return "Quick look. Enough for a baseline, but thin — expect roughly 1–2 min.";
+  if (n <= 150) return "Good for a smaller or quieter group. Roughly 2–4 min.";
+  if (n <= 250) return "The sweet spot for most groups: a solid baseline from recent posts. Roughly 4–7 min.";
+  if (n <= 375) return "Deep scan. Reaches further back, so older posts get compared against newer ones. 7–12 min.";
+  return "Very deep. Mostly useful for slow groups where 200 posts spans years. 12+ min.";
+}
+
+function renderLimit(n) {
+  limitValEl.textContent = n + " posts";
+  limitHintEl.textContent = limitHint(n);
+}
+
+maxPostsEl.addEventListener("input", () => {
+  renderLimit(parseInt(maxPostsEl.value, 10));
+});
+maxPostsEl.addEventListener("change", () => {
+  const n = parseInt(maxPostsEl.value, 10);
+  // Scale the time ceiling with the post target so a big scan isn't cut short
+  // by a limit sized for a small one.
+  chrome.storage.local.set({ maxPosts: n, maxMinutes: Math.max(5, Math.round(n / 20)) });
+  say("Scans will stop at " + n + " posts.", "ok");
+});
+
 const autoUpdateEl = el("auto-update");
 autoUpdateEl.addEventListener("change", () => {
   chrome.storage.local.set({ autoUpdate: autoUpdateEl.checked });
@@ -184,11 +218,16 @@ autoUpdateEl.addEventListener("change", () => {
   activeTabId = tab ? tab.id : null;
 
   const state = await chrome.storage.local.get([
-    "enabled", "endpoint", "totalCaptured", "autoUpdate", "lastUpdateFrom", "lastUpdateTo"
+    "enabled", "endpoint", "totalCaptured", "autoUpdate",
+    "lastUpdateFrom", "lastUpdateTo", "maxPosts"
   ]);
   totalEl.textContent = state.totalCaptured || 0;
   toggleEl.checked = state.enabled !== false;
   autoUpdateEl.checked = state.autoUpdate !== false;
+
+  const limit = state.maxPosts || 200;
+  maxPostsEl.value = limit;
+  renderLimit(limit);
   endpointEl.value = state.endpoint || "http://localhost:5050";
   openLink.href = endpointEl.value;
 

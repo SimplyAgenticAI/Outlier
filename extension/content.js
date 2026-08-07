@@ -19,18 +19,57 @@
   var autoScrolling = false;
   var scrollTimer = null;
   var idleScrolls = 0;
+  var currentSourceId = null;   // resets counters when you move to a new group
 
-  var STATS = {
-    articles: 0,     // role="article" nodes on the page
-    candidates: 0,   // top-level ones (comments excluded)
-    skipped: 0,      // rejected as shells / author-name-only
-    queued: 0,
-    sent: 0,
-    added: 0,
-    withEngagement: 0,   // how many carried a real reaction count
-    lastError: null,
-    log: []
-  };
+  // A scan needs a finish line. Left alone it would scroll until Facebook
+  // stops serving posts, which in a large group is effectively forever, and
+  // engagement on very old posts is not comparable to recent ones anyway.
+  var DEFAULT_MAX_POSTS = 200;
+  var DEFAULT_MAX_MINUTES = 10;
+  var maxPosts = DEFAULT_MAX_POSTS;
+  var maxMinutes = DEFAULT_MAX_MINUTES;
+  var scanStartedAt = 0;
+  var endpointLabel = null;
+
+  function hostOf(url) {
+    try {
+      var parsed = new URL(url);
+      return parsed.hostname + (parsed.port ? ":" + parsed.port : "");
+    } catch (e) {
+      return url;
+    }
+  }
+
+  function blankStats() {
+    return {
+      articles: 0,     // role="article" nodes on the page
+      candidates: 0,   // top-level ones (comments excluded)
+      skipped: 0,      // rejected as shells / author-name-only
+      queued: 0,
+      sent: 0,
+      added: 0,
+      withEngagement: 0,   // how many carried a real reaction count
+      lastError: null,
+      done: null,          // why the scan finished, once it has
+      log: []
+    };
+  }
+
+  var STATS = blankStats();
+
+  // Counts belong to one group. Carrying them across a navigation makes it
+  // look like posts were captured here that came from somewhere else.
+  function resetForSource(source) {
+    var id = source ? source.fb_id : null;
+    if (id === currentSourceId) return false;
+
+    currentSourceId = id;
+    SEEN = new Set();
+    QUEUE = [];
+    STATS = blankStats();
+    if (source) logLine("— " + source.name.slice(0, 30) + " —");
+    return true;
+  }
 
   function logLine(text) {
     STATS.log.unshift(new Date().toLocaleTimeString().slice(0, 8) + "  " + text);
@@ -60,8 +99,21 @@
   // them), so reading the first one names every group the same thing. The
   // document title is the reliable source: "Frequency Healing | Facebook".
   function nameFromTitle(fallback) {
-    var title = (document.title || "").replace(/\s*\|\s*Facebook\s*$/i, "").trim();
-    var junk = ["", "Facebook", "Notifications", "Home", "Watch", "Marketplace", "Groups"];
+    var title = (document.title || "")
+      // Unread badge: "(9) Neil deGrasse Tyson" — otherwise the same group
+      // saves under a different name every time the count changes.
+      .replace(/^\(\d+\+?\)\s*/, "")
+      .replace(/\s*\|\s*Facebook\s*$/i, "")
+      .trim();
+
+    // A pipe still present means Facebook appended a post preview
+    // ("Neil deGrasse Tyson | How do you feel about…"). Keep the group.
+    if (title.indexOf("|") !== -1) title = title.split("|")[0].trim();
+
+    // Facebook often still shows the previous page's title for a moment after
+    // an in-app navigation, so a landing-page name here is stale, not real.
+    var junk = ["", "Facebook", "Notifications", "Home", "Watch", "Marketplace",
+                "Groups", "Feed", "Your Groups", "Groups Feed"];
     if (title && junk.indexOf(title) === -1) return title.slice(0, 120);
     return fallback;
   }
@@ -303,6 +355,12 @@
       return 0;
     }
 
+    // Facebook is a single-page app, so moving between groups never reloads
+    // this script — the switch has to be noticed here.
+    if (resetForSource(source) && autoScrolling) {
+      stopAutoScroll("Moved to a new group — counters reset");
+    }
+
     var articles = document.querySelectorAll('div[role="article"]');
     STATS.articles = articles.length;
 
@@ -431,7 +489,9 @@
 
     autoScrolling = true;
     idleScrolls = 0;
+    scanStartedAt = Date.now();
     STATS.lastError = null;
+    STATS.done = null;
     // Tells the service worker not to self-update mid-capture.
     try { chrome.storage.local.set({ capturing: true }); } catch (e) {}
     renderHud();
@@ -445,12 +505,25 @@
         var found = scanPosts();
         flush();
 
+        // Three ways a scan ends, all of them deliberate.
+        if (SEEN.size >= maxPosts) {
+          stopAutoScroll(null, "Target reached — " + SEEN.size + " posts");
+          return;
+        }
+
+        var minutes = (Date.now() - scanStartedAt) / 60000;
+        if (minutes >= maxMinutes) {
+          stopAutoScroll(null, "Time limit — " + SEEN.size + " posts in " +
+                               Math.round(minutes) + " min");
+          return;
+        }
+
         // Bottom of the feed: scroll position stopped moving and nothing new
         // came in. Facebook lazy-loads, so allow several idle passes first.
         if (window.scrollY <= before + 8 && found === 0) {
           idleScrolls++;
           if (idleScrolls >= 6) {
-            stopAutoScroll("Reached the end of the feed");
+            stopAutoScroll(null, "Reached the end — " + SEEN.size + " posts");
           }
         } else {
           idleScrolls = 0;
@@ -459,11 +532,15 @@
     }, 2200);
   }
 
-  function stopAutoScroll(reason) {
+  function stopAutoScroll(reason, done) {
     autoScrolling = false;
     clearInterval(scrollTimer);
     scrollTimer = null;
     if (reason) STATS.lastError = reason;
+    if (done) {
+      STATS.done = done;
+      logLine("✓ " + done);
+    }
     try { chrome.storage.local.set({ capturing: false }); } catch (e) {}
     if (contextAlive()) flush();
     renderHud();
@@ -522,7 +599,7 @@
       border: "1px solid rgba(110,231,183,0.32)",
       boxShadow: "0 16px 48px rgba(0,0,0,0.6)", color: "#eafff3",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      fontSize: "14px", lineHeight: "1.5",
+      fontSize: "13px", lineHeight: "1.5",
       resize: "both"   // native corner grip
     });
 
@@ -530,27 +607,27 @@
     var header = document.createElement("div");
     styleEl(header, {
       display: "flex", alignItems: "center", justifyContent: "space-between",
-      padding: "12px 15px", cursor: "move", flexShrink: "0",
+      padding: "0.9em 1.1em", cursor: "move", flexShrink: "0",
       background: "rgba(16,40,27,0.75)",
       borderBottom: "1px solid rgba(110,231,183,0.18)"
     });
 
     var title = document.createElement("span");
     title.textContent = "Outlier";
-    styleEl(title, { fontWeight: "700", fontSize: "16px", letterSpacing: "-0.2px" });
+    styleEl(title, { fontWeight: "700", fontSize: "1.2em", letterSpacing: "-0.2px" });
 
     var controls = document.createElement("span");
-    styleEl(controls, { display: "flex", gap: "12px", alignItems: "center" });
+    styleEl(controls, { display: "flex", gap: "0.9em", alignItems: "center" });
 
     var collapse = document.createElement("span");
     collapse.textContent = "–";
     collapse.title = "Collapse";
-    styleEl(collapse, { cursor: "pointer", opacity: "0.6", fontSize: "20px", lineHeight: "1" });
+    styleEl(collapse, { cursor: "pointer", opacity: "0.6", fontSize: "1.5em", lineHeight: "1" });
 
     var close = document.createElement("span");
     close.textContent = "×";
     close.title = "Hide until reload";
-    styleEl(close, { cursor: "pointer", opacity: "0.6", fontSize: "20px", lineHeight: "1" });
+    styleEl(close, { cursor: "pointer", opacity: "0.6", fontSize: "1.5em", lineHeight: "1" });
     close.addEventListener("click", function () { hud.style.display = "none"; });
 
     controls.appendChild(collapse);
@@ -561,7 +638,7 @@
     var content = document.createElement("div");
     styleEl(content, {
       display: "flex", flexDirection: "column", flex: "1",
-      padding: "14px 15px", overflow: "hidden", minHeight: "0"
+      padding: "1em 1.1em", overflow: "hidden", minHeight: "0"
     });
 
     collapse.addEventListener("click", function () {
@@ -592,7 +669,20 @@
       dragging = false;
       saveHudBox();
     });
-    new ResizeObserver(function () { saveHudBox(); }).observe(hud);
+    // Resizing was only ever making the box bigger, not the text — which
+    // defeats the point of resizing it. Everything inside is sized in em, so
+    // scaling the root font-size scales the whole panel together.
+    function rescale() {
+      var width = hud.getBoundingClientRect().width || 380;
+      var scale = Math.max(0.85, Math.min(width / 380, 2.1));
+      hud.style.fontSize = (13 * scale).toFixed(2) + "px";
+    }
+
+    new ResizeObserver(function () {
+      rescale();
+      saveHudBox();
+    }).observe(hud);
+    rescale();
 
     /* --- stat rows --- */
     hudBody = document.createElement("div");
@@ -602,24 +692,24 @@
     var logLabel = document.createElement("div");
     logLabel.textContent = "Recent posts (reactions / comments / shares)";
     styleEl(logLabel, {
-      fontSize: "11.5px", color: "#567a67", margin: "12px 0 6px", flexShrink: "0"
+      fontSize: "0.85em", color: "#567a67", margin: "0.9em 0 0.45em", flexShrink: "0"
     });
 
     hudLog = document.createElement("div");
     styleEl(hudLog, {
       flex: "1", minHeight: "60px", overflowY: "auto",
-      padding: "8px 10px", borderRadius: "9px",
+      padding: "0.6em 0.75em", borderRadius: "9px",
       background: "rgba(4,14,9,0.7)", border: "1px solid rgba(110,231,183,0.14)",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      fontSize: "11.5px", lineHeight: "1.65", color: "#7fa693",
+      fontSize: "0.84em", lineHeight: "1.65", color: "#7fa693",
       whiteSpace: "pre", scrollbarWidth: "thin"
     });
 
     /* --- buttons --- */
     hudBtn = document.createElement("button");
     styleEl(hudBtn, {
-      width: "100%", marginTop: "12px", padding: "11px", borderRadius: "9px",
-      border: "none", cursor: "pointer", fontWeight: "700", fontSize: "14px",
+      width: "100%", marginTop: "0.9em", padding: "0.8em", borderRadius: "9px",
+      border: "none", cursor: "pointer", fontWeight: "700", fontSize: "1.05em",
       flexShrink: "0"
     });
     hudBtn.addEventListener("click", function () {
@@ -628,7 +718,7 @@
     });
 
     var rowBtns = document.createElement("div");
-    styleEl(rowBtns, { display: "flex", gap: "7px", marginTop: "7px", flexShrink: "0" });
+    styleEl(rowBtns, { display: "flex", gap: "0.5em", marginTop: "0.5em", flexShrink: "0" });
 
     var manual = document.createElement("button");
     manual.textContent = "Scan visible";
@@ -637,9 +727,9 @@
 
     [manual, dash].forEach(function (button) {
       styleEl(button, {
-        flex: "1", padding: "9px", borderRadius: "8px",
+        flex: "1", padding: "0.65em", borderRadius: "8px",
         border: "1px solid rgba(110,231,183,0.24)", cursor: "pointer",
-        background: "transparent", color: "#7fa693", fontSize: "12.5px"
+        background: "transparent", color: "#7fa693", fontSize: "0.9em"
       });
     });
 
@@ -668,7 +758,7 @@
     var line = document.createElement("div");
     styleEl(line, {
       display: "flex", justifyContent: "space-between",
-      padding: "3px 0", fontSize: "13.5px"
+      padding: "0.22em 0", fontSize: "0.98em"
     });
 
     var l = document.createElement("span");
@@ -694,9 +784,23 @@
       source ? source.name.slice(0, 24) : "unsupported",
       source ? "#6ee7b7" : "#e07a5f"
     ));
+    // Which dashboard this is feeding. Without it you can scan happily into
+    // localhost while reading a hosted dashboard and never see your posts.
+    hudBody.appendChild(row("Sending to", endpointLabel || "…",
+                            endpointLabel ? "#7fa693" : null));
     hudBody.appendChild(row("Posts on page", String(STATS.candidates)));
+    hudBody.appendChild(row(
+      "Captured this group",
+      SEEN.size + " / " + maxPosts,
+      SEEN.size >= maxPosts ? "#6ee7b7" : null
+    ));
     hudBody.appendChild(row("Sent to dashboard", String(STATS.sent)));
     hudBody.appendChild(row("New (not duplicates)", String(STATS.added), "#6ee7b7"));
+
+    if (autoScrolling) {
+      var elapsed = Math.round((Date.now() - scanStartedAt) / 60000 * 10) / 10;
+      hudBody.appendChild(row("Elapsed", elapsed + " / " + maxMinutes + " min"));
+    }
 
     // Engagement coverage is the number that matters: posts land with zeroed
     // counts when the reaction selectors drift, and outlier scoring is
@@ -718,11 +822,40 @@
       hudBody.appendChild(row("⚠ engagement", "not reading", "#d9b45f"));
     }
 
+    // A finished scan should hand you the next action, not just stop.
+    if (STATS.done && !autoScrolling) {
+      var doneBox = document.createElement("div");
+      doneBox.textContent = STATS.done;
+      styleEl(doneBox, {
+        marginTop: "0.65em", padding: "0.6em 0.75em", fontSize: "0.92em",
+        color: "#6ee7b7", borderRadius: "8px",
+        background: "rgba(52,211,153,0.12)",
+        border: "1px solid rgba(110,231,183,0.35)"
+      });
+      hudBody.appendChild(doneBox);
+
+      var ideas = document.createElement("button");
+      ideas.textContent = "Get post ideas from this scan →";
+      styleEl(ideas, {
+        width: "100%", marginTop: "0.5em", padding: "0.7em", borderRadius: "8px",
+        border: "1px solid rgba(110,231,183,0.4)", cursor: "pointer",
+        background: "rgba(52,211,153,0.14)", color: "#6ee7b7",
+        fontSize: "0.95em", fontWeight: "650"
+      });
+      ideas.addEventListener("click", function () {
+        chrome.storage.local.get(["endpoint"], function (state) {
+          var base = state.endpoint || "http://localhost:5050";
+          window.open(base + "/ideas?source=" + encodeURIComponent(currentSourceId), "_blank");
+        });
+      });
+      hudBody.appendChild(ideas);
+    }
+
     if (STATS.lastError) {
       var err = document.createElement("div");
       err.textContent = STATS.lastError;
       styleEl(err, {
-        marginTop: "9px", padding: "8px 10px", fontSize: "12.5px",
+        marginTop: "0.65em", padding: "0.6em 0.75em", fontSize: "0.92em",
         color: "#f0c274", borderRadius: "8px",
         background: "rgba(217,180,95,0.12)",
         border: "1px solid rgba(217,180,95,0.3)"
@@ -742,17 +875,26 @@
 
   /* ------------------------------------------------------ wiring */
 
-  chrome.storage.local.get(["enabled"], function (state) {
-    enabled = state.enabled !== false;
-    renderHud();
-  });
+  chrome.storage.local.get(
+    ["enabled", "maxPosts", "maxMinutes", "endpoint"],
+    function (state) {
+      enabled = state.enabled !== false;
+      maxPosts = state.maxPosts || DEFAULT_MAX_POSTS;
+      maxMinutes = state.maxMinutes || DEFAULT_MAX_MINUTES;
+      endpointLabel = hostOf(state.endpoint || "http://localhost:5050");
+      renderHud();
+    }
+  );
 
   chrome.storage.onChanged.addListener(function (changes) {
     if (changes.enabled) {
       enabled = changes.enabled.newValue !== false;
       if (!enabled && autoScrolling) stopAutoScroll("Capture turned off");
-      renderHud();
     }
+    if (changes.maxPosts) maxPosts = changes.maxPosts.newValue || DEFAULT_MAX_POSTS;
+    if (changes.maxMinutes) maxMinutes = changes.maxMinutes.newValue || DEFAULT_MAX_MINUTES;
+    if (changes.endpoint) endpointLabel = hostOf(changes.endpoint.newValue || "");
+    renderHud();
   });
 
   chrome.runtime.onMessage.addListener(function (message, _sender, sendResponse) {

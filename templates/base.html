@@ -39,6 +39,17 @@
 </header>
 
 <main class="page">
+  {% if ephemeral %}
+  {# Silent data loss is the worst failure mode in the app — captures just
+     disappear on the next deploy with nothing to explain it. #}
+  <div class="ephemeral-warning">
+    <b>Captured posts will be lost when this app restarts.</b>
+    This dashboard is hosted on a disk that resets on every deploy, so scans
+    don't survive. Run Outlier on your own machine to keep your data —
+    <a href="{{ url_for('capture') }}">see how</a>.
+  </div>
+  {% endif %}
+
   {% block content %}{% endblock %}
 </main>
 
