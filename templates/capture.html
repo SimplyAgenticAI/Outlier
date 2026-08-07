@@ -13,38 +13,60 @@
 
   <div class="glass install-panel reveal spotlight">
     <h2>Install the extension</h2>
+    <p class="fine install-lead">
+      Load it straight from the project folder, not from a zip. Chrome reads an
+      unpacked extension off disk every time it starts, so pointing it at the
+      real folder means updates arrive on their own. A zip is a frozen copy and
+      will never change.
+    </p>
+
     <ol class="steps">
       <li>
         <span class="step-n">1</span>
         <div>
-          <b>Download the extension</b>
-          <p>An unpacked Chrome extension, zipped.</p>
-          <a class="btn btn-primary" href="{{ url_for('download_extension') }}">Download .zip</a>
+          <b>Open the extensions page</b>
+          <p>Go to <code>chrome://extensions</code> and turn on
+             <b>Developer mode</b> (top right).</p>
         </div>
       </li>
       <li>
         <span class="step-n">2</span>
         <div>
-          <b>Unzip it somewhere permanent</b>
-          <p>Chrome loads it from disk, so don't unzip into Downloads and clear it later.</p>
+          <b>Load unpacked → pick the <code>extension</code> folder</b>
+          <p>Not a zip, not a copy — the folder inside your Outlier project:</p>
+          <div class="endpoint-box">
+            <code id="ext-path">{{ extension_path }}</code>
+            <button class="copy-btn" data-copy-target="ext-path">Copy path</button>
+          </div>
         </div>
       </li>
       <li>
         <span class="step-n">3</span>
         <div>
-          <b>Load it in Chrome</b>
-          <p>Go to <code>chrome://extensions</code>, turn on <b>Developer mode</b>
-             (top right), click <b>Load unpacked</b>, and pick the unzipped folder.</p>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">4</span>
-        <div>
-          <b>Open a Facebook group and scroll</b>
-          <p>Posts are captured as they render. The extension badge shows the running count.</p>
+          <b>Open a Facebook group and press Start</b>
+          <p>Posts are captured as they render. The panel on the page shows
+             what it's reading.</p>
         </div>
       </li>
     </ol>
+
+    <div class="update-note">
+      <b>Updates are automatic from here.</b>
+      The extension checks this dashboard every minute and reloads itself when
+      the files on disk change — no removing and re-adding. It waits until
+      you're not mid-capture, and any Facebook tab left open will prompt you to
+      refresh it.
+    </div>
+
+    <details class="share-details">
+      <summary>Sharing it with someone else</summary>
+      <p class="fine">
+        A zip is the right format for handing the extension to another person,
+        since they won't have the project folder. It won't auto-update for
+        them — they'll need a fresh zip each time.
+      </p>
+      <a class="btn btn-ghost" href="{{ url_for('download_extension') }}">Download .zip</a>
+    </details>
 
     <div class="endpoint-box">
       <span class="endpoint-label">Dashboard endpoint (already set in the extension)</span>

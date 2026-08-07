@@ -13,7 +13,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "0.8"
+APP_VERSION = "0.9"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -337,6 +337,10 @@ def capture():
     return render_template(
         "capture.html",
         recent_captures=recent,
+        # Absolute path to the folder Chrome should load, so the user can copy
+        # it rather than hunting for it.
+        extension_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "extension"),
+        extension_version=_extension_version(),
         has_data=db.has_any_posts(),
         version=APP_VERSION,
         active="capture",
@@ -346,12 +350,30 @@ def capture():
 # ---------------------------------------------------------------- ingest API
 
 
+def _extension_version():
+    """Read the version straight from the extension manifest on disk.
+
+    This is what makes self-update work: the file changes whenever the
+    extension does, so the running copy can notice it has fallen behind.
+    """
+    path = os.path.join(os.path.dirname(__file__), "extension", "manifest.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle).get("version", "0.0.0")
+    except (OSError, json.JSONDecodeError):
+        return "0.0.0"
+
+
 @app.route("/api/ping", methods=["GET", "POST", "OPTIONS"])
 def api_ping():
     """The extension calls this to confirm the dashboard is reachable."""
     if request.method == "OPTIONS":
         return "", 204
-    return jsonify({"ok": True, "version": APP_VERSION})
+    return jsonify({
+        "ok": True,
+        "version": APP_VERSION,
+        "extension_version": _extension_version(),
+    })
 
 
 @app.route("/api/capture", methods=["POST", "OPTIONS"])

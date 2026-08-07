@@ -78,15 +78,28 @@ function checkConnection() {
   statusEl.textContent = "checking…";
   dotEl.className = "dot";
 
+  const running = chrome.runtime.getManifest().version;
+
   chrome.runtime.sendMessage({ type: "OUTLIER_PING" }, (response) => {
     if (chrome.runtime.lastError || !response || !response.ok) {
       dotEl.className = "dot off";
       statusEl.textContent = "offline";
-      return false;
+      el("ext-version").textContent = "v" + running;
+      return;
     }
     dotEl.className = "dot on";
     statusEl.textContent = "v" + response.version;
-    return true;
+
+    // A mismatch means newer files are on disk and the next check will adopt
+    // them — unless this copy was loaded from a zip, which never changes.
+    const latest = response.extension_version;
+    if (latest && latest !== running) {
+      el("ext-version").innerHTML =
+        '<span style="color:#d9b45f">v' + running + " → v" + latest + "</span>";
+      say("Update available. Reloading shortly…", "warn");
+    } else {
+      el("ext-version").textContent = "v" + running + " (current)";
+    }
   });
 }
 
@@ -149,15 +162,32 @@ el("save-endpoint").addEventListener("click", async () => {
 
 /* ---------------------------------------------------------- init */
 
+const autoUpdateEl = el("auto-update");
+autoUpdateEl.addEventListener("change", () => {
+  chrome.storage.local.set({ autoUpdate: autoUpdateEl.checked });
+  say(autoUpdateEl.checked
+    ? "Auto-update on — picks up changes within a minute."
+    : "Auto-update off.", "ok");
+});
+
 (async function init() {
   const tab = await getActiveTab();
   activeTabId = tab ? tab.id : null;
 
-  const state = await chrome.storage.local.get(["enabled", "endpoint", "totalCaptured"]);
+  const state = await chrome.storage.local.get([
+    "enabled", "endpoint", "totalCaptured", "autoUpdate", "lastUpdateFrom", "lastUpdateTo"
+  ]);
   totalEl.textContent = state.totalCaptured || 0;
   toggleEl.checked = state.enabled !== false;
+  autoUpdateEl.checked = state.autoUpdate !== false;
   endpointEl.value = state.endpoint || "http://localhost:5050";
   openLink.href = endpointEl.value;
+
+  // Report a completed self-update once, then clear the marker.
+  if (state.lastUpdateTo && state.lastUpdateTo === chrome.runtime.getManifest().version) {
+    say("Updated to v" + state.lastUpdateTo + ". Reload any open Facebook tabs.", "ok");
+    chrome.storage.local.remove(["lastUpdateFrom", "lastUpdateTo"]);
+  }
 
   checkConnection();
   refreshFromPage();

@@ -592,6 +592,35 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 .post-card.is-demo { border-left: 2px solid rgba(217,180,95,0.45); }
 .source-card.is-demo { border-left: 2px solid rgba(217,180,95,0.45); }
 
+/* ------------------------------------------------------- install / update */
+
+.install-lead { margin: 0 0 18px; }
+
+.update-note {
+  margin-top: 20px; padding: 14px 16px; border-radius: 11px;
+  font-size: 13px; line-height: 1.65; color: var(--text-muted);
+  background: rgba(52,211,153,0.07);
+  border: 1px solid var(--border-lit);
+}
+.update-note b { color: var(--emerald-bright); }
+
+.share-details {
+  margin-top: 16px; padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.share-details summary {
+  cursor: pointer; font-size: 13px; color: var(--text-muted);
+  list-style: none; transition: color 0.18s var(--ease);
+}
+.share-details summary::-webkit-details-marker { display: none; }
+.share-details summary::before {
+  content: "▸ "; color: var(--text-faint);
+  display: inline-block; transition: transform 0.2s var(--ease);
+}
+.share-details[open] summary::before { content: "▾ "; }
+.share-details summary:hover { color: var(--emerald-bright); }
+.share-details p { margin: 11px 0 13px; }
+
 /* ---------------------------------------------------------------- Sage */
 
 .sage-title { display: flex; align-items: center; gap: 14px; }

@@ -368,6 +368,12 @@
     var batch = QUEUE.splice(0, QUEUE.length);
     STATS.queued = 0;
 
+    if (!contextAlive()) {
+      QUEUE = batch.concat(QUEUE);
+      handleOrphaned();
+      return;
+    }
+
     chrome.runtime.sendMessage(
       { type: "OUTLIER_CAPTURE", source: source, posts: batch },
       function (response) {
@@ -394,11 +400,40 @@
 
   /* ------------------------------------------------------ auto-scroll */
 
+  // When the extension reloads (self-update), scripts already injected into
+  // open tabs are orphaned — chrome.runtime.id goes undefined and every API
+  // call throws. Without this the HUD just silently stops working.
+  function contextAlive() {
+    try {
+      return !!(chrome.runtime && chrome.runtime.id);
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function handleOrphaned() {
+    stopAutoScroll(null);
+    if (!hud) return;
+    STATS.lastError = "Extension updated. Reload this page to continue.";
+    renderHud();
+
+    if (hudBtn) {
+      hudBtn.textContent = "Reload page";
+      hudBtn.style.background = "linear-gradient(135deg, #d9b45f, #b8933f)";
+      hudBtn.style.color = "#1a1305";
+      hudBtn.onclick = function () { window.location.reload(); };
+    }
+  }
+
   function startAutoScroll() {
     if (autoScrolling) return;
+    if (!contextAlive()) { handleOrphaned(); return; }
+
     autoScrolling = true;
     idleScrolls = 0;
     STATS.lastError = null;
+    // Tells the service worker not to self-update mid-capture.
+    try { chrome.storage.local.set({ capturing: true }); } catch (e) {}
     renderHud();
 
     scrollTimer = setInterval(function () {
@@ -429,7 +464,8 @@
     clearInterval(scrollTimer);
     scrollTimer = null;
     if (reason) STATS.lastError = reason;
-    flush();
+    try { chrome.storage.local.set({ capturing: false }); } catch (e) {}
+    if (contextAlive()) flush();
     renderHud();
   }
 
@@ -735,6 +771,12 @@
   }).observe(document.body, { childList: true, subtree: true });
 
   setInterval(flush, 4000);
+
+  // Poll for orphaning even when idle, so a tab left open across an update
+  // shows the reload prompt rather than looking alive but doing nothing.
+  setInterval(function () {
+    if (!contextAlive()) handleOrphaned();
+  }, 5000);
 
   buildHud();
   setTimeout(function () { scanPosts(); renderHud(); }, 1500);
