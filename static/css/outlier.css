@@ -594,7 +594,77 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 
 /* ------------------------------------------------------- install / update */
 
-.install-lead { margin: 0 0 18px; }
+.install-lead { margin: 0 0 22px; }
+
+.install-flow { display: flex; flex-direction: column; gap: 22px; }
+
+.istep { display: flex; flex-direction: column; gap: 12px; }
+.istep-head { display: grid; grid-template-columns: 30px 1fr; gap: 14px; }
+.istep-head b { font-size: 14.5px; }
+.istep-head p { font-size: 13px; color: var(--text-muted); margin: 5px 0 0; line-height: 1.6; }
+.istep-head code {
+  font-size: 12px; padding: 1px 5px; border-radius: 4px;
+  background: rgba(6,20,13,0.7); color: var(--emerald-bright);
+}
+.istep-body { padding-left: 44px; display: flex; flex-direction: column; gap: 11px; }
+
+.path-line {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 13px; border-radius: 9px;
+  background: rgba(4,14,9,0.66); border: 1px solid var(--border);
+}
+.path-line code {
+  flex: 1; min-width: 0; overflow-x: auto; white-space: nowrap;
+  font-size: 12.5px; color: var(--emerald-bright);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.istep-msg { font-size: 12.5px; min-height: 16px; color: var(--text-muted); }
+.istep-msg.ok { color: var(--emerald-bright); }
+.istep-msg.error { color: var(--ember); }
+
+.alt-route {
+  font-size: 12.5px; color: var(--text-faint); line-height: 1.6; margin: 0;
+  padding-left: 12px; border-left: 2px solid var(--border);
+}
+.alt-route b { color: var(--text-muted); }
+
+/* Diagrams of the real Chrome screens — the folder picker is where people
+   get lost, so showing it beats describing it. */
+.diagram { width: 100%; height: auto; max-width: 420px; }
+.diagram .dg-text { fill: var(--text); font-size: 11px;
+                    font-family: -apple-system, "Segoe UI", sans-serif; }
+.diagram .dg-muted { fill: var(--text-faint); font-size: 10px;
+                     font-family: -apple-system, "Segoe UI", sans-serif; }
+.diagram .dg-label { fill: var(--text-muted); font-size: 10px;
+                     font-family: -apple-system, "Segoe UI", sans-serif; }
+.diagram .sm { font-size: 10px; }
+
+.diagram .dg-toggle { fill: rgba(52,211,153,0.45); }
+.diagram .dg-knob { fill: var(--emerald-bright); }
+.diagram .dg-ping {
+  fill: none; stroke: rgba(110,231,183,0.5); stroke-width: 1;
+  transform-origin: 377px 19.5px;
+  animation: dgPing 2.4s ease-out infinite;
+}
+@keyframes dgPing {
+  0%   { transform: scale(0.4); opacity: 0.85; }
+  100% { transform: scale(1); opacity: 0; }
+}
+
+.diagram .dg-folder { animation: dgDrag 3.4s ease-in-out infinite; }
+@keyframes dgDrag {
+  0%, 62%, 100% { transform: translate(0, 0); opacity: 1; }
+  30%           { transform: translate(150px, -8px); opacity: 0.55; }
+}
+.diagram .dg-arrow {
+  stroke-dashoffset: 0;
+  animation: dgFlow 1.1s linear infinite;
+}
+@keyframes dgFlow { to { stroke-dashoffset: -16; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .diagram .dg-ping, .diagram .dg-folder, .diagram .dg-arrow { animation: none; }
+}
 
 .update-note {
   margin-top: 20px; padding: 14px 16px; border-radius: 11px;

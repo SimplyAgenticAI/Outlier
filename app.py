@@ -1,6 +1,8 @@
 import io
 import json
 import os
+import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 
 from flask import Flask, jsonify, render_template, request, send_file
@@ -13,7 +15,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "0.9"
+APP_VERSION = "1.0"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -513,6 +515,39 @@ def api_source(source_id):
         conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
 
     return jsonify({"ok": True, "deleted": len(post_ids)})
+
+
+@app.route("/api/open-folder", methods=["POST"])
+def api_open_folder():
+    """Open the extension folder in the OS file manager.
+
+    Loading an unpacked extension means handing Chrome a folder, and finding
+    that folder is the step people get stuck on. The dashboard runs on the
+    same machine as the folder, so it can just open it.
+
+    The path is fixed in code and never taken from the request, and the route
+    only answers local callers — this exists to save a person a file hunt, not
+    to expose a file manager.
+    """
+    if request.remote_addr not in ("127.0.0.1", "::1", "localhost"):
+        return jsonify({"ok": False, "error": "Local requests only"}), 403
+
+    folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "extension")
+    if not os.path.isdir(folder):
+        return jsonify({"ok": False, "error": "Extension folder not found"}), 404
+
+    try:
+        if sys.platform == "win32":
+            # startfile takes no shell, so there is nothing to inject into.
+            os.startfile(folder)  # noqa: S606
+        elif sys.platform == "darwin":
+            subprocess.run(["open", folder], check=True)
+        else:
+            subprocess.run(["xdg-open", folder], check=True)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return jsonify({"ok": False, "error": f"Could not open it: {exc}"}), 500
+
+    return jsonify({"ok": True, "path": folder})
 
 
 @app.route("/api/reset", methods=["POST"])

@@ -20,35 +20,7 @@
       will never change.
     </p>
 
-    <ol class="steps">
-      <li>
-        <span class="step-n">1</span>
-        <div>
-          <b>Open the extensions page</b>
-          <p>Go to <code>chrome://extensions</code> and turn on
-             <b>Developer mode</b> (top right).</p>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">2</span>
-        <div>
-          <b>Load unpacked → pick the <code>extension</code> folder</b>
-          <p>Not a zip, not a copy — the folder inside your Outlier project:</p>
-          <div class="endpoint-box">
-            <code id="ext-path">{{ extension_path }}</code>
-            <button class="copy-btn" data-copy-target="ext-path">Copy path</button>
-          </div>
-        </div>
-      </li>
-      <li>
-        <span class="step-n">3</span>
-        <div>
-          <b>Open a Facebook group and press Start</b>
-          <p>Posts are captured as they render. The panel on the page shows
-             what it's reading.</p>
-        </div>
-      </li>
-    </ol>
+    {% include "_install_steps.html" %}
 
     <div class="update-note">
       <b>Updates are automatic from here.</b>

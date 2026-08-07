@@ -281,6 +281,31 @@
     });
   }
 
+  /* ------------------------------------------------------------ install */
+
+  var openFolder = document.getElementById("open-folder");
+  if (openFolder) {
+    var folderMsg = document.getElementById("open-folder-msg");
+
+    openFolder.addEventListener("click", function () {
+      folderMsg.className = "istep-msg";
+      folderMsg.textContent = "Opening…";
+
+      fetch("/api/open-folder", { method: "POST" })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not open the folder");
+          folderMsg.className = "istep-msg ok";
+          folderMsg.textContent = "Opened. Look for a window showing the 'extension' folder.";
+        })
+        .catch(function (error) {
+          // Falling back to the copyable path keeps the step doable.
+          folderMsg.className = "istep-msg error";
+          folderMsg.textContent = error.message + " — copy the path below instead.";
+        });
+    });
+  }
+
   /* ------------------------------------------------------------ Sage */
 
   var chatForm = document.getElementById("chat-form");
