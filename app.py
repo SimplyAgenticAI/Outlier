@@ -15,7 +15,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "1.2"
+APP_VERSION = "1.3"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.

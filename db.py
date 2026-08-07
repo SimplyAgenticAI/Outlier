@@ -116,9 +116,17 @@ CREATE INDEX IF NOT EXISTS idx_posts_posted ON posts(posted_at);
 @contextmanager
 def get_db():
     os.makedirs(DATA_DIR, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    # A fresh connection per call, so each server thread owns its own and
+    # never trips sqlite3's same-thread check.
+    conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    # WAL lets the dashboard keep reading while the extension is writing.
+    # Under the default rollback journal a capture batch blocks every page
+    # load for its duration, which during a scan is most of the time.
+    conn.execute("PRAGMA journal_mode = WAL")
+    # Wait for a held write lock rather than failing instantly.
+    conn.execute("PRAGMA busy_timeout = 8000")
     try:
         yield conn
         conn.commit()

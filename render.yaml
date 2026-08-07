@@ -2,9 +2,32 @@ services:
   - type: web
     name: outlier
     runtime: python
-    plan: free
+
+    # Persistent disks require a paid instance type — they are not available
+    # on the free plan. Without one the SQLite file lives on the deploy's
+    # ephemeral filesystem and every push destroys all captured posts.
+    plan: starter
+
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn app:app
+
+    # Single worker on purpose. SQLite tolerates concurrent readers but only
+    # one writer, and several gunicorn processes writing the same file will
+    # produce "database is locked" errors under capture load. Threads give
+    # concurrency without multiple writing processes.
+    startCommand: gunicorn app:app --workers 1 --threads 4 --timeout 120
+
+    healthCheckPath: /api/ping
+
+    disk:
+      name: outlier-data
+      mountPath: /var/data
+      sizeGB: 1
+
     envVars:
+      # Points the database at the mounted disk. This is the setting that
+      # makes captures survive a deploy; without it the app writes to ./data
+      # and silently loses everything on restart.
+      - key: DATA_DIR
+        value: /var/data
       - key: PYTHON_VERSION
-        value: 3.12.0
+        value: "3.12.0"
