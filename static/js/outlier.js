@@ -281,6 +281,165 @@
     });
   }
 
+  /* ------------------------------------------------------------ Sage */
+
+  var chatForm = document.getElementById("chat-form");
+  if (chatForm) {
+    var chat = document.getElementById("chat");
+    var chatInput = document.getElementById("chat-input");
+    var chatSend = document.getElementById("chat-send");
+    var chatStatus = document.getElementById("chat-status");
+    var suggested = document.getElementById("suggested");
+
+    function addMessage(role, text) {
+      var empty = document.getElementById("chat-empty");
+      if (empty) empty.remove();
+
+      var wrap = document.createElement("div");
+      wrap.className = "msg msg-" + role;
+
+      if (role === "assistant") {
+        var who = document.createElement("span");
+        who.className = "msg-who";
+        who.textContent = "Sage";
+        wrap.appendChild(who);
+      }
+
+      var body = document.createElement("div");
+      body.className = "msg-body";
+      // textContent — model output is never trusted as markup.
+      body.textContent = text;
+      wrap.appendChild(body);
+
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+      return wrap;
+    }
+
+    function thinkingBubble() {
+      var wrap = document.createElement("div");
+      wrap.className = "msg msg-assistant";
+      var dots = document.createElement("div");
+      dots.className = "thinking";
+      dots.innerHTML = "<span></span><span></span><span></span>";
+      wrap.appendChild(dots);
+      chat.appendChild(wrap);
+      chat.scrollTop = chat.scrollHeight;
+      return wrap;
+    }
+
+    function askSage(question) {
+      if (!question) return;
+
+      addMessage("user", question);
+      chatInput.value = "";
+      chatInput.disabled = true;
+      chatSend.disabled = true;
+      if (suggested) suggested.style.display = "none";
+      chatStatus.className = "chat-status";
+      chatStatus.textContent = "";
+
+      var pending = thinkingBubble();
+
+      fetch("/api/sage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: question })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          pending.remove();
+          if (!data.ok) throw new Error(data.error || "Sage could not answer");
+          addMessage("assistant", data.answer);
+        })
+        .catch(function (error) {
+          pending.remove();
+          chatStatus.className = "chat-status error";
+          chatStatus.textContent = error.message;
+        })
+        .finally(function () {
+          chatInput.disabled = false;
+          chatSend.disabled = false;
+          chatInput.focus();
+        });
+    }
+
+    chatForm.addEventListener("submit", function (event) {
+      event.preventDefault();
+      askSage(chatInput.value.trim());
+    });
+
+    if (suggested) {
+      suggested.addEventListener("click", function (event) {
+        var chip = event.target.closest(".chip-btn");
+        if (chip) askSage(chip.dataset.prompt);
+      });
+    }
+
+    var clearChat = document.getElementById("clear-chat");
+    if (clearChat) {
+      clearChat.addEventListener("click", function () {
+        if (!window.confirm("Clear this conversation?")) return;
+        fetch("/api/sage/clear", { method: "POST" })
+          .then(function () { window.location.reload(); });
+      });
+    }
+  }
+
+  /* ------------------------------------------------------------ AI config */
+
+  var saveAi = document.getElementById("save-ai");
+  if (saveAi) {
+    var aiMsg = document.getElementById("ai-msg");
+
+    document.querySelectorAll('input[name="provider"]').forEach(function (radio) {
+      radio.addEventListener("change", function () {
+        document.querySelectorAll(".provider").forEach(function (label) {
+          label.classList.toggle("selected", label.contains(radio) && radio.checked);
+        });
+        // Swap the model placeholder to the chosen provider's default.
+        var model = document.getElementById("ai-model");
+        if (model) {
+          model.value = radio.value === "anthropic" ? "claude-opus-5" : "gpt-4o";
+        }
+      });
+    });
+
+    saveAi.addEventListener("click", function () {
+      var provider = document.querySelector('input[name="provider"]:checked');
+      var key = document.getElementById("ai-key").value.trim();
+      var model = document.getElementById("ai-model").value.trim();
+
+      if (!provider) {
+        aiMsg.className = "msg-line error";
+        aiMsg.textContent = "Pick a provider.";
+        return;
+      }
+
+      aiMsg.className = "msg-line";
+      aiMsg.textContent = "Saving…";
+
+      fetch("/api/sage/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider: provider.value, key: key, model: model })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Save failed");
+          aiMsg.className = "msg-line ok";
+          aiMsg.textContent = data.has_key
+            ? "Saved. Sage is ready — open the Sage tab."
+            : "Provider saved, but no key is set yet.";
+          document.getElementById("ai-key").value = "";
+        })
+        .catch(function (error) {
+          aiMsg.className = "msg-line error";
+          aiMsg.textContent = error.message;
+        });
+    });
+  }
+
   /* ------------------------------------------------------------ remix */
 
   var remixBtn = document.getElementById("remix-btn");

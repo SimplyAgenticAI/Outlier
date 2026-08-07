@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Sage — Outlier{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div class="sage-title">
+    <span class="sage-orb"><span class="orb-core"></span></span>
+    <div>
+      <h1>Sage</h1>
+      <p class="sub">
+        Knows your captured data and how Outlier scores it.
+        {% if configured %}
+          <span class="provider-tag">{{ 'Claude' if provider == 'anthropic' else 'OpenAI' }}</span>
+          {% if key_source == 'environment' %}<span class="muted">· key from environment</span>{% endif %}
+        {% endif %}
+      </p>
+    </div>
+  </div>
+  {% if history %}
+  <div class="filters">
+    <button class="filter" id="clear-chat">Clear conversation</button>
+  </div>
+  {% endif %}
+</section>
+
+{% if not configured %}
+<div class="glass notice reveal">
+  <b>Sage needs an API key.</b>
+  Add a Claude or OpenAI key in
+  <a href="{{ url_for('settings') }}">Settings</a> to start. Your key is stored
+  locally and only ever sent to the provider you pick.
+</div>
+{% endif %}
+
+<section class="glass sage-panel reveal spotlight">
+  <div class="chat" id="chat">
+    {% if not history %}
+    <div class="chat-empty" id="chat-empty">
+      <p>Ask about what's performing, why it worked, or what to write next.</p>
+    </div>
+    {% endif %}
+
+    {% for message in history %}
+    <div class="msg msg-{{ message.role }}">
+      {% if message.role == 'assistant' %}<span class="msg-who">Sage</span>{% endif %}
+      <div class="msg-body">{{ message.content }}</div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="suggested" id="suggested">
+    {% for prompt in suggested %}
+    <button class="chip-btn" data-prompt="{{ prompt }}">{{ prompt }}</button>
+    {% endfor %}
+  </div>
+
+  <form class="chat-form" id="chat-form">
+    <input type="text" id="chat-input" autocomplete="off"
+           placeholder="{{ 'Ask Sage about your data…' if configured else 'Add an API key in Settings first' }}"
+           {{ 'disabled' if not configured }}>
+    <button class="btn btn-primary" type="submit" id="chat-send"
+            {{ 'disabled' if not configured }}>Ask</button>
+  </form>
+  <div class="chat-status" id="chat-status"></div>
+</section>
+
+{% endblock %}

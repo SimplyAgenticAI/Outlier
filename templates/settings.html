@@ -37,6 +37,58 @@
 </div>
 {% endif %}
 
+<section class="glass panel reveal spotlight">
+  <div class="panel-head">
+    <h2>Sage — your AI analyst</h2>
+    <span class="sub">
+      {% if sage_config.has_key %}
+        <span class="ok-tone">Connected</span> via
+        {{ 'Claude' if sage_config.provider == 'anthropic' else 'OpenAI' }}
+        {% if sage_config.key_source == 'environment' %}(key from environment){% endif %}
+      {% else %}
+        <span class="warn-tone">No key set</span>
+      {% endif %}
+    </span>
+  </div>
+
+  <p class="fine">
+    Sage reads your captured posts, the per-group baselines, and how Outlier
+    scores them, then answers questions and recommends what to write. Pick a
+    provider and paste your own key.
+  </p>
+
+  <div class="provider-picker">
+    <label class="provider {{ 'selected' if sage_config.provider == 'anthropic' }}">
+      <input type="radio" name="provider" value="anthropic"
+             {{ 'checked' if sage_config.provider == 'anthropic' }}>
+      <span class="provider-name">Claude</span>
+      <span class="provider-desc">Anthropic · console.anthropic.com</span>
+    </label>
+    <label class="provider {{ 'selected' if sage_config.provider == 'openai' }}">
+      <input type="radio" name="provider" value="openai"
+             {{ 'checked' if sage_config.provider == 'openai' }}>
+      <span class="provider-name">OpenAI</span>
+      <span class="provider-desc">platform.openai.com</span>
+    </label>
+  </div>
+
+  <div class="key-row">
+    <input type="password" id="ai-key" autocomplete="off"
+           placeholder="{{ 'Key saved — paste a new one to replace it' if sage_config.has_key else 'Paste your API key' }}">
+    <input type="text" id="ai-model" autocomplete="off"
+           value="{{ sage_config.model }}" placeholder="model">
+    <button class="btn btn-primary" id="save-ai">Save</button>
+  </div>
+  <div class="msg-line" id="ai-msg"></div>
+
+  <p class="fine">
+    The key is stored in this app's local database in plain text, and is sent
+    only to the provider you choose. Remove it by deleting
+    <code>data/outlier.db</code>. That file is gitignored, so it never reaches
+    GitHub.
+  </p>
+</section>
+
 <section class="glass panel reveal">
   <div class="panel-head">
     <h2>Your sources</h2>
@@ -75,6 +127,8 @@
         <td>
           {% if source.stats and source.stats.has_baseline %}
             <span class="ok-tone">ready</span>
+          {% elif source.stats and source.stats.low_baseline %}
+            <span class="warn-tone" title="Median engagement too low to compare against — re-capture this group">baseline too low</span>
           {% else %}
             <span class="muted">needs {{ 8 - source.post_count if source.post_count < 8 else 0 }} more</span>
           {% endif %}

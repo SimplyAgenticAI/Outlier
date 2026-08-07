@@ -40,6 +40,13 @@
           <span class="s-lab">best</span>
         </div>
       </div>
+      {% elif source.stats.low_baseline %}
+      <p class="needs-data">
+        <b class="warn-tone">Not scored.</b>
+        Median engagement is {{ source.stats.baseline | round | int }} — too low to
+        compare against. Usually means these posts were captured before the
+        extension could read engagement counts. Re-capture to fix.
+      </p>
       {% else %}
       <p class="needs-data">
         {{ source.stats.post_count }} posts — needs at least 8 for a reliable baseline.

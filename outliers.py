@@ -24,6 +24,16 @@ WEIGHT_SHARES = 5
 # the threshold are reported as "needs more data" rather than given fake scores.
 MIN_SAMPLE = 8
 
+# A median this low means the source is either dead or — far more often — was
+# captured with extractors that failed to read engagement, leaving most posts
+# at zero. Dividing by a near-zero median turns an ordinary post into a
+# "8647x breakout", so such sources are marked unscored instead.
+MIN_BASELINE = 8
+
+# Ratios above this are not informative, only alarming. Anything this far out
+# is already the top of the feed; the exact figure adds nothing.
+MAX_MULTIPLE = 99.9
+
 # Posts younger than this are still accumulating engagement. They're scored but
 # flagged, so a 2-hour-old post doesn't get written off as underperforming.
 STILL_CLIMBING_HOURS = 48
@@ -87,14 +97,18 @@ def score_posts(posts):
         engagements = [weighted_engagement(p) for p in group_posts]
         baseline = _median(engagements)
         mad = _mad(engagements, baseline)
-        sufficient = len(group_posts) >= MIN_SAMPLE
+
+        # Both conditions must hold for a ratio to mean anything: enough posts
+        # to have a median, and a median far enough from zero to divide by.
+        sufficient = len(group_posts) >= MIN_SAMPLE and baseline >= MIN_BASELINE
+        low_baseline = baseline < MIN_BASELINE
 
         for post in group_posts:
             eng = weighted_engagement(post)
 
             # How many times the typical post did this one beat?
             if baseline > 0:
-                multiple = eng / baseline
+                multiple = min(eng / baseline, MAX_MULTIPLE)
             else:
                 multiple = 0.0
 
@@ -117,6 +131,7 @@ def score_posts(posts):
                     "outlier_multiple": round(multiple, 1),
                     "robust_z": round(robust_z, 2),
                     "has_baseline": sufficient,
+                    "low_baseline": low_baseline,
                     "still_climbing": still_climbing,
                     "age_hours": round(age_hours, 1) if age_hours is not None else None,
                     "tier": _tier(multiple, sufficient),
@@ -158,11 +173,12 @@ def source_stats(posts):
     engagements = [weighted_engagement(p) for p in posts]
     baseline = _median(engagements)
     scored = score_posts(posts)
-    outliers = [s for s in scored if s["tier"] in ("breakout", "strong")]
+    outlier_posts = [s for s in scored if s["tier"] in ("breakout", "strong")]
     return {
         "post_count": len(posts),
         "baseline": round(baseline, 1),
-        "outlier_count": len(outliers),
-        "has_baseline": len(posts) >= MIN_SAMPLE,
+        "outlier_count": len(outlier_posts),
+        "has_baseline": len(posts) >= MIN_SAMPLE and baseline >= MIN_BASELINE,
+        "low_baseline": baseline < MIN_BASELINE,
         "top_multiple": scored[0]["outlier_multiple"] if scored else 0,
     }

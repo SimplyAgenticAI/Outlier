@@ -76,6 +76,22 @@ CREATE TABLE IF NOT EXISTS captures (
     created_at    TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Key/value app settings, including the user's AI provider choice and key.
+-- Keys are stored as supplied; this database is local and gitignored, but it
+-- is plaintext on disk, which the Settings UI states explicitly.
+CREATE TABLE IF NOT EXISTS settings (
+    key           TEXT PRIMARY KEY,
+    value         TEXT,
+    updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS sage_messages (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    role          TEXT NOT NULL,
+    content       TEXT NOT NULL,
+    created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source_id);
 CREATE INDEX IF NOT EXISTS idx_posts_captured ON posts(captured_at);
 CREATE INDEX IF NOT EXISTS idx_posts_posted ON posts(posted_at);

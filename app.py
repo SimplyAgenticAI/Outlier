@@ -8,11 +8,12 @@ from flask import Flask, jsonify, render_template, request, send_file
 import db
 import outliers
 import remix
+import sage
 from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "0.7"
+APP_VERSION = "0.8"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -138,6 +139,91 @@ def groups():
     )
 
 
+@app.route("/sage")
+def sage_page():
+    """Chat with Sage, the built-in analyst."""
+    with db.get_db() as conn:
+        history = [dict(r) for r in conn.execute(
+            "SELECT role, content FROM sage_messages ORDER BY id ASC LIMIT 60"
+        ).fetchall()]
+
+    config = sage.get_config()
+    return render_template(
+        "sage.html",
+        history=history,
+        configured=config["has_key"],
+        provider=config["provider"],
+        key_source=config["key_source"],
+        suggested=sage.SUGGESTED,
+        version=APP_VERSION,
+        active="sage",
+    )
+
+
+@app.route("/api/sage", methods=["POST"])
+def api_sage():
+    body = request.get_json(silent=True) or {}
+    question = (body.get("message") or "").strip()
+    if not question:
+        return jsonify({"ok": False, "error": "Ask something first"}), 400
+
+    # Replay recent turns so follow-ups ("why that one?") have their referent.
+    with db.get_db() as conn:
+        prior = [dict(r) for r in conn.execute(
+            "SELECT role, content FROM sage_messages ORDER BY id DESC LIMIT 12"
+        ).fetchall()][::-1]
+
+    messages = [{"role": m["role"], "content": m["content"]} for m in prior]
+    messages.append({"role": "user", "content": question})
+
+    answer, error = sage.ask(messages)
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+
+    with db.get_db() as conn:
+        conn.execute("INSERT INTO sage_messages (role, content) VALUES ('user', ?)",
+                     (question,))
+        conn.execute("INSERT INTO sage_messages (role, content) VALUES ('assistant', ?)",
+                     (answer,))
+
+    return jsonify({"ok": True, "answer": answer})
+
+
+@app.route("/api/sage/clear", methods=["POST"])
+def api_sage_clear():
+    with db.get_db() as conn:
+        conn.execute("DELETE FROM sage_messages")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/sage/config", methods=["POST"])
+def api_sage_config():
+    body = request.get_json(silent=True) or {}
+    provider = body.get("provider")
+    key = (body.get("key") or "").strip()
+    model = (body.get("model") or "").strip()
+
+    if provider not in ("anthropic", "openai"):
+        return jsonify({"ok": False, "error": "Pick anthropic or openai"}), 400
+
+    sage.set_setting("ai_provider", provider)
+    if model:
+        sage.set_setting("ai_model", model)
+    # An empty key means "leave the stored one alone" rather than "erase it",
+    # so re-saving the provider doesn't silently wipe a working key.
+    if key:
+        sage.set_setting("ai_key_" + provider, key)
+
+    config = sage.get_config()
+    return jsonify({
+        "ok": True,
+        "provider": config["provider"],
+        "has_key": config["has_key"],
+        "key_source": config["key_source"],
+        "model": config["model"],
+    })
+
+
 @app.route("/settings")
 def settings():
     sources = _sources_with_stats()
@@ -150,6 +236,9 @@ def settings():
             "real": sum(s["post_count"] - (s["demo_count"] or 0) for s in sources),
             "sources": len(sources),
         },
+        sage_config=sage.get_config(),
+        anthropic_model=sage.ANTHROPIC_MODEL,
+        openai_model=sage.OPENAI_MODEL,
         version=APP_VERSION,
         active="settings",
     )
