@@ -90,13 +90,22 @@ function checkConnection() {
     dotEl.className = "dot on";
     statusEl.textContent = "v" + response.version;
 
-    // A mismatch means newer files are on disk and the next check will adopt
-    // them — unless this copy was loaded from a zip, which never changes.
+    // A mismatch only self-heals when the extension folder is the live
+    // project. Loaded from a zip, or pointed at a hosted dashboard, no
+    // amount of reloading changes the files — so say what to actually do.
     const latest = response.extension_version;
     if (latest && latest !== running) {
       el("ext-version").innerHTML =
         '<span style="color:#d9b45f">v' + running + " → v" + latest + "</span>";
-      say("Update available. Reloading shortly…", "warn");
+
+      chrome.storage.local.get(["updateStuck"], (state) => {
+        if (state.updateStuck === latest) {
+          say("v" + latest + " available. Download it from the dashboard's " +
+              "Capture page, unzip over this folder, then hit reload here.", "warn");
+        } else {
+          say("Update available. Reloading shortly…", "warn");
+        }
+      });
     } else {
       el("ext-version").textContent = "v" + running + " (current)";
     }

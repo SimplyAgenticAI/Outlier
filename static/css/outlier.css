@@ -596,6 +596,31 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 
 .install-lead { margin: 0 0 22px; }
 
+/* States which install route you're on, so hosted-vs-local isn't a guess. */
+.route-note {
+  padding: 13px 16px; margin-bottom: 20px; border-radius: 10px;
+  font-size: 13px; line-height: 1.6; color: var(--text-muted);
+  background: rgba(217,180,95,0.08);
+  border: 1px solid rgba(217,180,95,0.28);
+}
+
+/* The download is the whole first step on a hosted dashboard — make it read
+   like one, not like an afterthought. */
+.big-dl {
+  font-size: 15px; padding: 13px 24px;
+  align-self: flex-start;
+}
+
+.update-note.warn {
+  background: rgba(217,180,95,0.08);
+  border-color: rgba(217,180,95,0.3);
+}
+.update-note.warn b { color: var(--gold); }
+.update-note code {
+  font-size: 12px; padding: 1px 5px; border-radius: 4px;
+  background: rgba(4,14,9,0.6); color: var(--gold);
+}
+
 .install-flow { display: flex; flex-direction: column; gap: 22px; }
 
 .istep { display: flex; flex-direction: column; gap: 12px; }

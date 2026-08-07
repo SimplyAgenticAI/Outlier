@@ -1,5 +1,138 @@
-{# Illustrated install walkthrough. The folder picker is where people get
-   stuck, so each step shows what the screen actually looks like. #}
+{# Two genuinely different install routes.
+
+   Hosted dashboard (Render): the server's filesystem is not the user's, so a
+   downloaded zip is the ONLY option. Self-update cannot work.
+
+   Local dashboard: loading straight from the project folder means updates
+   arrive on their own. #}
+
+{% if not is_local %}
+
+<div class="route-note">
+  You're viewing the hosted dashboard, so the extension has to be downloaded.
+  <span class="muted">Run Outlier on your own machine if you'd rather it
+  updated itself.</span>
+</div>
+
+<div class="install-flow">
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">1</span>
+      <div>
+        <b>Download the extension</b>
+        <p>A zip containing the extension files.</p>
+      </div>
+    </div>
+    <div class="istep-body">
+      <a class="btn btn-primary big-dl" href="{{ url_for('download_extension') }}">
+        Download extension (v{{ extension_version }})
+      </a>
+    </div>
+  </div>
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">2</span>
+      <div>
+        <b>Unzip it somewhere permanent</b>
+        <p>Chrome reads these files off disk every time it starts, so don't
+           leave it in Downloads and clear it later. Documents is fine.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">3</span>
+      <div>
+        <b>Open Chrome's extensions page</b>
+        <p>This can't be a link — Chrome blocks pages from opening its own
+           settings. Copy it and paste into the address bar.</p>
+      </div>
+    </div>
+    <div class="istep-body">
+      <div class="path-line">
+        <code id="chrome-url">chrome://extensions</code>
+        <button class="copy-btn" data-copy-target="chrome-url">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">4</span>
+      <div>
+        <b>Turn on Developer mode</b>
+        <p>Top-right corner. Without it there's no way to load the extension
+           at all.</p>
+      </div>
+    </div>
+    <div class="istep-body">
+      {% include "_diagram_devmode.html" %}
+    </div>
+  </div>
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">5</span>
+      <div>
+        <b>Drag the unzipped folder onto the page</b>
+        <p>Drag the folder itself — not the zip, not the files inside it —
+           straight onto the Chrome window.</p>
+      </div>
+    </div>
+    <div class="istep-body">
+      {% include "_diagram_drag.html" %}
+      <p class="alt-route">
+        Prefer buttons? Click <b>Load unpacked</b> and select the unzipped
+        folder.
+      </p>
+    </div>
+  </div>
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">6</span>
+      <div>
+        <b>Point it at this dashboard</b>
+        <p>Click the Outlier icon in Chrome's toolbar, paste this into
+           Dashboard URL, and press Save &amp; test.</p>
+      </div>
+    </div>
+    <div class="istep-body">
+      <div class="path-line">
+        <code id="dash-url">{{ request.url_root.rstrip('/') }}</code>
+        <button class="copy-btn" data-copy-target="dash-url">Copy</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">7</span>
+      <div>
+        <b>Open a Facebook group and press Start</b>
+        <p>A panel appears bottom-right showing what it's reading.</p>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="update-note warn">
+  <b>Updating later:</b> download a fresh zip, unzip it over the same folder,
+  then click the reload arrow on the extension card at
+  <code>chrome://extensions</code>. You don't need to remove and re-add it.
+</div>
+
+{% else %}
+
+<p class="fine install-lead">
+  The dashboard is running on this machine, so point Chrome straight at the
+  project folder. It reads those files off disk on every start, which means
+  updates arrive on their own — no re-installing.
+</p>
 
 <div class="install-flow">
 
@@ -8,7 +141,7 @@
       <span class="step-n">1</span>
       <div>
         <b>Open the extension folder</b>
-        <p>This opens a File Explorer window at the right place. Leave it open —
+        <p>Opens a File Explorer window at the right place. Leave it open —
            you'll drag from it in step 4.</p>
       </div>
     </div>
@@ -44,29 +177,11 @@
       <span class="step-n">3</span>
       <div>
         <b>Turn on Developer mode</b>
-        <p>Top-right corner of that page. Without it there's no Load unpacked
-           button at all.</p>
+        <p>Top-right corner of that page.</p>
       </div>
     </div>
     <div class="istep-body">
-      <svg class="diagram" viewBox="0 0 420 116" role="img"
-           aria-label="Chrome extensions page with the Developer mode toggle highlighted in the top right">
-        <rect x="1" y="1" width="418" height="114" rx="8"
-              fill="rgba(255,255,255,0.03)" stroke="rgba(110,231,183,0.16)"/>
-        <rect x="1" y="1" width="418" height="34" rx="8"
-              fill="rgba(255,255,255,0.04)"/>
-        <text x="16" y="23" class="dg-text">Extensions</text>
-
-        <text x="272" y="23" class="dg-label">Developer mode</text>
-        <rect class="dg-toggle" x="360" y="12" width="34" height="15" rx="7.5"/>
-        <circle class="dg-knob" cx="386" cy="19.5" r="5.5"/>
-        <circle class="dg-ping" cx="377" cy="19.5" r="21"/>
-
-        <rect x="16" y="50" width="96" height="24" rx="5"
-              fill="rgba(110,231,183,0.09)" stroke="rgba(110,231,183,0.28)"/>
-        <text x="30" y="66" class="dg-text sm">Load unpacked</text>
-        <text x="126" y="66" class="dg-muted sm">appears once it's on</text>
-      </svg>
+      {% include "_diagram_devmode.html" %}
     </div>
   </div>
 
@@ -75,41 +190,12 @@
       <span class="step-n">4</span>
       <div>
         <b>Drag the folder onto the page</b>
-        <p>Easiest way: drag the <code>extension</code> folder straight from
-           Explorer onto the Chrome window. No file picker involved.</p>
+        <p>Drag <code>extension</code> from Explorer straight onto the Chrome
+           window. No file picker involved.</p>
       </div>
     </div>
     <div class="istep-body">
-      <svg class="diagram" viewBox="0 0 420 132" role="img"
-           aria-label="Dragging the extension folder from File Explorer onto the Chrome extensions page">
-        <rect x="1" y="20" width="150" height="94" rx="7"
-              fill="rgba(255,255,255,0.03)" stroke="rgba(110,231,183,0.14)"/>
-        <text x="14" y="38" class="dg-muted sm">File Explorer</text>
-        <g class="dg-folder">
-          <path d="M20 54 h20 l6 7 h30 a4 4 0 0 1 4 4 v26 a4 4 0 0 1 -4 4 h-56
-                   a4 4 0 0 1 -4 -4 v-33 a4 4 0 0 1 4 -4 z"
-                fill="rgba(52,211,153,0.22)" stroke="rgba(110,231,183,0.6)"/>
-          <text x="26" y="106" class="dg-text sm">extension</text>
-        </g>
-
-        <path class="dg-arrow" d="M120 74 C 180 74, 200 66, 246 66"
-              fill="none" stroke="rgba(110,231,183,0.55)" stroke-width="1.6"
-              stroke-dasharray="4 4" marker-end="url(#ah)"/>
-        <defs>
-          <marker id="ah" viewBox="0 0 8 8" refX="6" refY="4"
-                  markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M0 0 L8 4 L0 8 z" fill="rgba(110,231,183,0.75)"/>
-          </marker>
-        </defs>
-
-        <rect x="256" y="20" width="163" height="94" rx="7"
-              fill="rgba(52,211,153,0.05)" stroke="rgba(110,231,183,0.32)"
-              stroke-dasharray="5 4"/>
-        <text x="270" y="38" class="dg-muted sm">chrome://extensions</text>
-        <text x="270" y="72" class="dg-text sm">Drop it</text>
-        <text x="270" y="88" class="dg-muted sm">anywhere here</text>
-      </svg>
-
+      {% include "_diagram_drag.html" %}
       <p class="alt-route">
         Prefer buttons? Click <b>Load unpacked</b>, then paste the copied path
         into the file dialog's address bar and hit Select Folder.
@@ -122,10 +208,28 @@
       <span class="step-n">5</span>
       <div>
         <b>Open a Facebook group and press Start</b>
-        <p>A panel appears bottom-right showing what it's reading. That's it —
-           you won't have to do any of this again.</p>
+        <p>A panel appears bottom-right showing what it's reading. That's the
+           last time you'll do any of this.</p>
       </div>
     </div>
   </div>
 
 </div>
+
+<div class="update-note">
+  <b>Updates are automatic from here.</b>
+  The extension checks this dashboard every minute and reloads itself when the
+  files change. It waits until you're not mid-capture, and any Facebook tab
+  left open will prompt you to refresh it.
+</div>
+
+<details class="share-details">
+  <summary>Sharing it with someone else</summary>
+  <p class="fine">
+    A zip is right for handing the extension to another person, since they
+    won't have this project folder. It won't auto-update for them.
+  </p>
+  <a class="btn btn-ghost" href="{{ url_for('download_extension') }}">Download .zip</a>
+</details>
+
+{% endif %}

@@ -86,8 +86,28 @@ chrome.runtime.onInstalled.addListener(async () => {
 
 const UPDATE_ALARM = "outlier-update-check";
 
+// chrome.runtime.reload() re-reads the extension folder from disk. That only
+// produces a NEW version when the folder is the live project — i.e. when the
+// dashboard is running on this same machine.
+//
+// Against a hosted dashboard (Render), the server's manifest can be newer
+// while the folder on disk is a downloaded zip that never changes. Reloading
+// then re-reads the same old files, the mismatch survives, and the next alarm
+// reloads again — forever. So: only self-update against a local dashboard,
+// and give up after one ineffective attempt regardless.
+function isLocalEndpoint(endpoint) {
+  try {
+    const host = new URL(endpoint).hostname;
+    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
+  } catch (error) {
+    return false;
+  }
+}
+
 async function checkForUpdate() {
-  const stored = await chrome.storage.local.get(["autoUpdate", "capturing"]);
+  const stored = await chrome.storage.local.get([
+    "autoUpdate", "capturing", "updateAttemptedFor"
+  ]);
   if (stored.autoUpdate === false) return;
 
   // Reloading mid-scroll would drop the in-memory queue and orphan the
@@ -105,9 +125,33 @@ async function checkForUpdate() {
 
   const latest = data.extension_version;
   const running = chrome.runtime.getManifest().version;
-  if (!latest || latest === running) return;
+  if (!latest || latest === running) {
+    // Back in sync — clear any stale "update pending" state.
+    if (stored.updateAttemptedFor) {
+      await chrome.storage.local.remove(["updateAttemptedFor", "updateStuck"]);
+    }
+    return;
+  }
 
-  await chrome.storage.local.set({ lastUpdateFrom: running, lastUpdateTo: latest });
+  if (!isLocalEndpoint(endpoint)) {
+    // Hosted dashboard: reloading cannot help. Flag it so the popup can tell
+    // the user to download a fresh copy instead of silently doing nothing.
+    await chrome.storage.local.set({ updateStuck: latest });
+    return;
+  }
+
+  if (stored.updateAttemptedFor === latest) {
+    // We already reloaded for this version and it did not take, so the folder
+    // is not the live project. Stop looping and say so.
+    await chrome.storage.local.set({ updateStuck: latest });
+    return;
+  }
+
+  await chrome.storage.local.set({
+    updateAttemptedFor: latest,
+    lastUpdateFrom: running,
+    lastUpdateTo: latest
+  });
   console.log(`[Outlier] updating extension ${running} → ${latest}`);
   chrome.runtime.reload();
 }

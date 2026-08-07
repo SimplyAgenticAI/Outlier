@@ -13,38 +13,11 @@
 
   <div class="glass install-panel reveal spotlight">
     <h2>Install the extension</h2>
-    <p class="fine install-lead">
-      Load it straight from the project folder, not from a zip. Chrome reads an
-      unpacked extension off disk every time it starts, so pointing it at the
-      real folder means updates arrive on their own. A zip is a frozen copy and
-      will never change.
-    </p>
 
+    {# Both the lead-in and the closing notes differ by route, so the whole
+       flow lives in the partial rather than being wrapped in copy that is
+       only true for one of them. #}
     {% include "_install_steps.html" %}
-
-    <div class="update-note">
-      <b>Updates are automatic from here.</b>
-      The extension checks this dashboard every minute and reloads itself when
-      the files on disk change — no removing and re-adding. It waits until
-      you're not mid-capture, and any Facebook tab left open will prompt you to
-      refresh it.
-    </div>
-
-    <details class="share-details">
-      <summary>Sharing it with someone else</summary>
-      <p class="fine">
-        A zip is the right format for handing the extension to another person,
-        since they won't have the project folder. It won't auto-update for
-        them — they'll need a fresh zip each time.
-      </p>
-      <a class="btn btn-ghost" href="{{ url_for('download_extension') }}">Download .zip</a>
-    </details>
-
-    <div class="endpoint-box">
-      <span class="endpoint-label">Dashboard endpoint (already set in the extension)</span>
-      <code id="endpoint-url">{{ request.url_root }}api/capture</code>
-      <button class="copy-btn" data-copy-target="endpoint-url">Copy</button>
-    </div>
   </div>
 
   <div class="glass side-panel reveal spotlight">

@@ -15,7 +15,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -343,6 +343,7 @@ def capture():
         # it rather than hunting for it.
         extension_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "extension"),
         extension_version=_extension_version(),
+        is_local=_is_local_dashboard(),
         has_data=db.has_any_posts(),
         version=APP_VERSION,
         active="capture",
@@ -350,6 +351,18 @@ def capture():
 
 
 # ---------------------------------------------------------------- ingest API
+
+
+def _is_local_dashboard():
+    """True when the browser is talking to a dashboard on its own machine.
+
+    This decides which install route to show. Loading the extension from the
+    project folder — and the self-update that depends on it — only works when
+    the server's filesystem IS the user's filesystem. On a hosted deployment
+    (Render) the only route is downloading a zip.
+    """
+    host = (request.host or "").split(":")[0].lower()
+    return host in ("localhost", "127.0.0.1", "::1", "[::1]")
 
 
 def _extension_version():
@@ -375,6 +388,7 @@ def api_ping():
         "ok": True,
         "version": APP_VERSION,
         "extension_version": _extension_version(),
+        "is_local": _is_local_dashboard(),
     })
 
 
