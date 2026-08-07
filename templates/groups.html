@@ -12,11 +12,14 @@
 {% if sources %}
 <section class="source-grid">
   {% for source in sources %}
-  <a class="glass source-card reveal" href="{{ url_for('group_detail', source_id=source.id) }}">
+  <a class="glass source-card reveal spotlight{{ ' is-demo' if source.is_demo }}"
+     href="{{ url_for('group_detail', source_id=source.id) }}">
     <div class="source-head">
       <span class="kind-chip">{{ source.kind }}</span>
-      {% if source.member_count %}
-      <span class="member-count">{{ "{:,}".format(source.member_count) }} members</span>
+      {% if source.is_demo %}
+        <span class="demo-chip" title="Generated sample content">sample</span>
+      {% elif source.engagement_pct < 60 and source.post_count %}
+        <span class="demo-chip" title="Most posts captured without engagement counts — rescan with the latest extension">{{ source.engagement_pct }}% read</span>
       {% endif %}
     </div>
     <h2>{{ source.name }}</h2>

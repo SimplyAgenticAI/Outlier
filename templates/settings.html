@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Outlier — Settings{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div>
+    <h1>Settings &amp; data</h1>
+    <p class="sub">Everything in your database, and every control for managing it.</p>
+  </div>
+</section>
+
+<section class="stat-row">
+  <div class="stat glass reveal spotlight">
+    <span class="stat-value" data-countup="{{ totals.real }}">{{ totals.real }}</span>
+    <span class="stat-label">Real captured posts</span>
+  </div>
+  <div class="stat glass reveal spotlight">
+    <span class="stat-value demo-tone" data-countup="{{ totals.demo }}">{{ totals.demo }}</span>
+    <span class="stat-label">Sample posts (generated)</span>
+  </div>
+  <div class="stat glass reveal spotlight">
+    <span class="stat-value" data-countup="{{ totals.sources }}">{{ totals.sources }}</span>
+    <span class="stat-label">Sources</span>
+  </div>
+  <div class="stat glass reveal spotlight">
+    <span class="stat-value" data-countup="{{ totals.posts }}">{{ totals.posts }}</span>
+    <span class="stat-label">Total posts</span>
+  </div>
+</section>
+
+{% if totals.demo %}
+<div class="glass notice reveal">
+  <b>{{ totals.demo }} of your {{ totals.posts }} posts are generated sample data.</b>
+  They are written by the app to demonstrate the interface — they are not real
+  Facebook posts and nothing in them reflects a real group. Remove them once
+  you have captures of your own.
+</div>
+{% endif %}
+
+<section class="glass panel reveal">
+  <div class="panel-head">
+    <h2>Your sources</h2>
+    <span class="sub">Rename or delete any of them individually.</span>
+  </div>
+
+  {% if sources %}
+  <table class="data-table">
+    <thead>
+      <tr><th>Source</th><th>Posts</th><th>Engagement read</th><th>Baseline</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for source in sources %}
+      <tr data-source-id="{{ source.id }}">
+        <td>
+          <div class="src-name-wrap">
+            <span class="src-name" data-source-id="{{ source.id }}">{{ source.name }}</span>
+            {% if source.is_demo %}
+              <span class="demo-badge">sample</span>
+            {% else %}
+              <span class="real-badge">captured</span>
+            {% endif %}
+          </div>
+          <div class="src-meta">{{ source.fb_id }}</div>
+        </td>
+        <td>{{ source.post_count }}</td>
+        <td>
+          {% if source.is_demo %}
+            <span class="muted">—</span>
+          {% elif source.engagement_pct >= 60 %}
+            <span class="ok-tone">{{ source.engagement_pct }}%</span>
+          {% else %}
+            <span class="warn-tone">{{ source.engagement_pct }}%</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if source.stats and source.stats.has_baseline %}
+            <span class="ok-tone">ready</span>
+          {% else %}
+            <span class="muted">needs {{ 8 - source.post_count if source.post_count < 8 else 0 }} more</span>
+          {% endif %}
+        </td>
+        <td class="row-actions">
+          <button class="mini-btn rename-source" data-source-id="{{ source.id }}">Rename</button>
+          <button class="mini-btn danger delete-source"
+                  data-source-id="{{ source.id }}"
+                  data-source-name="{{ source.name }}">Delete</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="muted">No sources yet. Capture a group to get started.</p>
+  {% endif %}
+</section>
+
+<section class="settings-grid">
+  <div class="glass panel reveal">
+    <h2>Sample data</h2>
+    <p class="fine">
+      Generated posts that demonstrate the interface. Safe to remove at any
+      time — it never touches anything you captured.
+    </p>
+    <div class="demo-actions">
+      <button class="btn btn-ghost" id="load-demo">Load sample data</button>
+      <button class="btn btn-ghost danger" id="clear-demo">Remove sample data</button>
+    </div>
+  </div>
+
+  <div class="glass panel reveal">
+    <h2>Danger zone</h2>
+    <p class="fine">
+      Deletes every post, source, saved item, and remix. Use this when captures
+      were recorded with an older extension — posts carrying zeroed engagement
+      distort every baseline they sit in, and re-capturing has to start clean.
+    </p>
+    <button class="btn btn-ghost danger" id="reset-all">Delete everything</button>
+  </div>
+</section>
+
+<section class="glass panel reveal">
+  <h2>Export</h2>
+  <p class="fine">Download everything for use elsewhere — or to hand to an AI tool.</p>
+  <div class="demo-actions">
+    <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='json') }}">JSON</a>
+    <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='csv') }}">CSV</a>
+    <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='markdown') }}">Markdown</a>
+  </div>
+</section>
+
+{% endblock %}

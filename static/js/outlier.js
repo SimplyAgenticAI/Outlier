@@ -95,6 +95,130 @@
     if (!el.closest(".reveal")) countUp(el);
   });
 
+  /* ------------------------------------------------------------ hover FX */
+
+  // Cursor-tracking spotlight and a slight 3D tilt on cards. One delegated
+  // listener, coalesced into a single rAF per frame — 60 cards each with their
+  // own mousemove handler would drop frames on scroll.
+  if (!reduceMotion) {
+    var fxTarget = null, fxX = 0, fxY = 0, fxQueued = false;
+
+    function applyFx() {
+      fxQueued = false;
+      if (!fxTarget) return;
+
+      var rect = fxTarget.getBoundingClientRect();
+      var relX = fxX - rect.left;
+      var relY = fxY - rect.top;
+
+      // Spotlight position, consumed by a radial-gradient in CSS.
+      fxTarget.style.setProperty("--mx", relX + "px");
+      fxTarget.style.setProperty("--my", relY + "px");
+
+      if (fxTarget.classList.contains("tilt")) {
+        // Map cursor offset from centre to a couple of degrees of rotation.
+        var px = (relX / rect.width) - 0.5;
+        var py = (relY / rect.height) - 0.5;
+        fxTarget.style.setProperty("--rx", (-py * 3.2).toFixed(2) + "deg");
+        fxTarget.style.setProperty("--ry", (px * 3.2).toFixed(2) + "deg");
+      }
+    }
+
+    document.addEventListener("mousemove", function (event) {
+      var target = event.target.closest(".spotlight, .tilt");
+
+      if (target !== fxTarget) {
+        if (fxTarget) {
+          fxTarget.style.removeProperty("--rx");
+          fxTarget.style.removeProperty("--ry");
+          fxTarget.classList.remove("fx-on");
+        }
+        fxTarget = target;
+        if (fxTarget) fxTarget.classList.add("fx-on");
+      }
+
+      if (!fxTarget) return;
+      fxX = event.clientX;
+      fxY = event.clientY;
+      if (!fxQueued) {
+        fxQueued = true;
+        requestAnimationFrame(applyFx);
+      }
+    }, { passive: true });
+
+    // Magnetic buttons: nudge toward the cursor when it's close.
+    document.addEventListener("mousemove", function (event) {
+      var btn = event.target.closest(".btn-primary");
+      if (!btn) {
+        document.querySelectorAll(".btn-primary[style*='translate']").forEach(function (b) {
+          b.style.transform = "";
+        });
+        return;
+      }
+      var rect = btn.getBoundingClientRect();
+      var dx = event.clientX - (rect.left + rect.width / 2);
+      var dy = event.clientY - (rect.top + rect.height / 2);
+      btn.style.transform = "translate(" + (dx * 0.14).toFixed(1) + "px," +
+                            (dy * 0.2).toFixed(1) + "px)";
+    }, { passive: true });
+
+    document.addEventListener("mouseleave", function (event) {
+      var btn = event.target.closest && event.target.closest(".btn-primary");
+      if (btn) btn.style.transform = "";
+    }, true);
+  }
+
+  /* ------------------------------------------------------------ sources */
+
+  document.addEventListener("click", function (event) {
+    var renameBtn = event.target.closest(".rename-source");
+    if (renameBtn) {
+      var id = renameBtn.dataset.sourceId;
+      var label = document.querySelector('.src-name[data-source-id="' + id + '"]');
+      var current = label ? label.textContent.trim() : "";
+      var next = window.prompt("Rename this source:", current);
+      if (next === null) return;
+      next = next.trim();
+      if (!next) { toast("Name cannot be empty", true); return; }
+
+      fetch("/api/source/" + id, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: next })
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Rename failed");
+          if (label) label.textContent = data.name;
+          toast("Renamed");
+        })
+        .catch(function (error) { toast(error.message, true); });
+      return;
+    }
+
+    var deleteBtn = event.target.closest(".delete-source");
+    if (deleteBtn) {
+      var sourceId = deleteBtn.dataset.sourceId;
+      var name = deleteBtn.dataset.sourceName || "this source";
+      if (!window.confirm('Delete "' + name + '" and every post captured from it?\n\nThis cannot be undone.')) return;
+
+      fetch("/api/source/" + sourceId, { method: "DELETE" })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data.ok) throw new Error("Delete failed");
+          var row = deleteBtn.closest("tr");
+          if (row) {
+            row.style.transition = "opacity 0.25s, transform 0.25s";
+            row.style.opacity = "0";
+            row.style.transform = "translateX(-14px)";
+            setTimeout(function () { row.remove(); }, 260);
+          }
+          toast("Deleted " + data.deleted + " posts");
+        })
+        .catch(function () { toast("Could not delete that source", true); });
+    }
+  });
+
   /* ------------------------------------------------------------ save */
 
   document.addEventListener("click", function (event) {

@@ -1,6 +1,7 @@
 {# The signature card. The multiple badge is the whole product in one glyph:
    how many times over its own group's median this post landed. #}
-<article class="post-card reveal tier-{{ post.tier }}" data-post-id="{{ post.id }}">
+<article class="post-card reveal spotlight tilt tier-{{ post.tier }}{{ ' is-demo' if post.is_demo }}"
+         data-post-id="{{ post.id }}">
 
   <div class="post-badge">
     <span class="multiple" data-countup="{{ post.outlier_multiple }}">{{ post.outlier_multiple }}</span><span class="times">×</span>
@@ -14,6 +15,9 @@
       <a class="source" href="{{ url_for('group_detail', source_id=post.source_id) }}">{{ post.source_name }}</a>
       <span class="dot-sep">·</span>
       <span class="type-chip">{{ post.post_type }}</span>
+      {% if post.is_demo %}
+      <span class="demo-chip" title="Generated sample content — not a real Facebook post">sample</span>
+      {% endif %}
       {% if post.still_climbing %}
       <span class="climbing-chip" title="Less than 48h old — still accumulating engagement">still climbing</span>
       {% endif %}

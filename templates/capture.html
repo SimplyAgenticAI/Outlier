@@ -11,7 +11,7 @@
 
 <section class="capture-grid">
 
-  <div class="glass install-panel reveal">
+  <div class="glass install-panel reveal spotlight">
     <h2>Install the extension</h2>
     <ol class="steps">
       <li>
@@ -53,7 +53,7 @@
     </div>
   </div>
 
-  <div class="glass side-panel reveal">
+  <div class="glass side-panel reveal spotlight">
     <h2>How scoring works</h2>
     <p>
       Every post is compared to the <b>median post in its own group</b>, not to
@@ -72,20 +72,12 @@
       A source needs 8+ posts before it gets scored at all.
     </p>
 
-    <h2 class="mt">Sample data</h2>
-    <p>Load a labelled demo set to see the interface populated, then wipe it.</p>
-    <div class="demo-actions">
-      <button class="btn btn-ghost" id="load-demo">Load sample data</button>
-      <button class="btn btn-ghost danger" id="clear-demo">Clear sample data</button>
-    </div>
-
-    <h2 class="mt">Start over</h2>
+    <h2 class="mt">Managing your data</h2>
     <p class="fine">
-      Posts captured before an extension update can carry zeroed engagement or
-      the wrong group name. Those poison every baseline they sit in, so the fix
-      is to wipe and re-capture rather than let them dilute the scoring.
+      Loading or removing sample data, renaming a group, deleting a single
+      source, or wiping everything all live on one page.
     </p>
-    <button class="btn btn-ghost danger" id="reset-all">Delete all captured posts</button>
+    <a class="btn btn-ghost" href="{{ url_for('settings') }}">Open settings &amp; data</a>
 
     <h2 class="mt">Worth knowing</h2>
     <p class="fine">

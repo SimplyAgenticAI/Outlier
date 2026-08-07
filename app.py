@@ -12,7 +12,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "0.6"
+APP_VERSION = "0.7"
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -95,22 +95,63 @@ def feed():
     )
 
 
-@app.route("/groups")
-def groups():
+def _sources_with_stats():
+    """Sources plus their stats and whether they're sample data.
+
+    is_demo is carried through so the UI can mark generated posts as such —
+    mixing invented sample content into the same feed as real captures with
+    no visible distinction is actively misleading.
+    """
     with db.get_db() as conn:
         sources = [dict(r) for r in conn.execute(
-            "SELECT * FROM sources ORDER BY last_capture DESC"
+            """
+            SELECT s.*,
+                   COUNT(p.id) AS post_count,
+                   SUM(CASE WHEN p.is_demo = 1 THEN 1 ELSE 0 END) AS demo_count,
+                   SUM(CASE WHEN p.likes > 0 OR p.comments > 0 OR p.shares > 0
+                            THEN 1 ELSE 0 END) AS engaged_count
+            FROM sources s LEFT JOIN posts p ON p.source_id = s.id
+            GROUP BY s.id ORDER BY s.last_capture DESC
+            """
         ).fetchall()]
 
     for source in sources:
+        source["is_demo"] = bool(source["demo_count"])
         posts = _fetch_posts(source_id=source["id"])
         source["stats"] = outliers.source_stats(posts) if posts else None
+        # Zero-engagement posts can't be scored, so a source full of them is
+        # broken data rather than a quiet group. Surface the ratio.
+        source["engagement_pct"] = (
+            round(source["engaged_count"] / source["post_count"] * 100)
+            if source["post_count"] else 0
+        )
+    return sources
 
+
+@app.route("/groups")
+def groups():
     return render_template(
         "groups.html",
-        sources=sources,
+        sources=_sources_with_stats(),
         version=APP_VERSION,
         active="groups",
+    )
+
+
+@app.route("/settings")
+def settings():
+    sources = _sources_with_stats()
+    return render_template(
+        "settings.html",
+        sources=sources,
+        totals={
+            "posts": sum(s["post_count"] for s in sources),
+            "demo": sum(s["demo_count"] or 0 for s in sources),
+            "real": sum(s["post_count"] - (s["demo_count"] or 0) for s in sources),
+            "sources": len(sources),
+        },
+        version=APP_VERSION,
+        active="settings",
     )
 
 
@@ -332,6 +373,35 @@ def api_demo():
 
     count = seed_demo_data()
     return jsonify({"ok": True, "seeded": count})
+
+
+@app.route("/api/source/<int:source_id>", methods=["DELETE", "PATCH"])
+def api_source(source_id):
+    """Rename or delete a single source and everything under it."""
+    if request.method == "PATCH":
+        body = request.get_json(silent=True) or {}
+        name = (body.get("name") or "").strip()
+        if not name:
+            return jsonify({"ok": False, "error": "Name cannot be empty"}), 400
+
+        with db.get_db() as conn:
+            conn.execute("UPDATE sources SET name = ? WHERE id = ?", (name[:120], source_id))
+        return jsonify({"ok": True, "name": name[:120]})
+
+    # Captures reference sources, and saved/remix rows reference posts, so the
+    # dependents have to go before the source itself or the FK trips.
+    with db.get_db() as conn:
+        post_ids = [r["id"] for r in conn.execute(
+            "SELECT id FROM posts WHERE source_id = ?", (source_id,)
+        ).fetchall()]
+        for post_id in post_ids:
+            conn.execute("DELETE FROM remixes WHERE post_id = ?", (post_id,))
+            conn.execute("DELETE FROM saved WHERE post_id = ?", (post_id,))
+        conn.execute("DELETE FROM posts WHERE source_id = ?", (source_id,))
+        conn.execute("DELETE FROM captures WHERE source_id = ?", (source_id,))
+        conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+
+    return jsonify({"ok": True, "deleted": len(post_ids)})
 
 
 @app.route("/api/reset", methods=["POST"])

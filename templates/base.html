@@ -9,6 +9,7 @@
 <body>
 
 <div class="ambient"></div>
+<canvas id="field" class="field" aria-hidden="true"></canvas>
 
 <header class="topbar">
   <a class="brand" href="{{ url_for('feed') }}">
@@ -27,6 +28,7 @@
     <a href="{{ url_for('groups') }}" class="{{ 'active' if active == 'groups' }}">Groups</a>
     <a href="{{ url_for('library') }}" class="{{ 'active' if active == 'library' }}">Library</a>
     <a href="{{ url_for('capture') }}" class="{{ 'active' if active == 'capture' }}">Capture</a>
+    <a href="{{ url_for('settings') }}" class="{{ 'active' if active == 'settings' }}">Settings</a>
   </nav>
 
   <div class="topbar-right">
@@ -41,6 +43,7 @@
 
 <div class="toast" id="toast"></div>
 
+<script src="{{ url_for('static', filename='js/field.js') }}"></script>
 <script src="{{ url_for('static', filename='js/outlier.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
