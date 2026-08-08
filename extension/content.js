@@ -43,9 +43,12 @@
   function blankStats() {
     return {
       articles: 0,     // role="article" nodes on the page
-      candidates: 0,   // top-level ones (comments excluded)
-      skipped: 0,      // rejected as shells / author-name-only
-      commentsFound: 0,  // captured as comments, scored separately
+      // Per-scan gauges — what is on screen right now, reset each pass.
+      candidates: 0,       // posts visible
+      commentsOnPage: 0,   // comments visible
+      // Cumulative — counted once per item, after the dedup check.
+      skipped: 0,          // rejected as shells / author-name-only
+      commentsFound: 0,    // comments actually captured
       usingFallback: false,
       fallbackNoted: false,
       queued: 0,
@@ -656,6 +659,7 @@
 
     var found = 0;
     STATS.candidates = 0;
+    STATS.commentsOnPage = 0;
 
     articles.forEach(function (article, articleIndex) {
       // Comments carry role="article" as well, and are not reliably nested
@@ -663,8 +667,10 @@
       // not merely a nesting check. Comments are still captured, just tagged
       // and scored against other comments rather than against posts.
       var isPost = verdicts[articleIndex].isPost;
+
+      // Per-scan gauges: what is on screen right now. Reset every pass.
       if (isPost) STATS.candidates++;
-      else STATS.commentsFound++;
+      else STATS.commentsOnPage++;
 
       var bar = findActionBar(article);
       var author = extractAuthor(article, bar);
@@ -672,6 +678,10 @@
       var permalink = extractPermalink(article);
       var postId = extractPostId(article, permalink, body, author.name);
 
+      // Everything past this point counts only ONCE per item. Counting before
+      // the dedup check meant the passive re-scan — which fires roughly every
+      // 800ms because Facebook mutates constantly — re-counted the same
+      // comments on every pass. Sitting still on one screen climbed past 300.
       if (!postId || SEEN.has(postId)) return;
 
       // Reject shells: no text, or "text" that is just the author's name
@@ -680,6 +690,7 @@
       if (body.replace(/\s+/g, " ") === author.name) { STATS.skipped++; return; }
 
       SEEN.add(postId);
+      if (!isPost) STATS.commentsFound++;
       found++;
 
       var engagement = extractEngagement(article, bar);
@@ -1166,6 +1177,26 @@
 
     manual.addEventListener("click", function () { scanPosts(); flush(); });
 
+    var pause = document.createElement("button");
+    styleEl(pause, {
+      width: "100%", marginTop: "0.5em", padding: "0.6em", borderRadius: "8px",
+      border: "1px solid rgba(110,231,183,0.2)", cursor: "pointer",
+      background: "transparent", color: "#7fa693", fontSize: "0.88em"
+    });
+    function renderPause() {
+      pause.textContent = enabled
+        ? "Pause capture (currently watching)"
+        : "Resume capture";
+      pause.style.color = enabled ? "#7fa693" : "#6ee7b7";
+    }
+    pause.addEventListener("click", function () {
+      try {
+        chrome.storage.local.set({ enabled: !enabled });
+      } catch (e) { /* orphaned context; the reload prompt covers it */ }
+    });
+    hud.__renderPause = renderPause;
+    renderPause();
+
     var diag = document.createElement("button");
     diag.textContent = "Diagnose";
     diag.title = "Copy a report of what the extractor sees on this page";
@@ -1217,6 +1248,7 @@
     content.appendChild(hudBtn);
     content.appendChild(rowBtns);
     content.appendChild(rowBtns2);
+    content.appendChild(pause);
 
     hud.appendChild(header);
     hud.appendChild(content);
@@ -1259,6 +1291,19 @@
       source ? source.name.slice(0, 24) : "unsupported",
       source ? "#6ee7b7" : "#e07a5f"
     ));
+    // State first. Capture runs as you scroll, not only after Start — that is
+    // useful but surprising, and unexplained it looks like numbers moving on
+    // their own while the page sits still.
+    var mode, modeColour;
+    if (!enabled) {
+      mode = "Paused"; modeColour = "#e07a5f";
+    } else if (autoScrolling) {
+      mode = "Auto-scrolling"; modeColour = "#6ee7b7";
+    } else {
+      mode = "Watching as you scroll"; modeColour = "#d9b45f";
+    }
+    hudBody.appendChild(row("Status", mode, modeColour));
+
     // Which dashboard this is feeding. Without it you can scan happily into
     // localhost while reading a hosted dashboard and never see your posts.
     hudBody.appendChild(row("Sending to", endpointLabel || "…",
@@ -1266,8 +1311,11 @@
     var where = source ? (source.kind === "group" ? "in this group"
                                                  : "on this profile") : "on page";
     hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
-    if (STATS.commentsFound) {
-      hudBody.appendChild(row("Comments captured", String(STATS.commentsFound)));
+    if (STATS.commentsOnPage || STATS.commentsFound) {
+      hudBody.appendChild(row(
+        "Comments",
+        STATS.commentsFound + " kept / " + STATS.commentsOnPage + " on screen"
+      ));
     }
     hudBody.appendChild(row(
       "Captured this group",
@@ -1349,6 +1397,8 @@
     hudLog.textContent = STATS.log.length
       ? STATS.log.join("\n")
       : "Nothing captured yet.\nPress Start auto-scroll.";
+
+    if (hud.__renderPause) hud.__renderPause();
 
     hudBtn.textContent = autoScrolling ? "Stop auto-scroll" : "Start auto-scroll";
     hudBtn.style.background = autoScrolling
