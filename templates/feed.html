@@ -34,8 +34,18 @@
 
   <section class="stat-row">
     <div class="stat glass reveal spotlight">
+      {% if stats.top_multiple is not none %}
       <span class="stat-value" data-countup="{{ stats.top_multiple }}">{{ stats.top_multiple }}</span><span class="stat-unit">×</span>
       <span class="stat-label">Biggest outlier</span>
+      {% else %}
+      {# Nothing is scored, so there is no biggest outlier. Showing a dash beats
+         showing a multiple computed from a baseline the app itself rejected. #}
+      <span class="stat-value stat-none">—</span>
+      <span class="stat-label">
+        Biggest outlier
+        <span class="stat-hint">nothing scored yet</span>
+      </span>
+      {% endif %}
     </div>
     <div class="stat glass reveal spotlight">
       <span class="stat-value" data-countup="{{ stats.breakout_count }}">{{ stats.breakout_count }}</span>
@@ -48,7 +58,12 @@
     </div>
     <div class="stat glass reveal spotlight">
       <span class="stat-value" data-countup="{{ stats.post_count }}">{{ stats.post_count }}</span>
-      <span class="stat-label">Posts captured</span>
+      <span class="stat-label">
+        Posts captured
+        {% if stats.sample_post_count %}
+        <span class="stat-hint">+{{ stats.sample_post_count }} sample</span>
+        {% endif %}
+      </span>
     </div>
     <div class="stat glass reveal spotlight">
       <span class="stat-value" data-countup="{{ stats.comment_count }}">{{ stats.comment_count }}</span>

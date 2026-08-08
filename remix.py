@@ -86,12 +86,12 @@ def remix_post(post, angles=None, count=3):
         f"{post.get('comments', 0)} comments, "
         f"{post.get('shares', 0)} shares"
     )
-    multiple = post.get("outlier_multiple", 0)
+    multiple = post.get("outlier_multiple")
 
     user_content = f"""Here is the post that outperformed.
 
 Posted in: {post.get('source_name', 'a Facebook group')}
-Performance: {engagement} — {multiple}x the median post in that group
+Performance: {engagement}{f" — {multiple}x the median post in that group" if multiple else ""}
 Format: {post.get('post_type', 'text')}
 
 --- ORIGINAL POST ---

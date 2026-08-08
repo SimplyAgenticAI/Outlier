@@ -18,7 +18,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "2.7"
+APP_VERSION = "2.8"
 
 db.init_db()
 db.promote_sole_account()
@@ -100,27 +100,48 @@ def _global_stats(scored):
     comments = [s for s in scored if (s.get("item_type") or "post") == "comment"]
     breakouts = [s for s in posts if s["tier"] == "breakout"]
 
+    # Generated sample rows are not captures. Counting them under "posts
+    # captured" reports work the user never did — and the number then
+    # disagrees with the list below it, which hides samples by default.
+    real_posts = [s for s in posts if not s["is_demo"]]
+    real_comments = [s for s in comments if not s["is_demo"]]
+
     with db.get_db() as conn:
         user = auth.current_user()
+        # Sources whose every post is generated sample data are not groups
+        # the user tracks, so they don't belong in the headline count.
         source_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM sources WHERE user_id = ?",
+            """
+            SELECT COUNT(*) AS n FROM sources s
+            WHERE s.user_id = ?
+              AND EXISTS (SELECT 1 FROM posts p
+                           WHERE p.source_id = s.id AND p.is_demo = 0)
+            """,
             (user["id"] if user else -1,),
         ).fetchone()["n"]
 
     scoreable = [s for s in posts if s["has_baseline"]]
     return {
-        "post_count": len(posts),
-        "comment_count": len(comments),
+        "post_count": len(real_posts),
+        "comment_count": len(real_comments),
+        "sample_post_count": len(posts) - len(real_posts),
         "source_count": source_count,
         "breakout_count": len(breakouts),
-        "top_multiple": max((s["outlier_multiple"] for s in posts), default=0),
+        # Scored posts only. Taking the max across every post printed a
+        # headline multiple derived from a baseline the app had already
+        # rejected as unusable — "Biggest outlier 99.9x" above "0 scored".
+        "top_multiple": max(
+            (s["outlier_multiple"] for s in posts
+             if s["outlier_multiple"] is not None),
+            default=None,
+        ),
         # Zero breakouts is a legitimate result — it means nothing cleared 5x
         # its group median — but shown bare it reads as a broken feature. These
         # let the UI say which it is.
         "scored_count": len(scoreable),
         "strong_count": sum(1 for s in scoreable if s["tier"] in ("breakout", "strong")),
         "no_engagement_count": sum(
-            1 for s in posts if s["total_engagement"] == 0
+            1 for s in real_posts if s["total_engagement"] == 0
         ),
     }
 
@@ -1110,7 +1131,9 @@ def api_export(fmt):
     if fmt == "markdown":
         lines = ["# Outlier export", ""]
         for row in rows:
-            lines.append(f"## {row['outlier_multiple']}x — {row['author']} in {row['source']}")
+            headline = (f"{row['outlier_multiple']}x" if row["outlier_multiple"] is not None
+                        else "unscored")
+            lines.append(f"## {headline} — {row['author']} in {row['source']}")
             lines.append(
                 f"*{row['likes']} reactions · {row['comments']} comments · "
                 f"{row['shares']} shares · {row['type']} · {row['posted_at']}*"

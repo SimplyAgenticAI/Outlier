@@ -45,7 +45,7 @@
             data-source-id="{{ s.id }}" data-source-name="{{ s.name }}">
       <span class="gc-name">{{ s.name }}</span>
       <span class="gc-meta">
-        {{ s.stats.post_count }} posts · best {{ s.stats.top_multiple }}×
+        {{ s.stats.post_count }} posts{% if s.stats.top_multiple is not none %} · best {{ s.stats.top_multiple }}×{% endif %}
         {% if s.is_demo %}<span class="demo-chip">sample</span>{% endif %}
       </span>
     </button>
@@ -75,7 +75,10 @@
   <ul class="basis-list">
     {% for p in posts[:5] %}
     <li>
-      <span class="basis-mult tier-{{ p.tier }}">{{ p.outlier_multiple }}×</span>
+      <span class="basis-mult tier-{{ p.tier }}">
+        {%- if p.outlier_multiple is not none -%}{{ p.outlier_multiple }}×
+        {%- else -%}{{ "{:,}".format(p.total_engagement) }}{%- endif -%}
+      </span>
       <span class="basis-body">{{ (p.body or '')[:110] }}{% if (p.body or '')|length > 110 %}…{% endif %}</span>
     </li>
     {% endfor %}

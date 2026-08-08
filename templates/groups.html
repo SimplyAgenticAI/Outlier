@@ -43,7 +43,11 @@
           <span class="s-lab">outliers</span>
         </div>
         <div>
+          {% if source.stats.top_multiple is not none %}
           <span class="s-val" data-countup="{{ source.stats.top_multiple }}">{{ source.stats.top_multiple }}</span><span class="s-unit">×</span>
+          {% else %}
+          <span class="s-val stat-none">—</span>
+          {% endif %}
           <span class="s-lab">best</span>
         </div>
         {% if source.stats.comment_count %}
@@ -56,7 +60,7 @@
       {% elif source.stats.low_baseline %}
       <p class="needs-data">
         <b class="warn-tone">Not scored.</b>
-        Median engagement is {{ source.stats.baseline | round | int }} — too low to
+        Median engagement is {{ source.stats.raw_baseline | round | int }} — too low to
         compare against. Usually means these were captured before the extension
         could read engagement. Re-scan to fix.
       </p>

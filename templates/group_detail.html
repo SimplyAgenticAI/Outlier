@@ -11,7 +11,7 @@
       <span class="kind-chip">{{ source.kind }}</span>
       {% if source.member_count %}{{ "{:,}".format(source.member_count) }} members{% endif %}
       {% if stats and stats.has_baseline %}
-        · median post scores <b>{{ stats.baseline | round | int }}</b>
+        {%- if stats.baseline is not none %} · median post scores <b>{{ stats.baseline | round | int }}</b>{% endif -%}
       {% endif %}
     </p>
   </div>

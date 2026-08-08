@@ -135,10 +135,17 @@ def build_context():
             "name": name,
             "posts": len(group),
             "is_sample": bool(group[0].get("is_demo")),
-            "baseline": round(group[0]["baseline"], 1),
+            # None where the group has no usable baseline. Sage is told the
+            # difference explicitly rather than being handed a zero it would
+            # reasonably describe to the user as a real measurement.
+            "baseline": round(group[0]["baseline"], 1) if group[0]["baseline"] is not None else None,
             "has_baseline": group[0]["has_baseline"],
             "engagement_recorded_pct": round(len(engaged) / len(group) * 100),
-            "best_multiple": max(p["outlier_multiple"] for p in group),
+            "best_multiple": max(
+                (p["outlier_multiple"] for p in group
+                 if p["outlier_multiple"] is not None),
+                default=None,
+            ),
         })
 
     tiers = {}
@@ -147,7 +154,7 @@ def build_context():
 
     top = sorted(
         [s for s in scored if s["has_baseline"]],
-        key=lambda s: s["outlier_multiple"],
+        key=lambda s: s["outlier_multiple"] or 0,
         reverse=True,
     )[:MAX_POSTS_IN_CONTEXT]
 
@@ -336,6 +343,8 @@ def generate_ideas(source_name, posts, count=3):
     for post in posts[:15]:
         lines.append(
             f"[{post['outlier_multiple']}x {post['tier']}] "
+            if post["outlier_multiple"] is not None else
+            f"[unscored, {post['tier']}] "
             f"{post['likes']} reactions / {post['comments']} comments / "
             f"{post['shares']} shares · {post['post_type']}\n"
             f"{(post['body'] or '').strip()[:400]}\n"

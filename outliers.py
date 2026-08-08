@@ -121,17 +121,27 @@ def score_posts(posts):
             eng = weighted_engagement(post)
 
             # How many times the typical post did this one beat?
-            if baseline > 0:
+            #
+            # None, not 0.0, when there is no usable baseline. A number here is
+            # a claim about how this post compares to its group, and without a
+            # baseline no such claim can be made — a median of 1 turns an
+            # ordinary post into "99.9x". Storing 0.0 made that lie *available*
+            # to any caller that forgot to check has_baseline, and the feed's
+            # headline duly printed "Biggest outlier 99.9x" while reporting
+            # zero scored posts. None cannot be formatted into a plausible
+            # figure by accident.
+            if sufficient and baseline > 0:
                 multiple = min(eng / baseline, MAX_MULTIPLE)
             else:
-                multiple = 0.0
+                multiple = None
 
             # Robust z-score. The 0.6745 constant rescales MAD so that for
-            # normally-distributed data it matches a standard deviation.
-            if mad > 0:
+            # normally-distributed data it matches a standard deviation. Same
+            # rule as the multiple: no baseline, no claim.
+            if sufficient and mad > 0:
                 robust_z = 0.6745 * (eng - baseline) / mad
             else:
-                robust_z = 0.0
+                robust_z = None
 
             age_hours = _hours_since(post["posted_at"])
             still_climbing = age_hours is not None and age_hours < STILL_CLIMBING_HOURS
@@ -141,15 +151,18 @@ def score_posts(posts):
                 {
                     "weighted_engagement": eng,
                     "total_engagement": total_engagement(post),
-                    "baseline": baseline,
-                    "outlier_multiple": round(multiple, 1),
-                    "robust_z": round(robust_z, 2),
+                    # The group median is only meaningful as a comparator when
+                    # it clears the floor; below it, it is an artefact of
+                    # failed extraction rather than a description of the group.
+                    "baseline": baseline if sufficient else None,
+                    "outlier_multiple": round(multiple, 1) if multiple is not None else None,
+                    "robust_z": round(robust_z, 2) if robust_z is not None else None,
                     "has_baseline": sufficient,
                     "low_baseline": low_baseline,
                     "still_climbing": still_climbing,
                     "age_hours": round(age_hours, 1) if age_hours is not None else None,
                     "tier": _tier(multiple, sufficient),
-                    "bar_pct": bar_position(multiple),
+                    "bar_pct": bar_position(multiple) if multiple is not None else None,
                     # What this post's position in a list actually means. A
                     # multiple is only honest with a baseline behind it; saying
                     # so per-post lets the UI show everything and stay truthful
@@ -193,7 +206,7 @@ def _rank_key(record):
     """
     return (
         RANK_BASIS_ORDER.get(record["rank_basis"], 0),
-        record["outlier_multiple"] if record["has_baseline"] else 0,
+        record["outlier_multiple"] or 0,
         record["weighted_engagement"],
         record.get("captured_at") or "",
     )
@@ -220,7 +233,7 @@ MEDIAN_MARK_PCT = 25.0   # where the median notch is drawn, shared with the CSS
 
 def _tier(multiple, has_baseline):
     """Human-readable band. Drives the badge colour and glow in the UI."""
-    if not has_baseline:
+    if not has_baseline or multiple is None:
         return "unknown"
     if multiple >= 5:
         return "breakout"
@@ -255,7 +268,8 @@ def source_stats(items):
     comments = [p for p in items if (p.get("item_type") or "post") == "comment"]
 
     post_engagements = [weighted_engagement(p) for p in posts]
-    baseline = _median(post_engagements)
+    raw_baseline = _median(post_engagements)
+    scoreable = len(posts) >= MIN_SAMPLE and raw_baseline >= MIN_BASELINE
 
     scored = score_posts(items)
     scored_posts = [s for s in scored if (s.get("item_type") or "post") == "post"]
@@ -268,11 +282,20 @@ def source_stats(items):
         "post_count": len(posts),
         "comment_count": len(comments),
         "total_count": len(items),
-        "baseline": round(baseline, 1),
+        # Reported only when it is a usable comparator; otherwise the number
+        # describes a failed capture, not the group.
+        "baseline": round(raw_baseline, 1) if scoreable else None,
+        "raw_baseline": round(raw_baseline, 1),
         "outlier_count": len(outlier_posts),
         "top_comment_count": len(top_comments),
-        "has_baseline": len(posts) >= MIN_SAMPLE and baseline >= MIN_BASELINE,
-        "low_baseline": bool(posts) and baseline < MIN_BASELINE,
-        "top_multiple": max((s["outlier_multiple"] for s in scored_posts), default=0),
+        "has_baseline": scoreable,
+        "low_baseline": bool(posts) and raw_baseline < MIN_BASELINE,
+        # Only posts that actually carry a baseline. Reading the max across
+        # every post reported a multiple for groups where nothing was scored.
+        "top_multiple": max(
+            (s["outlier_multiple"] for s in scored_posts
+             if s["outlier_multiple"] is not None),
+            default=None,
+        ),
         "comments_scored": any(s["has_baseline"] for s in scored_comments),
     }

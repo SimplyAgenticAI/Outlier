@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Outlier — {{ post.outlier_multiple }}× post{% endblock %}
+{% block title %}Outlier — {% if post.has_baseline %}{{ post.outlier_multiple }}× post{% else %}captured post{% endif %}{% endblock %}
 
 {% block content %}
 <a class="back-link" href="{{ url_for('feed') }}">← Back to feed</a>
@@ -8,10 +8,19 @@
 
   <div class="glass detail-post reveal spotlight">
     <div class="detail-head">
+      {% if post.has_baseline %}
       <div class="post-badge big tier-{{ post.tier }}">
         <span class="multiple" data-countup="{{ post.outlier_multiple }}">{{ post.outlier_multiple }}</span><span class="times">×</span>
         <span class="badge-label">{{ tier_labels[post.tier] }}</span>
       </div>
+      {% else %}
+      {# No baseline behind this post, so there is no multiple to show. The
+         raw total is the only figure here that is actually measured. #}
+      <div class="post-badge big is-unscored" title="{{ post.rank_basis_label }}">
+        <span class="raw-count">{{ "{:,}".format(post.total_engagement) }}</span>
+        <span class="badge-label">{{ 'total engagement' if post.total_engagement else 'no counts read' }}</span>
+      </div>
+      {% endif %}
       <div>
         <div class="detail-author">{{ post.author_name }}</div>
         <a class="detail-source" href="{{ url_for('group_detail', source_id=post.source_id) }}">
@@ -26,13 +35,26 @@
       <img src="{{ post.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
     </a>
     {% endif %}
-    <p class="detail-body">{{ post.body }}</p>
+    <p class="detail-body{{ ' is-empty' if not post.body }}">
+      {%- if post.body -%}{{ post.body }}
+      {%- elif post.image_url or post.has_video -%}No caption — {{ 'video' if post.has_video else 'image' }} post
+      {%- else -%}No caption captured{%- endif -%}
+    </p>
+    {% if post.body_from_image %}
+    <p class="from-image">Text read from the image, not typed by the author</p>
+    {% endif %}
+    {% if not post.has_baseline %}
+    <p class="rank-basis">{{ post.rank_basis_label }}</p>
+    {% endif %}
 
     <div class="detail-stats">
       <div><span class="d-val">{{ "{:,}".format(post.likes) }}</span><span class="d-lab">reactions</span></div>
       <div><span class="d-val">{{ "{:,}".format(post.comments) }}</span><span class="d-lab">comments</span></div>
       <div><span class="d-val">{{ "{:,}".format(post.shares) }}</span><span class="d-lab">shares</span></div>
-      <div><span class="d-val">{{ post.baseline | round | int }}</span><span class="d-lab">group median</span></div>
+      <div>
+        <span class="d-val">{{ post.baseline | round | int if post.baseline is not none else '—' }}</span>
+        <span class="d-lab">group median</span>
+      </div>
     </div>
 
     {% if post.permalink %}
