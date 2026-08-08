@@ -4,7 +4,7 @@
 <meta name="csrf-token" content="{{ csrf_token() }}">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}Outlier{% endblock %}</title>
+<title>{% block title %}{{ app_name }}{% endblock %}</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='css/outlier.css') }}">
 </head>
 <body>
@@ -21,7 +21,7 @@
         <circle class="mark-outlier" cx="19" cy="5" r="2.6"/>
       </svg>
     </span>
-    <span class="brand-name">Outlier</span>
+    <span class="brand-name">Outlier<span class="brand-suffix"> for Facebook</span></span>
   </a>
 
   <nav class="topnav">

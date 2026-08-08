@@ -18,7 +18,13 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "2.8"
+APP_VERSION = "2.9"
+
+# The product name lives here and nowhere else. APP_SHORT_NAME is what prose
+# uses on the second mention — spelling out the full name mid-sentence reads
+# like boilerplate.
+APP_NAME = "Outlier For Facebook"
+APP_SHORT_NAME = "Outlier"
 
 db.init_db()
 db.promote_sole_account()
@@ -570,6 +576,8 @@ def inject_globals():
         "ephemeral": db.storage_is_ephemeral(),
         "user": auth.current_user(),
         "csrf_token": auth.csrf_token,
+        "app_name": APP_NAME,
+        "app_short_name": APP_SHORT_NAME,
     }
 
 
@@ -1129,7 +1137,7 @@ def api_export(fmt):
                          as_attachment=True, download_name="outlier-export.csv")
 
     if fmt == "markdown":
-        lines = ["# Outlier export", ""]
+        lines = [f"# {APP_NAME} export", ""]
         for row in rows:
             headline = (f"{row['outlier_multiple']}x" if row["outlier_multiple"] is not None
                         else "unscored")

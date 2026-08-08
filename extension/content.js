@@ -1185,8 +1185,30 @@
     });
 
     var title = document.createElement("span");
-    title.textContent = "Outlier";
-    styleEl(title, { fontWeight: "700", fontSize: "1.2em", letterSpacing: "-0.2px" });
+    styleEl(title, { fontWeight: "700", fontSize: "1.2em", letterSpacing: "-0.2px",
+                     display: "inline-flex", alignItems: "baseline", gap: "0.35em" });
+
+    var titleMain = document.createElement("span");
+    titleMain.textContent = "Outlier";
+    title.appendChild(titleMain);
+
+    var titleSuffix = document.createElement("span");
+    titleSuffix.textContent = "for Facebook";
+    styleEl(titleSuffix, { fontWeight: "500", fontSize: "0.6em", color: "#7fa693",
+                           letterSpacing: "0.02em" });
+    title.appendChild(titleSuffix);
+
+    // A slow pulse on the mark while capture is live — the panel is often
+    // parked in a corner while you scroll, and a still panel and a stopped
+    // one look identical.
+    var pulse = document.createElement("span");
+    pulse.className = "outlier-pulse";
+    styleEl(pulse, {
+      width: "7px", height: "7px", borderRadius: "50%", flex: "none",
+      background: "#6ee7b7", boxShadow: "0 0 0 0 rgba(110,231,183,0.55)",
+      alignSelf: "center", marginRight: "0.1em"
+    });
+    hud.__pulse = pulse;
 
     var controls = document.createElement("span");
     styleEl(controls, { display: "flex", gap: "0.9em", alignItems: "center" });
@@ -1204,6 +1226,7 @@
 
     controls.appendChild(collapse);
     controls.appendChild(close);
+    header.appendChild(pulse);
     header.appendChild(title);
     header.appendChild(controls);
 
@@ -1299,7 +1322,21 @@
       width: "100%", marginTop: "0.9em", padding: "0.8em", borderRadius: "9px",
       border: "none", cursor: "pointer", fontWeight: "700", fontSize: "1.05em",
       whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
-      flexShrink: "0"
+      flexShrink: "0",
+      transition: "transform 0.16s cubic-bezier(0.22,1,0.36,1), " +
+                  "box-shadow 0.2s cubic-bezier(0.22,1,0.36,1), " +
+                  "filter 0.2s ease"
+    });
+    hudBtn.addEventListener("mouseenter", function () {
+      hudBtn.style.transform = "translateY(-1px)";
+      hudBtn.style.filter = "brightness(1.06)";
+    });
+    hudBtn.addEventListener("mouseleave", function () {
+      hudBtn.style.transform = "";
+      hudBtn.style.filter = "";
+    });
+    hudBtn.addEventListener("mousedown", function () {
+      hudBtn.style.transform = "translateY(1px)";
     });
     hudBtn.addEventListener("click", function () {
       if (autoScrolling) stopAutoScroll("Stopped");
@@ -1315,6 +1352,16 @@
     dash.textContent = "Open dashboard";
 
     [manual, dash].forEach(function (button) {
+      button.style.transition = "border-color 0.18s ease, background 0.18s ease, " +
+                                "color 0.18s ease";
+      button.addEventListener("mouseenter", function () {
+        button.style.background = "rgba(110,231,183,0.11)";
+        button.style.borderColor = "rgba(110,231,183,0.45)";
+      });
+      button.addEventListener("mouseleave", function () {
+        button.style.background = "transparent";
+        button.style.borderColor = "rgba(110,231,183,0.24)";
+      });
       styleEl(button, {
         flex: "1", padding: "0.65em", borderRadius: "8px",
         border: "1px solid rgba(110,231,183,0.24)", cursor: "pointer",
@@ -1405,6 +1452,81 @@
     hud.appendChild(header);
     hud.appendChild(content);
     document.body.appendChild(hud);
+
+    // Arrive rather than appear. The panel drops onto a page the user is
+    // already looking at, and something that materialises with no transition
+    // reads as a rendering glitch on Facebook's own chrome.
+    animate(hud, [
+      { opacity: 0, transform: "translateY(14px) scale(0.97)" },
+      { opacity: 1, transform: "translateY(0) scale(1)" }
+    ], { duration: 420, easing: "cubic-bezier(0.22,1,0.36,1)", fill: "backwards" });
+
+    // Rows stagger in behind it, so the eye lands on the panel first and the
+    // numbers second.
+    animate(content, [
+      { opacity: 0, transform: "translateY(6px)" },
+      { opacity: 1, transform: "translateY(0)" }
+    ], { duration: 520, delay: 120, easing: "cubic-bezier(0.22,1,0.36,1)",
+         fill: "backwards" });
+  }
+
+
+  /* Animation without a stylesheet.
+   *
+   * Facebook's CSP rejects an injected <style> tag, so @keyframes is not
+   * available here. element.animate() runs on the same compositor and is not
+   * subject to style-src, which makes it the only way to move anything in
+   * this panel.
+   */
+  var REDUCED_MOTION = window.matchMedia &&
+                       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  function animate(el, frames, options) {
+    if (REDUCED_MOTION || !el || !el.animate) return null;
+    try {
+      return el.animate(frames, options);
+    } catch (e) {
+      return null;   // older engines; the panel is still fully usable
+    }
+  }
+
+  var pulseAnimation = null;
+
+  // A living panel reads as "still working"; a frozen one reads as crashed.
+  // Runs only while capture is actually live, so it means something.
+  function setPulse(active, colour) {
+    var dot = hud && hud.__pulse;
+    if (!dot) return;
+    dot.style.background = colour;
+
+    if (!active) {
+      if (pulseAnimation) { pulseAnimation.cancel(); pulseAnimation = null; }
+      dot.style.boxShadow = "0 0 0 0 rgba(0,0,0,0)";
+      dot.style.opacity = "0.45";
+      return;
+    }
+    dot.style.opacity = "1";
+    if (pulseAnimation) return;          // already running; don't restack it
+
+    pulseAnimation = animate(dot, [
+      { boxShadow: "0 0 0 0 rgba(110,231,183,0.55)", transform: "scale(1)" },
+      { boxShadow: "0 0 0 7px rgba(110,231,183,0)",  transform: "scale(1.15)" },
+      { boxShadow: "0 0 0 0 rgba(110,231,183,0)",    transform: "scale(1)" }
+    ], { duration: 2200, iterations: Infinity, easing: "cubic-bezier(0.22,1,0.36,1)" });
+  }
+
+  // Values that changed since the last render get a brief lift. Without it a
+  // number ticking up in a dense list is genuinely easy to miss.
+  var LAST_VALUES = {};
+
+  function flashIfChanged(el, label, value) {
+    var previous = LAST_VALUES[label];
+    LAST_VALUES[label] = value;
+    if (previous === undefined || previous === value) return;
+    animate(el, [
+      { color: "#6ee7b7", transform: "translateY(-2px)" },
+      { color: el.style.color || "#eafff3", transform: "translateY(0)" }
+    ], { duration: 620, easing: "cubic-bezier(0.22,1,0.36,1)" });
   }
 
   function row(label, value, accent) {
@@ -1427,6 +1549,8 @@
       minWidth: "0", overflow: "hidden",
       textOverflow: "ellipsis", whiteSpace: "nowrap"
     });
+
+    flashIfChanged(v, label, value);
 
     line.appendChild(l);
     line.appendChild(v);
@@ -1455,6 +1579,7 @@
       mode = "Capturing"; modeColour = "#6ee7b7";
     }
     hudBody.appendChild(row("Status", mode, modeColour));
+    setPulse(enabled, modeColour);
 
     // Which dashboard this is feeding. Until an account is connected there is
     // no dashboard, and naming the seeded default would be misleading.
@@ -1563,10 +1688,22 @@
 
     if (hud.__renderPause) hud.__renderPause();
 
-    hudBtn.textContent = autoScrolling ? "Stop auto-scroll" : "Start auto-scroll";
+    var nextLabel = autoScrolling ? "Stop auto-scroll" : "Start auto-scroll";
+    if (hudBtn.textContent !== nextLabel) {
+      // Only on an actual state change — renderHud runs on every scan pass,
+      // and animating each one would leave the button permanently twitching.
+      animate(hudBtn, [
+        { transform: "scale(1)" },
+        { transform: "scale(1.03)" },
+        { transform: "scale(1)" }
+      ], { duration: 340, easing: "cubic-bezier(0.22,1,0.36,1)" });
+    }
+    hudBtn.textContent = nextLabel;
     hudBtn.style.background = autoScrolling
       ? "rgba(224,122,95,0.92)" : "linear-gradient(135deg, #34d399, #10b981)";
     hudBtn.style.color = autoScrolling ? "#fff" : "#04150c";
+    hudBtn.style.boxShadow = autoScrolling
+      ? "0 4px 18px rgba(224,122,95,0.3)" : "0 4px 18px rgba(52,211,153,0.28)";
   }
 
   /* ------------------------------------------------------ wiring */
