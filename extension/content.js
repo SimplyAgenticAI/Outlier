@@ -52,6 +52,7 @@
       sent: 0,
       added: 0,
       withEngagement: 0,   // how many carried a real reaction count
+      withMedia: 0,        // how many carried an image or video
       lastError: null,
       done: null,          // why the scan finished, once it has
       log: []
@@ -456,7 +457,13 @@
       /(?:Like|reaction)s?:?\s*([\d][\d.,]*\s*[KMB]?)/i,
       /([\d][\d.,]*\s*[KMB]?)\s+reactions?/i,
       /See who reacted[^\d]*([\d][\d.,]*\s*[KMB]?)/i,
-      /([\d][\d.,]*\s*[KMB]?)\s+likes?\b/i
+      /([\d][\d.,]*\s*[KMB]?)\s+likes?\b/i,
+      // Facebook also renders the summary as a list of reaction names
+      // followed by a total: "Like, Love and 47 others".
+      /and\s+([\d][\d.,]*\s*[KMB]?)\s+others?/i,
+      /([\d][\d.,]*\s*[KMB]?)\s+others?\s+reacted/i,
+      // Some locales/layouts label the whole row rather than the count.
+      /All reactions:?\s*([\d][\d.,]*\s*[KMB]?)/i
     ]);
 
     result.comments = firstMatch([
@@ -473,14 +480,93 @@
       /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
     ]);
 
-    // Last resort for reactions: a bare number sitting alone on its own line
-    // just above the Like/Comment/Share row.
-    if (!result.likes) {
-      var loose = (article.innerText || "").match(/(?:^|\n)\s*([\d][\d.,]*\s*[KMB]?)\s*\n(?=[\s\S]{0,80}(?:Like|Comment|Share))/i);
-      if (loose) result.likes = parseCount(loose[1]);
+    // Structural fallback, used when every label pattern misses.
+    //
+    // Facebook's summary row sits immediately above the action bar and holds
+    // the reaction total as bare text next to icons. Walking backwards from
+    // the bar finds it without depending on any wording, which is what makes
+    // this survive the layout and locale changes that break the patterns.
+    if (!result.likes && bar) {
+      var row = bar.parentElement;
+      for (var hop = 0; hop < 4 && row; hop++) {
+        var previous = row.previousElementSibling;
+        while (previous) {
+          var text = (previous.innerText || "").trim();
+          // A summary row is short and mostly digits; post copy is not.
+          if (text && text.length < 60 && /\d/.test(text)) {
+            var candidate = parseCount(text.split(/\s+/)[0]);
+            if (candidate) { result.likes = candidate; break; }
+          }
+          previous = previous.previousElementSibling;
+        }
+        if (result.likes) break;
+        row = row.parentElement;
+      }
+    }
+
+    // Same idea for the comment tally, which usually sits beside the
+    // reaction count rather than carrying its own label.
+    if (!result.comments) {
+      var counts = (visible.match(/\b\d[\d.,]*\s*[KMB]?\b/g) || [])
+        .map(parseCount).filter(function (n) { return n > 0; });
+      if (counts.length >= 2 && result.likes) {
+        // Anything smaller than the reaction total on the same row is a
+        // plausible comment count; the largest such value is the best guess.
+        var below = counts.filter(function (n) { return n < result.likes; });
+        if (below.length) result.comments = Math.max.apply(null, below);
+      }
     }
 
     return result;
+  }
+
+  /* Visual content.
+   *
+   * What a post looked like is half of why it worked, so the image is stored
+   * alongside the copy. Facebook serves post media from its CDN with a
+   * distinctive host, which separates real content from avatars, emoji
+   * sprites and UI chrome — those come from other paths and are tiny.
+   */
+  var MIN_MEDIA_PX = 130;
+
+  function extractMedia(article, bar) {
+    var images = article.querySelectorAll("img");
+    var found = [];
+
+    for (var i = 0; i < images.length; i++) {
+      var img = images[i];
+      if (isBelowBar(img, bar)) continue;                       // comment media
+      if (img.closest('div[role="article"]') !== article) continue;
+
+      var src = img.currentSrc || img.src || "";
+      if (!src || src.indexOf("data:") === 0) continue;
+      if (!/scontent|fbcdn/i.test(src)) continue;               // not post media
+
+      // Profile pictures live on the same CDN, so size is what separates a
+      // post image from the author's avatar.
+      var width = img.naturalWidth || img.width || 0;
+      var height = img.naturalHeight || img.height || 0;
+      if (width && width < MIN_MEDIA_PX) continue;
+      if (height && height < MIN_MEDIA_PX) continue;
+
+      var label = (img.getAttribute("alt") || "").toLowerCase();
+      if (/profile picture|avatar/.test(label)) continue;
+
+      found.push({ src: src, area: (width || 0) * (height || 0) });
+    }
+
+    // Largest first: on an album the biggest render is the one on display.
+    found.sort(function (a, b) { return b.area - a.area; });
+
+    var video = article.querySelector("video");
+    var hasVideo = !!(video && !isBelowBar(video, bar)) ||
+                   !!ownQuery(article, 'a[href*="/reel/"], a[href*="/videos/"]');
+
+    return {
+      image_url: found.length ? found[0].src : null,
+      image_count: found.length,
+      has_video: hasVideo
+    };
   }
 
   function extractPostType(article) {
@@ -597,9 +683,11 @@
       found++;
 
       var engagement = extractEngagement(article, bar);
+      var media = extractMedia(article, bar);
       if (engagement.likes || engagement.comments || engagement.shares) {
         STATS.withEngagement++;
       }
+      if (media.image_url || media.has_video) STATS.withMedia++;
       logLine((isPost ? "" : "↳ ") + engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
@@ -617,7 +705,10 @@
         shares: engagement.shares,
         video_plays: engagement.video_plays,
         item_type: isPost ? "post" : "comment",
-        parent_fb_id: isPost ? null : parentPostId(article, source)
+        parent_fb_id: isPost ? null : parentPostId(article, source),
+        image_url: media.image_url,
+        image_count: media.image_count,
+        has_video: media.has_video
       });
     });
 
@@ -753,6 +844,75 @@
     try { chrome.storage.local.set({ capturing: false }); } catch (e) {}
     if (contextAlive()) flush();
     renderHud();
+  }
+
+  /* ------------------------------------------------------ diagnostics */
+
+  /* Facebook's markup differs by account, locale and A/B bucket, so an
+   * extractor that works on one feed can return zeros on another. This dumps
+   * exactly what each strategy saw for the posts currently on screen, so a
+   * failure can be diagnosed from the report instead of guessed at.
+   *
+   * Post text is truncated and no identifiers are included — the useful part
+   * is the shape of the markup, not the content.
+   */
+  function diagnose() {
+    var source = detectSource();
+    var articles = document.querySelectorAll('div[role="article"]');
+    var lines = [];
+
+    lines.push("OUTLIER DIAGNOSTIC");
+    lines.push("page: " + (source ? source.kind + " / " + source.name.slice(0, 40)
+                                  : "unsupported"));
+    lines.push("articles on page: " + articles.length);
+    lines.push("");
+
+    var limit = Math.min(articles.length, 4);
+    for (var i = 0; i < limit; i++) {
+      var article = articles[i];
+      var verdict = classify(article);
+      var bar = findActionBar(article);
+      var author = extractAuthor(article, bar);
+      var body = extractBody(article, author.name, bar);
+      var engagement = extractEngagement(article, bar);
+      var media = extractMedia(article, bar);
+
+      lines.push("--- item " + (i + 1) + " ---");
+      lines.push("verdict     : " + (verdict.isPost ? "POST" : "comment") +
+                 "  (" + verdict.why + ")");
+      lines.push("action bar  : " + (bar ? "found <" + bar.tagName.toLowerCase() +
+                 " aria-label=\"" + (bar.getAttribute("aria-label") || "") + "\">"
+                 : "NOT FOUND"));
+      lines.push("author      : " + author.name);
+      lines.push("body chars  : " + body.length + "  " +
+                 JSON.stringify(body.slice(0, 60)));
+      lines.push("engagement  : " + engagement.likes + "r " + engagement.comments +
+                 "c " + engagement.shares + "s " + engagement.video_plays + "v");
+      lines.push("media       : " + (media.image_url ? media.image_count + " image(s)"
+                 : "none") + (media.has_video ? " + video" : ""));
+
+      // The aria-labels are what the count patterns actually match against,
+      // so when engagement reads zero this is the part that explains why.
+      var labels = [];
+      var labelled = article.querySelectorAll("[aria-label]");
+      for (var j = 0; j < labelled.length && labels.length < 12; j++) {
+        if (labelled[j].closest('div[role="article"]') !== article) continue;
+        var label = labelled[j].getAttribute("aria-label");
+        if (label && label.length < 70) labels.push(label);
+      }
+      lines.push("aria-labels : " + (labels.length ? JSON.stringify(labels) : "none"));
+
+      if (!engagement.likes) {
+        // Whatever sits just above the action bar is where the count should be.
+        var nearBar = bar && bar.parentElement
+          ? (bar.parentElement.innerText || "").trim().slice(0, 120)
+          : "(no bar)";
+        lines.push("text at bar : " + JSON.stringify(nearBar));
+      }
+      lines.push("");
+    }
+
+    return lines.join("\n");
   }
 
   /* ------------------------------------------------------ HUD */
@@ -1005,6 +1165,28 @@
     });
 
     manual.addEventListener("click", function () { scanPosts(); flush(); });
+
+    var diag = document.createElement("button");
+    diag.textContent = "Diagnose";
+    diag.title = "Copy a report of what the extractor sees on this page";
+    styleEl(diag, {
+      flex: "1", padding: "0.65em", borderRadius: "8px",
+      border: "1px solid rgba(217,180,95,0.35)", cursor: "pointer",
+      background: "transparent", color: "#d9b45f", fontSize: "0.9em"
+    });
+    diag.addEventListener("click", function () {
+      var report = diagnose();
+      navigator.clipboard.writeText(report).then(function () {
+        STATS.lastError = "Diagnostic copied — paste it to get the extractors tuned.";
+        renderHud();
+      }).catch(function () {
+        // Clipboard can be blocked; the console is always available.
+        console.log(report);
+        STATS.lastError = "Clipboard blocked — the report is in the console (F12).";
+        renderHud();
+      });
+    });
+
     dash.addEventListener("click", function () {
       chrome.storage.local.get(["endpoint"], function (state) {
         window.open(state.endpoint || "http://localhost:5050", "_blank");
@@ -1012,7 +1194,11 @@
     });
 
     rowBtns.appendChild(manual);
-    rowBtns.appendChild(dash);
+    rowBtns.appendChild(diag);
+
+    var rowBtns2 = document.createElement("div");
+    styleEl(rowBtns2, { display: "flex", gap: "0.5em", marginTop: "0.5em", flexShrink: "0" });
+    rowBtns2.appendChild(dash);
 
     // Stats and log share one scrollable region; the buttons are pinned below
     // it. Previously the stats block could not shrink, so as rows were added
@@ -1030,6 +1216,7 @@
     content.appendChild(scroller);
     content.appendChild(hudBtn);
     content.appendChild(rowBtns);
+    content.appendChild(rowBtns2);
 
     hud.appendChild(header);
     hud.appendChild(content);
@@ -1105,6 +1292,9 @@
       coverage >= 60 ? "#6ee7b7" : (STATS.sent ? "#d9b45f" : "#7fa693")
     ));
 
+    if (STATS.withMedia) {
+      hudBody.appendChild(row("With images/video", String(STATS.withMedia)));
+    }
     if (STATS.skipped) hudBody.appendChild(row("Skipped (no text)", String(STATS.skipped)));
     if (STATS.queued) hudBody.appendChild(row("Queued", String(STATS.queued)));
 
@@ -1249,10 +1439,12 @@
     extractAuthor: extractAuthor,
     extractEngagement: extractEngagement,
     extractPostType: extractPostType,
+    extractMedia: extractMedia,
     extractPermalink: extractPermalink,
     extractTimestamp: extractTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
+    diagnose: diagnose,
     stats: STATS,
     queue: function () { return QUEUE; }
   };

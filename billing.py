@@ -38,7 +38,7 @@ PLANS = {
     },
 }
 
-FREE_LIMITS = {"sources": 1, "posts": 1000}
+FREE_LIMITS = {"sources": None, "posts": 1000}   # None = unlimited
 
 PRO_FEATURES = [
     "Unlimited groups and profiles",
@@ -50,7 +50,7 @@ PRO_FEATURES = [
 ]
 
 FREE_FEATURES = [
-    "One group",
+    "Unlimited groups and profiles",
     "1,000 captured posts",
     "Full outlier scoring",
     "Posts and comments feeds",
@@ -215,13 +215,6 @@ def capture_allowed(user):
         return False, (
             f"Free covers {FREE_LIMITS['posts']:,} posts and you've reached it. "
             "Upgrade for unlimited capture."
-        )
-
-    if counts["sources"] >= FREE_LIMITS["sources"]:
-        # A group already being tracked can still be topped up; only starting
-        # a new one is blocked.
-        return "existing_only", (
-            f"Free covers {FREE_LIMITS['sources']} group. Upgrade to track more."
         )
 
     return True, None

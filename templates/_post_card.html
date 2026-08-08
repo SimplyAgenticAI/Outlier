@@ -33,7 +33,20 @@
       {% endif %}
     </div>
 
-    <a class="post-body" href="{{ url_for('post_detail', post_id=post.id) }}">{{ post.body }}</a>
+    <div class="post-content">
+      {% if post.image_url %}
+      {# What a post looked like is half of why it worked. Loaded lazily and
+         from Facebook's CDN — nothing is re-hosted. #}
+      <a class="post-thumb" href="{{ url_for('post_detail', post_id=post.id) }}">
+        <img src="{{ post.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+        {% if post.image_count > 1 %}
+        <span class="thumb-count">{{ post.image_count }}</span>
+        {% endif %}
+        {% if post.has_video %}<span class="thumb-play">▶</span>{% endif %}
+      </a>
+      {% endif %}
+      <a class="post-body" href="{{ url_for('post_detail', post_id=post.id) }}">{{ post.body }}</a>
+    </div>
 
     {# The score, drawn. The notch is the group's median; the glowing part is
        everything this post cleared it by. #}

@@ -90,7 +90,10 @@ CREATE TABLE IF NOT EXISTS posts (
     -- but they must never share a baseline with posts, since their
     -- engagement is an order of magnitude smaller.
     item_type     TEXT DEFAULT 'post',
-    parent_fb_id  TEXT                    -- for comments: the post they sit under
+    parent_fb_id  TEXT,                   -- for comments: the post they sit under
+    image_url     TEXT,                   -- primary visual, for the card thumbnail
+    image_count   INTEGER DEFAULT 0,
+    has_video     INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS saved (
@@ -194,6 +197,13 @@ def _migrate(conn):
         conn.execute("UPDATE posts SET item_type = 'post' WHERE item_type IS NULL")
     if "parent_fb_id" not in post_cols:
         conn.execute("ALTER TABLE posts ADD COLUMN parent_fb_id TEXT")
+    for column, ddl in (
+        ("image_url", "TEXT"),
+        ("image_count", "INTEGER DEFAULT 0"),
+        ("has_video", "INTEGER DEFAULT 0"),
+    ):
+        if column not in post_cols:
+            conn.execute(f"ALTER TABLE posts ADD COLUMN {column} {ddl}")
 
     _migrate_multi_user(conn)
 
@@ -280,6 +290,9 @@ def _rebuild_with_scoped_uniqueness(conn):
             is_demo       INTEGER DEFAULT 0,
             item_type     TEXT DEFAULT 'post',
             parent_fb_id  TEXT,
+            image_url     TEXT,
+            image_count   INTEGER DEFAULT 0,
+            has_video     INTEGER DEFAULT 0,
             UNIQUE(user_id, fb_post_id)
         );
         INSERT INTO posts_new (id, user_id, fb_post_id, source_id, author_id, body,
@@ -299,6 +312,21 @@ def _rebuild_with_scoped_uniqueness(conn):
     """)
 
     conn.execute("PRAGMA foreign_keys = ON")
+
+
+def promote_sole_account():
+    """Give admin to the only account on an install.
+
+    Accounts created before admin existed were left unflagged, which meters
+    the person who owns the instance. Only applies when there is exactly one
+    account, so it can never silently promote someone on a multi-tenant host.
+    """
+    with get_db() as conn:
+        rows = conn.execute("SELECT id, is_admin FROM users").fetchall()
+        if len(rows) == 1 and not rows[0]["is_admin"]:
+            conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (rows[0]["id"],))
+            return True
+    return False
 
 
 def claim_unowned_data(user_id):
@@ -384,6 +412,8 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
             UPDATE posts SET
                 likes = ?, comments = ?, shares = ?, video_plays = ?,
                 body = COALESCE(NULLIF(?, ''), body),
+                image_url = COALESCE(image_url, ?),
+                image_count = MAX(image_count, ?),
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id IS ? AND fb_post_id = ?
             """,
@@ -393,6 +423,8 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
                 post.get("shares", 0),
                 post.get("video_plays", 0),
                 post.get("body", ""),
+                post.get("image_url"),
+                post.get("image_count", 0),
                 user_id,
                 post["fb_post_id"],
             ),
@@ -404,8 +436,8 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
         INSERT INTO posts (
             user_id, fb_post_id, source_id, author_id, body, permalink, post_type,
             posted_at, likes, comments, shares, video_plays, is_demo,
-            item_type, parent_fb_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            item_type, parent_fb_id, image_url, image_count, has_video
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -423,6 +455,9 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
             post.get("is_demo", 0),
             post.get("item_type", "post"),
             post.get("parent_fb_id"),
+            post.get("image_url"),
+            post.get("image_count", 0),
+            1 if post.get("has_video") else 0,
         ),
     )
     return True

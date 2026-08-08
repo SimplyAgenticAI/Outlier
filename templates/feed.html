@@ -39,7 +39,12 @@
     </div>
     <div class="stat glass reveal spotlight">
       <span class="stat-value" data-countup="{{ stats.breakout_count }}">{{ stats.breakout_count }}</span>
-      <span class="stat-label">Breakout posts</span>
+      <span class="stat-label">
+        Breakout posts
+        {% if not stats.breakout_count and stats.scored_count %}
+          <span class="stat-hint">nothing cleared 5× median{% if stats.strong_count %} · {{ stats.strong_count }} strong{% endif %}</span>
+        {% endif %}
+      </span>
     </div>
     <div class="stat glass reveal spotlight">
       <span class="stat-value" data-countup="{{ stats.post_count }}">{{ stats.post_count }}</span>
@@ -67,6 +72,15 @@
        href="{{ url_for('feed', kind='comment', samples='1' if show_samples else None) }}">
       Comments <span class="kind-count">{{ comment_count }}</span>
     </a>
+  </div>
+  {% endif %}
+
+  {% if stats.no_engagement_count and stats.no_engagement_count > stats.post_count // 2 %}
+  <div class="glass notice reveal">
+    <b>{{ stats.no_engagement_count }} of {{ stats.post_count }} captured posts have no engagement recorded.</b>
+    Nothing can be scored without it, which is why groups show as “not scored”.
+    Open a group on Facebook and press <b>Diagnose</b> in the Outlier panel —
+    that reports what the extractor is seeing and is what gets it fixed.
   </div>
   {% endif %}
 

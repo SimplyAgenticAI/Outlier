@@ -18,9 +18,10 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "2.0"
+APP_VERSION = "2.1"
 
 db.init_db()
+db.promote_sole_account()
 
 # Signed sessions. Secure is off for localhost only — a Secure cookie is never
 # sent over plain HTTP, which would break local development entirely.
@@ -106,12 +107,21 @@ def _global_stats(scored):
             (user["id"] if user else -1,),
         ).fetchone()["n"]
 
+    scoreable = [s for s in posts if s["has_baseline"]]
     return {
         "post_count": len(posts),
         "comment_count": len(comments),
         "source_count": source_count,
         "breakout_count": len(breakouts),
         "top_multiple": max((s["outlier_multiple"] for s in posts), default=0),
+        # Zero breakouts is a legitimate result — it means nothing cleared 5x
+        # its group median — but shown bare it reads as a broken feature. These
+        # let the UI say which it is.
+        "scored_count": len(scoreable),
+        "strong_count": sum(1 for s in scoreable if s["tier"] in ("breakout", "strong")),
+        "no_engagement_count": sum(
+            1 for s in posts if s["total_engagement"] == 0
+        ),
     }
 
 
@@ -835,16 +845,6 @@ def api_capture():
 
     new_count = 0
     with db.get_db() as conn:
-        # "existing_only" means the free source allowance is used up: keep
-        # topping up a group already tracked, refuse to start a new one.
-        if allowed == "existing_only":
-            known = conn.execute(
-                "SELECT id FROM sources WHERE user_id = ? AND fb_id = ?",
-                (api_user["id"], str(source["fb_id"])),
-            ).fetchone()
-            if not known:
-                return jsonify({"ok": False, "error": limit_reason,
-                                "upgrade": True}), 402
         source_id = db.upsert_source(
             conn,
             fb_id=str(source["fb_id"]),

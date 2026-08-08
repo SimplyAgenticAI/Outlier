@@ -20,6 +20,12 @@
       </div>
     </div>
 
+    {% if post.image_url %}
+    <a class="detail-media" href="{{ post.permalink or '#' }}"
+       target="_blank" rel="noopener noreferrer">
+      <img src="{{ post.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
+    </a>
+    {% endif %}
     <p class="detail-body">{{ post.body }}</p>
 
     <div class="detail-stats">
