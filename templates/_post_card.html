@@ -1,10 +1,17 @@
-{# The signature card. The multiple badge is the whole product in one glyph:
-   how many times over its own group's median this post landed. #}
-<article class="post-card reveal spotlight tilt tier-{{ post.tier }}{{ ' is-demo' if post.is_demo }}{{ ' is-comment' if post.item_type == 'comment' }}"
+{# The signature card. The badge ring and the baseline bar both encode the
+   same fact — how far past its group's median this landed — so the score is
+   legible before you read a single number. #}
+<article class="post-card reveal spotlight tier-{{ post.tier }}{{ ' is-demo' if post.is_demo }}{{ ' is-comment' if post.item_type == 'comment' }}"
          data-post-id="{{ post.id }}">
 
-  <div class="post-badge">
-    <span class="multiple" data-countup="{{ post.outlier_multiple }}">{{ post.outlier_multiple }}</span><span class="times">×</span>
+  <div class="post-badge" data-arc="{{ post.bar_pct }}">
+    <svg class="badge-ring" viewBox="0 0 52 52" aria-hidden="true">
+      <circle class="ring-track" cx="26" cy="26" r="22"/>
+      <circle class="ring-fill" cx="26" cy="26" r="22"/>
+    </svg>
+    <span class="badge-num">
+      <span class="multiple" data-countup="{{ post.outlier_multiple }}">{{ post.outlier_multiple }}</span><span class="times">×</span>
+    </span>
     <span class="badge-label">{{ tier_labels[post.tier] }}</span>
   </div>
 
@@ -28,14 +35,21 @@
 
     <a class="post-body" href="{{ url_for('post_detail', post_id=post.id) }}">{{ post.body }}</a>
 
-    <div class="baseline-bar" title="This post vs the median post in {{ post.source_name }}">
-      <div class="baseline-track">
-        <div class="baseline-fill" data-fill="{{ [post.outlier_multiple / 8 * 100, 100] | min }}"></div>
-        <div class="baseline-marker" title="Group median"></div>
+    {# The score, drawn. The notch is the group's median; the glowing part is
+       everything this post cleared it by. #}
+    <div class="scale" title="{{ post.weighted_engagement }} weighted engagement vs a median of {{ post.baseline | round | int }}">
+      <div class="scale-track">
+        <div class="scale-fill" data-fill="{{ post.bar_pct }}"></div>
+        {# Only the stretch beyond the median glows — that stretch IS the score. #}
+        {% if post.bar_pct > 25 %}
+        <div class="scale-over" data-over="{{ (post.bar_pct - 25) | round(1) }}"></div>
+        {% endif %}
+        <div class="scale-median"><span class="scale-median-label">median</span></div>
       </div>
-      <span class="baseline-caption">
-        {{ post.weighted_engagement }} vs {{ post.baseline | round | int }} median
-      </span>
+      <div class="scale-caption">
+        <span><b>{{ post.weighted_engagement }}</b> weighted</span>
+        <span class="scale-vs">vs {{ post.baseline | round | int }} typical here</span>
+      </div>
     </div>
 
     <div class="post-stats">

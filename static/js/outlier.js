@@ -57,12 +57,31 @@
     el.classList.add("in");
 
     el.querySelectorAll("[data-countup]").forEach(countUp);
-    el.querySelectorAll(".baseline-fill").forEach(function (bar) {
-      // Delay so the width transition is visible after the card fades in.
-      setTimeout(function () {
-        bar.style.width = bar.dataset.fill + "%";
-      }, 180);
+
+    // The badge arc and the scale bar encode the same number, so they run
+    // together — the ring sweeping while the bar reaches past the median.
+    var RING_CIRCUMFERENCE = 138.2;   // 2 * PI * r, with r = 22 in the SVG
+    el.querySelectorAll(".post-badge[data-arc]").forEach(function (badge) {
+      var pct = parseFloat(badge.dataset.arc);
+      if (isNaN(pct)) return;
+      var ring = badge.querySelector(".ring-fill");
+      if (!ring) return;
+      // Offset shrinks from full circumference to the arc's remainder.
+      ring.style.setProperty(
+        "--arc",
+        (RING_CIRCUMFERENCE * (1 - Math.min(pct, 100) / 100)).toFixed(1)
+      );
     });
+
+    // Delay so the width transition is visible after the card fades in.
+    setTimeout(function () {
+      el.querySelectorAll(".scale-fill").forEach(function (bar) {
+        bar.style.width = bar.dataset.fill + "%";
+      });
+      el.querySelectorAll(".scale-over").forEach(function (bar) {
+        bar.style.width = bar.dataset.over + "%";
+      });
+    }, 180);
   }
 
   if ("IntersectionObserver" in window) {
@@ -97,7 +116,7 @@
 
   /* ------------------------------------------------------------ hover FX */
 
-  // Cursor-tracking spotlight and a slight 3D tilt on cards. One delegated
+  // Cursor-tracking spotlight. One delegated
   // listener, coalesced into a single rAF per frame — 60 cards each with their
   // own mousemove handler would drop frames on scroll.
   if (!reduceMotion) {
@@ -115,24 +134,13 @@
       fxTarget.style.setProperty("--mx", relX + "px");
       fxTarget.style.setProperty("--my", relY + "px");
 
-      if (fxTarget.classList.contains("tilt")) {
-        // Map cursor offset from centre to a couple of degrees of rotation.
-        var px = (relX / rect.width) - 0.5;
-        var py = (relY / rect.height) - 0.5;
-        fxTarget.style.setProperty("--rx", (-py * 3.2).toFixed(2) + "deg");
-        fxTarget.style.setProperty("--ry", (px * 3.2).toFixed(2) + "deg");
-      }
     }
 
     document.addEventListener("mousemove", function (event) {
-      var target = event.target.closest(".spotlight, .tilt");
+      var target = event.target.closest(".spotlight");
 
       if (target !== fxTarget) {
-        if (fxTarget) {
-          fxTarget.style.removeProperty("--rx");
-          fxTarget.style.removeProperty("--ry");
-          fxTarget.classList.remove("fx-on");
-        }
+        if (fxTarget) fxTarget.classList.remove("fx-on");
         fxTarget = target;
         if (fxTarget) fxTarget.classList.add("fx-on");
       }

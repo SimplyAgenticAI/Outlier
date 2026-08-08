@@ -195,7 +195,7 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 @media (prefers-reduced-motion: reduce) {
   .reveal { opacity: 1; transform: none; }
   .ambient, .brand-mark .mark-outlier { animation: none; }
-  .spotlight::before, .tilt { transition: none !important; }
+  .spotlight::before { transition: none !important; }
 }
 
 /* ---------------------------------------------------------------- hover FX */
@@ -215,20 +215,6 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 }
 .spotlight.fx-on::before { opacity: 1; }
 
-/* Tilt — a couple of degrees toward the cursor. Enough to feel responsive,
-   small enough that text stays crisp. */
-.tilt {
-  transform: perspective(900px)
-             rotateX(var(--rx, 0deg))
-             rotateY(var(--ry, 0deg));
-  transform-style: preserve-3d;
-  transition: transform 0.28s var(--ease), border-color 0.22s var(--ease),
-              box-shadow 0.22s var(--ease);
-}
-.tilt.fx-on {
-  transition: transform 0.09s linear, border-color 0.22s var(--ease),
-              box-shadow 0.22s var(--ease);
-}
 
 .btn-primary { transition: transform 0.18s var(--ease), box-shadow 0.2s var(--ease); }
 
@@ -270,22 +256,57 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
   box-shadow: 0 16px 40px rgba(0,0,0,0.42);
 }
 
-/* The badge: glow scales with the tier, so a breakout is visible at a glance. */
+
+/* The badge. The ring encodes the same fact as the number — how far past its
+   group's median this landed — so magnitude reads before the digits do. */
 .post-badge {
-  display: flex; flex-direction: column; align-items: center;
-  padding: 12px 8px; border-radius: 14px;
-  background: rgba(6, 20, 13, 0.6);
-  border: 1px solid var(--border);
+  position: relative;
+  width: 92px; height: 92px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, rgba(6,22,14,0.9), rgba(6,18,12,0.55));
 }
+
+.badge-ring {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  transform: rotate(-90deg);          /* start the arc at 12 o'clock */
+  overflow: visible;
+}
+.badge-ring circle {
+  fill: none; stroke-width: 3; stroke-linecap: round;
+}
+.ring-track { stroke: rgba(110,231,183,0.12); }
+.ring-fill {
+  stroke: var(--emerald);
+  /* r=22 -> circumference 138.2. The arc is drawn by shrinking the offset. */
+  stroke-dasharray: 138.2;
+  stroke-dashoffset: 138.2;
+  transition: stroke-dashoffset 1.1s var(--ease), stroke 0.3s var(--ease);
+}
+.reveal.in .ring-fill { stroke-dashoffset: var(--arc, 138.2); }
+
+.badge-num { display: flex; align-items: baseline; line-height: 1; }
 .post-badge .multiple {
-  font-size: 25px; font-weight: 780; letter-spacing: -1px; line-height: 1;
+  font-size: 24px; font-weight: 780; letter-spacing: -1px;
   font-variant-numeric: tabular-nums;
 }
-.post-badge .times { font-size: 14px; font-weight: 700; opacity: 0.6; margin-top: -2px; }
+.post-badge .times { font-size: 13px; font-weight: 700; opacity: 0.55; margin-left: 1px; }
 .badge-label {
-  font-size: 9.5px; text-transform: uppercase; letter-spacing: 0.6px;
-  color: var(--text-faint); margin-top: 6px; text-align: center; line-height: 1.3;
+  font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--text-faint); margin-top: 5px; text-align: center;
+  line-height: 1.25; max-width: 76px;
 }
+
+/* Glow is a property of the score, not just the band. */
+.tier-breakout .post-badge { box-shadow: 0 0 34px rgba(52,211,153,0.26); }
+.tier-breakout .ring-fill  { stroke: var(--emerald-bright); filter: drop-shadow(0 0 5px rgba(52,211,153,0.8)); }
+.tier-strong   .post-badge { box-shadow: 0 0 18px rgba(52,211,153,0.14); }
+.tier-strong   .ring-fill  { stroke: var(--emerald); }
+.tier-above    .ring-fill  { stroke: #9ae6c4; }
+.tier-typical  .ring-fill  { stroke: var(--text-faint); }
+.tier-flop     .ring-fill  { stroke: rgba(224,122,95,0.5); }
 
 .tier-breakout .post-badge,
 .post-badge.big.tier-breakout {
@@ -329,23 +350,6 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 }
 .post-body:hover { color: var(--emerald-bright); }
 
-/* Bar showing this post against its group's median. */
-.baseline-bar { margin: 13px 0 10px; }
-.baseline-track {
-  position: relative; height: 5px; border-radius: 3px;
-  background: rgba(110,231,183,0.08); overflow: visible;
-}
-.baseline-fill {
-  height: 100%; width: 0; border-radius: 3px;
-  background: linear-gradient(90deg, var(--emerald-dim), var(--emerald-bright));
-  box-shadow: 0 0 12px rgba(52,211,153,0.4);
-  transition: width 1s var(--ease);
-}
-.baseline-marker {
-  position: absolute; top: -3px; left: 12.5%;
-  width: 1px; height: 11px; background: var(--text-faint); opacity: 0.7;
-}
-.baseline-caption { font-size: 11px; color: var(--text-faint); margin-top: 6px; display: block; }
 
 .post-stats { display: flex; gap: 16px; font-size: 12.5px; color: var(--text-faint); flex-wrap: wrap; }
 .post-stats b { color: var(--text-muted); font-weight: 650; }
@@ -988,4 +992,62 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
   padding: 2px 7px; border-radius: 5px;
   background: rgba(110,231,183,0.1); color: var(--emerald);
   border: 1px solid var(--border);
+}
+
+/* ---------------------------------------------------------------- the scale */
+
+/* The score, drawn. The notch is the group's median; the glowing stretch past
+   it is exactly what the multiple measures. Log-scaled server-side, so the
+   median always sits at the same place on every card and groups stay
+   comparable at a glance. */
+.scale { margin: 14px 0 12px; }
+
+.scale-track {
+  position: relative;
+  height: 12px; border-radius: 7px;
+  background: rgba(6,20,13,0.72);
+  border: 1px solid rgba(110,231,183,0.1);
+  overflow: visible;
+}
+
+.scale-fill {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 0; border-radius: 7px;
+  background: linear-gradient(90deg, rgba(52,211,153,0.32), rgba(52,211,153,0.5));
+  transition: width 1.05s var(--ease);
+}
+
+/* Only the overshoot glows — that stretch IS the score. */
+.scale-over {
+  position: absolute; left: 25%; top: 0; bottom: 0;
+  width: 0; border-radius: 0 7px 7px 0;
+  background: linear-gradient(90deg, var(--emerald-dim), var(--emerald-bright));
+  box-shadow: 0 0 16px rgba(52,211,153,0.5);
+  transition: width 1.05s var(--ease) 0.12s;
+}
+
+.scale-median {
+  position: absolute; left: 25%; top: -4px; bottom: -4px;
+  width: 2px; border-radius: 2px;
+  background: rgba(234,255,243,0.55);
+}
+.scale-median-label {
+  position: absolute; top: -15px; left: 50%; transform: translateX(-50%);
+  font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.5px;
+  color: var(--text-faint); white-space: nowrap;
+}
+
+.scale-caption {
+  display: flex; gap: 10px; align-items: baseline;
+  margin-top: 9px; font-size: 11.5px; color: var(--text-faint);
+}
+.scale-caption b { color: var(--text-muted); font-weight: 650; }
+.scale-vs { opacity: 0.8; }
+
+.tier-flop .scale-fill {
+  background: linear-gradient(90deg, rgba(224,122,95,0.2), rgba(224,122,95,0.34));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scale-fill, .scale-over, .ring-fill { transition: none; }
 }

@@ -11,6 +11,7 @@ heavily right-skewed and a single viral post would drag a mean-based baseline
 up enough to hide everything else.
 """
 
+import math
 from datetime import datetime, timezone
 
 # Shares are the strongest virality signal (they put the post in front of a new
@@ -148,12 +149,32 @@ def score_posts(posts):
                     "still_climbing": still_climbing,
                     "age_hours": round(age_hours, 1) if age_hours is not None else None,
                     "tier": _tier(multiple, sufficient),
+                    "bar_pct": bar_position(multiple),
                 }
             )
             scored.append(record)
 
     scored.sort(key=lambda r: r["outlier_multiple"], reverse=True)
     return scored
+
+
+def bar_position(multiple):
+    """Where this post sits on the card's scale, as a percentage.
+
+    The median is pinned at 25% so it reads as a fixed landmark, and the scale
+    is log2 from there — each doubling advances another quarter. Linear would
+    waste the whole track on the 0–2x range where almost every post sits, then
+    flatten every breakout against the right edge.
+
+        0.5x -> ~2%    1x -> 25%    2x -> 50%    4x -> 75%    8x+ -> 100%
+    """
+    if multiple <= 0:
+        return 2.0
+    position = 25.0 * (1.0 + math.log2(multiple))
+    return round(max(2.0, min(position, 100.0)), 1)
+
+
+MEDIAN_MARK_PCT = 25.0   # where the median notch is drawn, shared with the CSS
 
 
 def _tier(multiple, has_baseline):
