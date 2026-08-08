@@ -18,7 +18,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "3.0"
+APP_VERSION = "3.1"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -1090,16 +1090,8 @@ def api_reset():
     engagement and wrong source names, which poisons every baseline they touch.
     Re-capturing is the only fix, and that has to start from clean.
     """
-    uid = _uid()
-    with db.get_db() as conn:
-        for table in ("remixes", "saved", "posts", "captures", "sources"):
-            conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (uid,))
-        # authors are shared reference rows with no owner; drop only orphans
-        conn.execute(
-            "DELETE FROM authors WHERE id NOT IN "
-            "(SELECT DISTINCT author_id FROM posts WHERE author_id IS NOT NULL)"
-        )
-    return jsonify({"ok": True, "reset": True})
+    result = db.clear_all_captures(_uid())
+    return jsonify({"ok": True, "reset": True, **result})
 
 
 @app.route("/api/export/<fmt>")

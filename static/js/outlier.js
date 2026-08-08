@@ -200,6 +200,13 @@
     }, true);
   }
 
+  // A reset navigates away, so its confirmation has to survive the load.
+  var resetNote = window.sessionStorage.getItem("outlier-reset");
+  if (resetNote) {
+    window.sessionStorage.removeItem("outlier-reset");
+    setTimeout(function () { toast(resetNote); }, 240);
+  }
+
   /* ------------------------------------------------------------ sources */
 
   document.addEventListener("click", function (event) {
@@ -299,7 +306,16 @@
       if (!window.confirm("Delete every captured post, group, and saved item?\n\nThis cannot be undone.")) return;
       toast("Deleting everything…");
       post("/api/reset")
-        .then(function () { window.location.href = "/"; })
+        .then(function (data) {
+          // Say what actually went, so a reset that quietly did nothing is
+          // distinguishable from one that worked.
+          var posts = (data && data.posts) || 0;
+          var groups = (data && data.sources) || 0;
+          window.sessionStorage.setItem("outlier-reset",
+            "Deleted " + posts + " post" + (posts === 1 ? "" : "s") +
+            " across " + groups + " group" + (groups === 1 ? "" : "s") + ".");
+          window.location.href = "/";
+        })
         .catch(function () { toast("Reset failed", true); });
     });
   }

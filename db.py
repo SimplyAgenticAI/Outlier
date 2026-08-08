@@ -551,3 +551,42 @@ def clear_demo_data(user_id=None):
         for source_id in orphans:
             conn.execute("DELETE FROM captures WHERE source_id = ?", (source_id,))
             conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+
+
+def clear_all_captures(user_id):
+    """Delete every source, post and capture belonging to one account.
+
+    A hard reset, offered because data captured by a broken extractor is worse
+    than no data: it sets baselines, it is indistinguishable on a card from a
+    correct reading, and re-scanning updates existing rows rather than
+    replacing them — so a bad number can survive a re-scan that no longer
+    produces it. Saved and remix rows cascade from posts; captures reference
+    sources and have to go first or the foreign key trips.
+
+    Scoped to one owner. Never call this without a user_id.
+    """
+    if user_id is None:
+        raise ValueError("clear_all_captures requires a user_id")
+
+    with get_db() as conn:
+        removed = conn.execute(
+            "SELECT COUNT(*) AS n FROM posts WHERE user_id IS ?", (user_id,)
+        ).fetchone()["n"]
+        sources = conn.execute(
+            "SELECT COUNT(*) AS n FROM sources WHERE user_id IS ?", (user_id,)
+        ).fetchone()["n"]
+
+        conn.execute("DELETE FROM captures WHERE user_id IS ?", (user_id,))
+        conn.execute("DELETE FROM saved WHERE user_id IS ?", (user_id,))
+        conn.execute("DELETE FROM remixes WHERE user_id IS ?", (user_id,))
+        conn.execute("DELETE FROM posts WHERE user_id IS ?", (user_id,))
+        conn.execute("DELETE FROM sources WHERE user_id IS ?", (user_id,))
+
+        # Authors are shared across owners by name-keyed identity, so only the
+        # ones nothing points at any more are removed.
+        conn.execute(
+            "DELETE FROM authors WHERE id NOT IN "
+            "(SELECT author_id FROM posts WHERE author_id IS NOT NULL)"
+        )
+
+    return {"posts": removed, "sources": sources}

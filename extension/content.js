@@ -520,37 +520,109 @@
     return /^\d[\d.,]*\s*[KMB]?$/.test(text);
   }
 
-  function extractEngagement(article, bar) {
-    var result = { likes: 0, comments: 0, shares: 0, video_plays: 0, read: false };
+  // Words that mark a string as describing engagement rather than being post
+  // copy that happens to contain a number.
+  // Plurals must be part of each alternative: \breaction\b does not match
+  // "reactions", because the trailing s is a word character and kills the
+  // boundary. Facebook writes the plural far more often than the singular.
+  var ENGAGEMENT_WORD_RE =
+    /\b(reactions?|reacted|likes?|loves?|cares?|haha|wow|sad|angry|comments?|shares?|shared|views?|plays?|others?)\b/i;
 
-    // Facebook splits counts across text nodes and aria-labels inconsistently
-    // between layouts, and often puts the number in an aria-label while the
-    // visible text shows only an icon. Searching one combined haystack of
-    // every aria-label plus the visible text catches all of those variants —
-    // matching only innerText is why real captures came back as zeros.
-    //
-    // The haystack stops at the action bar. Below it are per-comment reaction
-    // counts, and reading those gave posts their top comment's numbers.
-    var labels = [];
+  // A summary row's whole text is the count — "312", "1.2K", "312 · 47".
+  // Prose never looks like this, which is what keeps captions out.
+  var SUMMARY_ROW_RE = /^[\d.,]+\s*[KMB]?(\s*[·•|]\s*[\d.,]+\s*[KMB]?)*$/;
+
+  var ENGAGEMENT_WORDS_G =
+    /\b(reactions?|reacted|likes?|loves?|cares?|haha|wow|sad|angry|comments?|shares?|shared|views?|plays?|others?)\b/gi;
+
+  /* Is this element's whole text a summary row, rather than prose that
+   * happens to contain an engagement word?
+   *
+   * "I bought 500 shares of the company last year" contains "shares" and a
+   * number, and an engagement-word test alone admits it — the caption then
+   * supplies a share count nobody measured. Strip the counts, the engagement
+   * words and the punctuation; a real summary row has almost nothing left,
+   * while a sentence still has its sentence.
+   */
+  function isSummaryText(text) {
+    if (!/\d/.test(text)) return false;
+    if (text.length > 40) return false;
+    if (SUMMARY_ROW_RE.test(text)) return true;
+
+    var residue = text
+      .replace(/[\d.,]+\s*[KMB]?/gi, " ")
+      .replace(ENGAGEMENT_WORDS_G, " ")
+      .replace(/\b(and|all|see|who|to|this|the)\b/gi, " ")
+      .replace(/[^a-z]/gi, "");
+    return residue.length <= 3;
+  }
+
+  /* Every string in this article that is UI chrome describing engagement.
+   *
+   * Deliberately excludes the caption. See extractEngagement for why — the
+   * caption is where fabricated counts came from, and no amount of pattern
+   * tightening fixes a haystack that contains arbitrary prose.
+   */
+  function engagementChrome(article, bar) {
+    var out = [];
+
     var labelled = article.querySelectorAll("[aria-label]");
     for (var i = 0; i < labelled.length; i++) {
       var el = labelled[i];
       if (el.closest('div[role="article"]') !== article) continue;
-      if (isBelowBar(el, bar)) continue;
-      labels.push(el.getAttribute("aria-label"));
+      if (isBelowBar(el, bar)) continue;          // per-comment counts
+      var label = el.getAttribute("aria-label") || "";
+      if (!label) continue;
+      // An aria-label with no engagement word is describing something else —
+      // an image, a link preview, a menu — and must not be searched for counts.
+      if (!ENGAGEMENT_WORD_RE.test(label)) continue;
+      // Facebook's generated image descriptions are prose and can contain both
+      // a number and an engagement word ("...text that says 500 SHARES").
+      if (ALT_PREAMBLE_RE.test(label)) continue;
+      out.push(label);
     }
 
-    var visible = article.innerText || "";
+    // The summary row: walk back from the action bar, keeping only elements
+    // whose entire text is a count or a count plus an engagement word.
     if (bar) {
-      // Trim visible text at the action bar too, using the bar's own label as
-      // the split point.
-      var barText = (bar.textContent || "").trim();
-      if (barText) {
-        var cut = visible.indexOf(barText);
-        if (cut > 0) visible = visible.slice(0, cut);
+      var row = bar.parentElement;
+      for (var hop = 0; hop < 4 && row; hop++) {
+        var previous = row.previousElementSibling;
+        var seen = 0;
+        while (previous && seen < 6) {
+          var text = (previous.innerText || "").trim().replace(/\s+/g, " ");
+          // Row text is held to the stricter shape test: this is the branch a
+          // caption can actually reach, and an engagement-word check alone
+          // lets "500 shares of the company" through as a share count.
+          if (text && isSummaryText(text)) out.push(text);
+          previous = previous.previousElementSibling;
+          seen++;
+        }
+        row = row.parentElement;
       }
     }
-    var haystack = labels.join("\n") + "\n" + visible;
+
+    return out;
+  }
+
+  function extractEngagement(article, bar) {
+    var result = { likes: 0, comments: 0, shares: 0, video_plays: 0, read: false };
+
+    // The haystack is UI chrome ONLY — never the post's own copy.
+    //
+    // It used to include article.innerText trimmed at the action bar, which
+    // is the whole caption. A post in an AI group reading "11,000,000 tokens
+    // processed" was stored as 11M reactions; the real post had four. Any
+    // scheme that lets a caption reach these patterns will keep inventing
+    // numbers, so the caption is excluded structurally rather than filtered.
+    //
+    // Two sources are legitimate:
+    //   1. aria-labels that name an engagement concept. Facebook writes the
+    //      count there even when the visible element is just an icon.
+    //   2. the summary row directly above the action bar, whose text is a
+    //      bare count and nothing else.
+    var haystackParts = engagementChrome(article, bar);
+    var haystack = haystackParts.join("\n");
 
     function firstMatch(patterns) {
       for (var p = 0; p < patterns.length; p++) {
@@ -563,57 +635,58 @@
       return 0;
     }
 
+    // Every gap here is [ \t]* rather than \s*, and every label-first pattern
+    // requires a colon.
+    //
+    // The chrome strings are joined with newlines, and \s* crosses one: with
+    // "312 reactions" and "47 comments" on consecutive lines, /reactions?:?\s*
+    // (\d+)/ matched the word on line one and the number on line two, so a
+    // post with 312 reactions was recorded as having 47. Number-first patterns
+    // are also tried before label-first ones, since that is the form Facebook
+    // actually uses and it cannot straddle a line break.
     result.likes = firstMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s*(?:people\s+)?reacted/i,
-      /(?:Like|reaction)s?:?\s*([\d][\d.,]*\s*[KMB]?)/i,
-      /([\d][\d.,]*\s*[KMB]?)\s+reactions?/i,
-      /See who reacted[^\d]*([\d][\d.,]*\s*[KMB]?)/i,
-      /([\d][\d.,]*\s*[KMB]?)\s+likes?\b/i,
+      /([\d][\d.,]*[ \t]*[KMB]?)[ \t]+reactions?/i,
+      /([\d][\d.,]*[ \t]*[KMB]?)[ \t]*(?:people[ \t]+)?reacted/i,
+      /([\d][\d.,]*[ \t]*[KMB]?)[ \t]+likes?\b/i,
       // Facebook also renders the summary as a list of reaction names
       // followed by a total: "Like, Love and 47 others".
-      /and\s+([\d][\d.,]*\s*[KMB]?)\s+others?/i,
-      /([\d][\d.,]*\s*[KMB]?)\s+others?\s+reacted/i,
+      /and[ \t]+([\d][\d.,]*[ \t]*[KMB]?)[ \t]+others?/i,
+      /([\d][\d.,]*[ \t]*[KMB]?)[ \t]+others?[ \t]+reacted/i,
+      /See who reacted[^\d\n]*([\d][\d.,]*[ \t]*[KMB]?)/i,
       // Some locales/layouts label the whole row rather than the count.
-      /All reactions:?\s*([\d][\d.,]*\s*[KMB]?)/i
+      /All reactions:[ \t]*([\d][\d.,]*[ \t]*[KMB]?)/i,
+      /(?:Like|reaction)s?:[ \t]*([\d][\d.,]*[ \t]*[KMB]?)/i
     ]);
 
     result.comments = firstMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s+comments?/i,
-      /comments?:?\s*([\d][\d.,]*\s*[KMB]?)/i
+      /([\d][\d.,]*[ \t]*[KMB]?)[ \t]+comments?/i,
+      /comments?:[ \t]*([\d][\d.,]*[ \t]*[KMB]?)/i
     ]);
 
     result.shares = firstMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s+shares?/i,
-      /shares?:?\s*([\d][\d.,]*\s*[KMB]?)/i
+      /([\d][\d.,]*[ \t]*[KMB]?)[ \t]+shares?/i,
+      /shares?:[ \t]*([\d][\d.,]*[ \t]*[KMB]?)/i
     ]);
 
     result.video_plays = firstMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
+      /([\d][\d.,]*[ \t]*[KMB]?)[ \t]+(?:views?|plays?)/i
     ]);
 
     // Structural fallback, used when every label pattern misses.
     //
     // Facebook's summary row sits immediately above the action bar and holds
-    // the reaction total as bare text next to icons. Walking backwards from
-    // the bar finds it without depending on any wording, which is what makes
-    // this survive the layout and locale changes that break the patterns.
-    if (!result.likes && bar) {
-      var row = bar.parentElement;
-      for (var hop = 0; hop < 4 && row; hop++) {
-        var previous = row.previousElementSibling;
-        while (previous) {
-          var text = (previous.innerText || "").trim();
-          // A summary row is short and mostly digits; post copy is not.
-          if (text && text.length < 60 && /\d/.test(text)) {
-            var first = text.split(/\s+/)[0];
-            if (!looksLikeACount(first)) { previous = previous.previousElementSibling; continue; }
-            var candidate = parseCount(first);
-            if (candidate) { result.likes = candidate; break; }
-          }
-          previous = previous.previousElementSibling;
-        }
-        if (result.likes) break;
-        row = row.parentElement;
+    // the reaction total as bare text next to icons, with no wording to match.
+    // It reads only the strings engagementChrome already vetted, so a caption
+    // cannot reach it — the previous version walked raw siblings and took the
+    // first number it saw, which is how post copy became a reaction count.
+    if (!result.likes) {
+      for (var h = 0; h < haystackParts.length; h++) {
+        var part = haystackParts[h];
+        if (!SUMMARY_ROW_RE.test(part)) continue;      // bare counts only
+        var first = part.split(/[\s·•|]+/)[0];
+        if (!looksLikeACount(first)) continue;
+        var candidate = parseCount(first);
+        if (candidate) { result.likes = candidate; break; }
       }
     }
 
