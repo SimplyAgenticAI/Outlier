@@ -67,23 +67,46 @@
   </div>
 
   <div class="glass panel reveal spotlight">
-    <h2>Extension key</h2>
-    <p class="fine">
-      This is what lets the extension send captures to your account, and it is
-      the only credential it holds. Treat it like a password — anyone with it
-      can write posts into your account.
-    </p>
-    <div class="path-line">
-      <code id="key-display">olk_{{ account.api_key_prefix[4:] if account.api_key_prefix else '' }}…</code>
+    <h2>Extension</h2>
+
+    {# One click instead of typing a URL and pasting a key. The page already
+       knows both; the extension reads them straight from it. #}
+    <div id="connect-block">
+      <p class="fine" id="connect-copy">Checking for the extension…</p>
+      <button class="btn btn-primary" id="connect-btn" style="display:none"
+              data-api-key="{{ fresh_api_key or '' }}">
+        Connect this extension
+      </button>
+      <div class="msg-line" id="connect-msg"></div>
     </div>
-    <div class="demo-actions" style="margin-top:11px">
-      <button class="btn btn-ghost danger" id="rotate-key">Generate a new key</button>
-    </div>
-    <div class="msg-line" id="rotate-msg"></div>
-    <div class="path-line" id="new-key-row" style="display:none; margin-top:10px">
-      <code id="new-key"></code>
-      <button class="copy-btn" data-copy-target="new-key">Copy</button>
-    </div>
+
+    <details class="share-details" style="margin-top:16px">
+      <summary>Connect manually instead</summary>
+      <p class="fine">
+        Only needed if the one-click connect can't reach the extension. Open
+        the extension popup, paste the key below and this dashboard's address,
+        then press Save &amp; test.
+      </p>
+      <div class="path-line">
+        <code id="dash-origin">{{ request.url_root.rstrip('/') }}</code>
+        <button class="copy-btn" data-copy-target="dash-origin">Copy</button>
+      </div>
+      <p class="fine" style="margin-top:10px">
+        Your key is stored hashed and can't be shown again — generate a new one
+        to get a fresh copy. The old one stops working immediately.
+      </p>
+      <div class="path-line">
+        <code id="key-display">olk_{{ account.api_key_prefix[4:] if account.api_key_prefix else '' }}…</code>
+      </div>
+      <div class="demo-actions" style="margin-top:11px">
+        <button class="btn btn-ghost danger" id="rotate-key">Generate a new key</button>
+      </div>
+      <div class="msg-line" id="rotate-msg"></div>
+      <div class="path-line" id="new-key-row" style="display:none; margin-top:10px">
+        <code id="new-key"></code>
+        <button class="copy-btn" data-copy-target="new-key">Copy</button>
+      </div>
+    </details>
   </div>
 
 </section>

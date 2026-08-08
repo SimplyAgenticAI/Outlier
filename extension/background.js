@@ -5,9 +5,19 @@
 
 const DEFAULT_ENDPOINT = "http://localhost:5050";
 
+function toOrigin(url) {
+  try {
+    return new URL(url).origin;
+  } catch (error) {
+    return String(url || "").replace(/\/+$/, "");
+  }
+}
+
 async function getEndpoint() {
   const stored = await chrome.storage.local.get(["endpoint"]);
-  return (stored.endpoint || DEFAULT_ENDPOINT).replace(/\/+$/, "");
+  // Normalised to an origin: a pasted page URL such as ".../pricing" would
+  // otherwise produce ".../pricing/api/capture" and 404 on every batch.
+  return toOrigin(stored.endpoint || DEFAULT_ENDPOINT);
 }
 
 // The dashboard is multi-account now, so a capture has to say whose it is.
@@ -127,12 +137,16 @@ async function testConnection() {
   }
 }
 
-chrome.runtime.onInstalled.addListener(async () => {
+chrome.runtime.onInstalled.addListener(async (details) => {
+  // Only seed defaults on a genuine first install. This handler also fires on
+  // update and on every chrome.runtime.reload(), and writing the endpoint back
+  // each time is how a configured dashboard kept reverting to localhost.
+  if (details.reason !== "install") return;
+
   const stored = await chrome.storage.local.get(["enabled", "endpoint"]);
-  await chrome.storage.local.set({
-    enabled: stored.enabled !== false,
-    endpoint: stored.endpoint || DEFAULT_ENDPOINT
-  });
+  const seed = { enabled: stored.enabled !== false };
+  if (!stored.endpoint) seed.endpoint = DEFAULT_ENDPOINT;
+  await chrome.storage.local.set(seed);
 });
 
 /* ------------------------------------------------------------ self-update

@@ -95,16 +95,23 @@
     <div class="istep-head">
       <span class="step-n">6</span>
       <div>
-        <b>Point it at this dashboard</b>
-        <p>Click the Outlier icon in Chrome's toolbar, paste this into
-           Dashboard URL, and press Save &amp; test.</p>
+        <b>Connect it to your account</b>
+        <p>One click — this page hands the extension its address and a key.
+           Nothing to type.</p>
       </div>
     </div>
     <div class="istep-body">
-      <div class="path-line">
-        <code id="dash-url">{{ request.url_root.rstrip('/') }}</code>
-        <button class="copy-btn" data-copy-target="dash-url">Copy</button>
+      <div id="connect-block">
+        <p class="fine" id="connect-copy">Checking for the extension…</p>
+        <button class="btn btn-primary" id="connect-btn" style="display:none">
+          Connect this extension
+        </button>
+        <div class="msg-line" id="connect-msg"></div>
       </div>
+      <p class="alt-route">
+        Reload this page after loading the extension — the button only appears
+        once Chrome has injected it here.
+      </p>
     </div>
   </div>
 
@@ -206,6 +213,26 @@
   <div class="istep">
     <div class="istep-head">
       <span class="step-n">5</span>
+      <div>
+        <b>Connect it to your account</b>
+        <p>One click — this page hands the extension its address and a key.
+           Reload this page first if the button doesn't appear.</p>
+      </div>
+    </div>
+    <div class="istep-body">
+      <div id="connect-block">
+        <p class="fine" id="connect-copy">Checking for the extension…</p>
+        <button class="btn btn-primary" id="connect-btn" style="display:none">
+          Connect this extension
+        </button>
+        <div class="msg-line" id="connect-msg"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="istep">
+    <div class="istep-head">
+      <span class="step-n">6</span>
       <div>
         <b>Open a Facebook group and press Start</b>
         <p>A panel appears bottom-right showing what it's reading. That's the

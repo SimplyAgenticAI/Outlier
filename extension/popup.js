@@ -163,7 +163,15 @@ function ensureHostPermission(url) {
 }
 
 el("save-endpoint").addEventListener("click", async () => {
-  const value = endpointEl.value.trim().replace(/\/+$/, "");
+  // Accept a pasted page URL and keep only its origin — the paths people
+  // copy from the address bar ("/pricing", "/account") are not the API root.
+  var raw = endpointEl.value.trim();
+  var value;
+  try {
+    value = new URL(raw).origin;
+  } catch (error) {
+    value = raw.replace(/\/+$/, "");
+  }
   if (!value) {
     say("Enter a dashboard URL first.", "err");
     return;

@@ -18,7 +18,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "2.2"
+APP_VERSION = "2.3"
 
 db.init_db()
 db.promote_sole_account()
@@ -742,6 +742,20 @@ def stripe_webhook():
             )
 
     return jsonify({"ok": True})
+
+
+@app.route("/api/account/connect", methods=["POST"])
+@auth.login_required
+def api_connect_extension():
+    """Issue a key for the one-click connect.
+
+    Keys are stored hashed and cannot be read back, so connecting mints a
+    fresh one. That keeps plaintext out of the database entirely; the cost is
+    that connecting here disconnects any other browser using the old key,
+    which the page says plainly.
+    """
+    new_key = auth.rotate_api_key(auth.current_user()["id"])
+    return jsonify({"ok": True, "api_key": new_key, "endpoint": request.url_root.rstrip("/")})
 
 
 @app.route("/api/account/rotate-key", methods=["POST"])

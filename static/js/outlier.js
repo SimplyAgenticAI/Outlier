@@ -587,6 +587,75 @@
 
   /* ------------------------------------------------------------ account */
 
+  /* ------------------------------------------------ connect the extension */
+
+  // Typing a dashboard URL and pasting a key is friction that solves nothing:
+  // this page knows both. A content script running on this origin takes them
+  // directly, so connecting is one click with nothing to mistype.
+  var connectBlock = document.getElementById("connect-block");
+  if (connectBlock) {
+    var connectBtn = document.getElementById("connect-btn");
+    var connectCopy = document.getElementById("connect-copy");
+    var connectMsg = document.getElementById("connect-msg");
+    var extensionSeen = false;
+
+    window.addEventListener("outlier:extension-present", function (event) {
+      extensionSeen = true;
+      var version = (event.detail && event.detail.version) || "";
+      connectCopy.textContent =
+        "Extension detected" + (version ? " (v" + version + ")" : "") +
+        ". One click sends it this dashboard's address and a fresh key.";
+      connectBtn.style.display = "";
+    });
+
+    // The content script announces on load; ask again in case this page was
+    // ready first.
+    window.dispatchEvent(new CustomEvent("outlier:ping-extension"));
+
+    setTimeout(function () {
+      if (extensionSeen) return;
+      connectCopy.textContent =
+        "No extension detected on this page. Install it from the Capture page, " +
+        "then reload here — or connect manually below.";
+    }, 1200);
+
+    window.addEventListener("outlier:connect-result", function (event) {
+      var detail = event.detail || {};
+      connectBtn.disabled = false;
+      if (detail.ok) {
+        connectMsg.className = "msg-line ok";
+        connectMsg.textContent =
+          "Connected. The extension will send captures to " + detail.endpoint +
+          " — reload any open Facebook tabs.";
+        connectBtn.textContent = "Reconnect";
+      } else {
+        connectMsg.className = "msg-line error";
+        connectMsg.textContent = detail.error || "The extension didn't accept it.";
+      }
+    });
+
+    connectBtn.addEventListener("click", function () {
+      connectBtn.disabled = true;
+      connectMsg.className = "msg-line";
+      connectMsg.textContent = "Issuing a key…";
+
+      post("/api/account/connect")
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not issue a key");
+          // Handed to the content script, which writes it into extension
+          // storage. The key never touches the address bar or the clipboard.
+          window.dispatchEvent(new CustomEvent("outlier:connect", {
+            detail: { apiKey: data.api_key }
+          }));
+        })
+        .catch(function (error) {
+          connectBtn.disabled = false;
+          connectMsg.className = "msg-line error";
+          connectMsg.textContent = error.message;
+        });
+    });
+  }
+
   var rotateKey = document.getElementById("rotate-key");
   if (rotateKey) {
     var rotateMsg = document.getElementById("rotate-msg");
