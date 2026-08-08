@@ -38,7 +38,7 @@ PLANS = {
     },
 }
 
-FREE_LIMITS = {"sources": 1, "posts": 100}
+FREE_LIMITS = {"sources": 1, "posts": 1000}
 
 PRO_FEATURES = [
     "Unlimited groups and profiles",
@@ -51,7 +51,7 @@ PRO_FEATURES = [
 
 FREE_FEATURES = [
     "One group",
-    "100 captured posts",
+    "1,000 captured posts",
     "Full outlier scoring",
     "Posts and comments feeds",
 ]
@@ -184,9 +184,16 @@ def usage(user_id):
     return {"sources": sources, "posts": posts}
 
 
+def is_admin(user):
+    """Owner of the instance. Never metered, never nagged to upgrade."""
+    return bool(user and user.get("is_admin"))
+
+
 def is_pro(user):
     """Paid access. past_due still counts — losing a card shouldn't lock
     someone out of their own research mid-billing-cycle."""
+    if is_admin(user):
+        return True
     return bool(
         user
         and user.get("plan") == "pro"
@@ -196,7 +203,7 @@ def is_pro(user):
 
 def capture_allowed(user):
     """Returns (allowed, reason). Enforced at ingest, where it actually bites."""
-    if is_pro(user):
+    if is_admin(user) or is_pro(user):
         return True, None
 
     counts = usage(user["id"])
@@ -206,7 +213,7 @@ def capture_allowed(user):
     # returns "existing_only" and short-circuits past this.
     if counts["posts"] >= FREE_LIMITS["posts"]:
         return False, (
-            f"Free covers {FREE_LIMITS['posts']} posts and you've reached it. "
+            f"Free covers {FREE_LIMITS['posts']:,} posts and you've reached it. "
             "Upgrade for unlimited capture."
         )
 

@@ -767,27 +767,74 @@
 
   var hudLog, hudEndpoint;
 
+  var HUD_MIN_W = 300;
+  var HUD_MIN_H = 240;
+
+  /* Anchored by top/left, not bottom/right.
+   *
+   * CSS `resize` always grows an element down and to the right from its
+   * top-left corner. Anchored by bottom/right instead, the corner you drag is
+   * the one that's pinned — so the grip stays put while the opposite edge
+   * moves, and the panel appears to resize backwards. Pinning top/left makes
+   * the drag follow the cursor, which is the whole point of a resize grip.
+   */
   function loadHudBox() {
+    var defaults = function () {
+      return {
+        width: 380,
+        height: 460,
+        left: Math.max(8, window.innerWidth - 380 - 20),
+        top: Math.max(8, window.innerHeight - 460 - 20)
+      };
+    };
+
     try {
       var saved = JSON.parse(localStorage.getItem("outlierHud") || "{}");
-      return {
+      if (saved.left === undefined || saved.top === undefined) {
+        // Either nothing saved, or a box stored under the old bottom/right
+        // scheme. Convert rather than restoring a position that now means
+        // something different.
+        var box = defaults();
+        if (saved.width) box.width = saved.width;
+        if (saved.height) box.height = saved.height;
+        if (saved.right !== undefined) {
+          box.left = window.innerWidth - box.width - saved.right;
+        }
+        if (saved.bottom !== undefined) {
+          box.top = window.innerHeight - box.height - saved.bottom;
+        }
+        return clampHudBox(box);
+      }
+      return clampHudBox({
         width: saved.width || 380,
         height: saved.height || 460,
-        right: saved.right !== undefined ? saved.right : 20,
-        bottom: saved.bottom !== undefined ? saved.bottom : 20
-      };
+        left: saved.left,
+        top: saved.top
+      });
     } catch (e) {
-      return { width: 380, height: 460, right: 20, bottom: 20 };
+      return defaults();
     }
+  }
+
+  // Keep the panel on screen. A saved position from a larger monitor, or a
+  // window that has since been narrowed, would otherwise place it out of view
+  // with no way to drag it back.
+  function clampHudBox(box) {
+    box.width = Math.max(HUD_MIN_W, Math.min(box.width, window.innerWidth - 16));
+    box.height = Math.max(HUD_MIN_H, Math.min(box.height, window.innerHeight - 16));
+    box.left = Math.max(8, Math.min(box.left, window.innerWidth - box.width - 8));
+    box.top = Math.max(8, Math.min(box.top, window.innerHeight - box.height - 8));
+    return box;
   }
 
   function saveHudBox() {
     try {
+      var rect = hud.getBoundingClientRect();
       localStorage.setItem("outlierHud", JSON.stringify({
-        width: parseInt(hud.style.width, 10),
-        height: parseInt(hud.style.height, 10),
-        right: parseInt(hud.style.right, 10),
-        bottom: parseInt(hud.style.bottom, 10)
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        left: Math.round(rect.left),
+        top: Math.round(rect.top)
       }));
     } catch (e) { /* private mode — position just won't persist */ }
   }
@@ -798,9 +845,11 @@
     hud = document.createElement("div");
     styleEl(hud, {
       position: "fixed",
-      bottom: box.bottom + "px", right: box.right + "px",
+      top: box.top + "px", left: box.left + "px",
       width: box.width + "px", height: box.height + "px",
-      minWidth: "300px", minHeight: "240px",
+      minWidth: HUD_MIN_W + "px", minHeight: HUD_MIN_H + "px",
+      // Never let the panel exceed the viewport in either axis.
+      maxWidth: "calc(100vw - 16px)", maxHeight: "calc(100vh - 16px)",
       zIndex: "2147483647",
       display: "flex", flexDirection: "column",
       padding: "0", borderRadius: "14px", overflow: "hidden",
@@ -850,28 +899,35 @@
       padding: "1em 1.1em", overflow: "hidden", minHeight: "0"
     });
 
+    var expandedHeight = box.height;
     collapse.addEventListener("click", function () {
       var hidden = content.style.display === "none";
+      if (!hidden) expandedHeight = hud.getBoundingClientRect().height;
       content.style.display = hidden ? "flex" : "none";
-      hud.style.height = hidden ? loadHudBox().height + "px" : "auto";
+      hud.style.height = hidden ? expandedHeight + "px" : "auto";
       collapse.textContent = hidden ? "–" : "+";
     });
 
     // Drag by the header. Position is kept in right/bottom so the panel stays
     // anchored the same way it was authored.
-    var dragging = false, startX, startY, startRight, startBottom;
+    var dragging = false, startX, startY, startLeft, startTop;
     header.addEventListener("mousedown", function (event) {
       if (event.target === close || event.target === collapse) return;
       dragging = true;
       startX = event.clientX; startY = event.clientY;
-      startRight = parseInt(hud.style.right, 10);
-      startBottom = parseInt(hud.style.bottom, 10);
+      var rect = hud.getBoundingClientRect();
+      startLeft = rect.left; startTop = rect.top;
       event.preventDefault();
     });
     document.addEventListener("mousemove", function (event) {
       if (!dragging) return;
-      hud.style.right = Math.max(0, startRight - (event.clientX - startX)) + "px";
-      hud.style.bottom = Math.max(0, startBottom - (event.clientY - startY)) + "px";
+      var rect = hud.getBoundingClientRect();
+      var maxLeft = window.innerWidth - rect.width - 8;
+      var maxTop = window.innerHeight - rect.height - 8;
+      hud.style.left =
+        Math.max(8, Math.min(startLeft + (event.clientX - startX), maxLeft)) + "px";
+      hud.style.top =
+        Math.max(8, Math.min(startTop + (event.clientY - startY), maxTop)) + "px";
     });
     document.addEventListener("mouseup", function () {
       if (!dragging) return;
@@ -915,7 +971,8 @@
       background: "rgba(4,14,9,0.7)", border: "1px solid rgba(110,231,183,0.14)",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: "0.84em", lineHeight: "1.65", color: "#7fa693",
-      whiteSpace: "pre", scrollbarWidth: "thin"
+      whiteSpace: "pre-wrap", overflowWrap: "anywhere",
+      scrollbarWidth: "thin"
     });
 
     /* --- buttons --- */
@@ -923,6 +980,7 @@
     styleEl(hudBtn, {
       width: "100%", marginTop: "0.9em", padding: "0.8em", borderRadius: "9px",
       border: "none", cursor: "pointer", fontWeight: "700", fontSize: "1.05em",
+      whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
       flexShrink: "0"
     });
     hudBtn.addEventListener("click", function () {
@@ -987,11 +1045,17 @@
 
     var l = document.createElement("span");
     l.textContent = label;
-    styleEl(l, { color: "#567a67" });
+    styleEl(l, { color: "#567a67", flexShrink: "0", marginRight: "0.6em" });
 
     var v = document.createElement("span");
     v.textContent = value;
-    styleEl(v, { color: accent || "#eafff3", fontWeight: "700" });
+    // Truncate rather than overflow: a long group name must not push its own
+    // value out of the panel.
+    styleEl(v, {
+      color: accent || "#eafff3", fontWeight: "700",
+      minWidth: "0", overflow: "hidden",
+      textOverflow: "ellipsis", whiteSpace: "nowrap"
+    });
 
     line.appendChild(l);
     line.appendChild(v);
@@ -1148,6 +1212,25 @@
   setInterval(function () {
     if (!contextAlive()) handleOrphaned();
   }, 5000);
+
+  // A position saved on a wider window, or a browser since resized smaller,
+  // would leave the panel partly or wholly off-screen with no way to drag it
+  // back — the header you grab would be outside the viewport.
+  window.addEventListener("resize", function () {
+    if (!hud) return;
+    clearTimeout(window.__outlierClamp);
+    window.__outlierClamp = setTimeout(function () {
+      var rect = hud.getBoundingClientRect();
+      var box = clampHudBox({
+        width: rect.width, height: rect.height, left: rect.left, top: rect.top
+      });
+      hud.style.width = box.width + "px";
+      hud.style.height = box.height + "px";
+      hud.style.left = box.left + "px";
+      hud.style.top = box.top + "px";
+      saveHudBox();
+    }, 150);
+  });
 
   buildHud();
   setTimeout(function () { scanPosts(); renderHud(); }, 1500);

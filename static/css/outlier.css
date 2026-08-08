@@ -1167,3 +1167,7 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 .pricing-faq { max-width: 780px; margin: 24px auto 0; padding: 26px 28px; }
 .pricing-faq .fine { margin: 0 0 13px; }
 .pricing-faq .fine:last-child { margin-bottom: 0; }
+.plan-admin {
+  background: rgba(217,180,95,0.16); color: var(--gold);
+  border: 1px solid rgba(217,180,95,0.4);
+}

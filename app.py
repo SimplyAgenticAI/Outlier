@@ -18,7 +18,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "1.9"
+APP_VERSION = "2.0"
 
 db.init_db()
 

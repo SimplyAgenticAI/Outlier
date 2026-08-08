@@ -32,15 +32,24 @@
   <div class="glass panel reveal spotlight">
     <h2>Plan</h2>
     <div class="plan-row">
-      <span class="plan-badge plan-{{ account.plan }}">{{ account.plan|title }}</span>
+      {% if account.is_admin %}
+        <span class="plan-badge plan-admin">Owner</span>
+      {% else %}
+        <span class="plan-badge plan-{{ account.plan }}">{{ account.plan|title }}</span>
+      {% endif %}
       {% if account.subscription_status %}
       <span class="fine">{{ account.subscription_status }}</span>
       {% endif %}
     </div>
-    {% if account.plan == 'free' %}
+    {% if account.is_admin %}
     <p class="fine">
-      Free covers one group and 100 posts — enough to see whether the scoring
-      tells you something useful. Pro removes both limits and unlocks Sage.
+      This account owns the instance — unlimited capture, no plan limits, and
+      nothing to pay.
+    </p>
+    {% elif account.plan == 'free' %}
+    <p class="fine">
+      Free covers one group and 1,000 posts — enough to see whether the
+      scoring tells you something useful. Pro removes both limits.
     </p>
     <a class="btn btn-primary" href="{{ url_for('pricing') }}">See plans</a>
     {% else %}

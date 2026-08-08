@@ -104,6 +104,16 @@ def user_for_api_key(raw):
 # ---------------------------------------------------------------- users
 
 
+def admin_emails():
+    """Addresses that should always hold admin, from ADMIN_EMAILS.
+
+    Applied at sign-in as well as registration, so an existing account can be
+    promoted by setting the variable and signing in again — no SQL required.
+    """
+    raw = os.environ.get("ADMIN_EMAILS", "")
+    return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+
 def create_user(email, password):
     """Returns (user_dict, error_message)."""
     email = (email or "").strip().lower()
@@ -122,12 +132,19 @@ def create_user(email, password):
         if exists:
             return None, "An account with that email already exists."
 
+        # The first account on an instance is its owner, and any address in
+        # ADMIN_EMAILS is too. Admins are never metered — the person running
+        # the thing should not be told they've hit a plan limit.
+        first_account = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
+        is_admin = 1 if (first_account or email in admin_emails()) else 0
+
         conn.execute(
             """
-            INSERT INTO users (email, password_hash, api_key_prefix, api_key_hash)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO users (email, password_hash, api_key_prefix, api_key_hash,
+                               is_admin)
+            VALUES (?, ?, ?, ?, ?)
             """,
-            (email, generate_password_hash(password), prefix, key_hash),
+            (email, generate_password_hash(password), prefix, key_hash, is_admin),
         )
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
@@ -171,7 +188,16 @@ def verify_user(email, password):
         return None, "Email or password is incorrect."
 
     _ATTEMPTS.pop(email, None)
-    return dict(row), None
+    user = dict(row)
+
+    # Promote on sign-in too, so adding an address to ADMIN_EMAILS takes
+    # effect for an account that already exists.
+    if email in admin_emails() and not user.get("is_admin"):
+        with db.get_db() as conn:
+            conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (user["id"],))
+        user["is_admin"] = 1
+
+    return user, None
 
 
 def rotate_api_key(user_id):

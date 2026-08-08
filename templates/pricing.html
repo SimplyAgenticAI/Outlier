@@ -45,7 +45,7 @@
       {% if usage %}
       <div class="price-usage">
         {{ usage.sources }}/{{ free_limits.sources }} groups ·
-        {{ usage.posts }}/{{ free_limits.posts }} posts used
+        {{ '{:,}'.format(usage.posts) }}/{{ '{:,}'.format(free_limits.posts) }} posts used
       </div>
       {% endif %}
     {% elif not user %}
@@ -78,7 +78,9 @@
       {% endfor %}
     </ul>
 
-    {% if is_pro %}
+    {% if user and user.is_admin %}
+      <div class="price-current">Owner — unlimited</div>
+    {% elif is_pro %}
       <div class="price-current">Your current plan</div>
     {% elif user %}
       <button class="btn btn-primary price-cta" id="checkout-btn"

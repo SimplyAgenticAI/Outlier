@@ -34,7 +34,7 @@
   </nav>
 
   <div class="topbar-right">
-    {% if user and user.plan != 'pro' %}
+    {% if user and user.plan != 'pro' and not user.is_admin %}
     <a class="btn btn-ghost upgrade-pill" href="{{ url_for('pricing') }}">Upgrade</a>
     {% endif %}
     <a class="account-link {{ 'active' if active == 'account' }}"
