@@ -202,6 +202,10 @@ def _migrate(conn):
         ("image_url", "TEXT"),
         ("image_count", "INTEGER DEFAULT 0"),
         ("has_video", "INTEGER DEFAULT 0"),
+        # Set when the body was read out of the graphic's alt text rather than
+        # typed by the author, so the card can say so instead of implying the
+        # poster wrote it.
+        ("body_from_image", "INTEGER DEFAULT 0"),
     ):
         if column not in post_cols:
             conn.execute(f"ALTER TABLE posts ADD COLUMN {column} {ddl}")
@@ -322,6 +326,7 @@ def _rebuild_with_scoped_uniqueness(conn):
             image_url     TEXT,
             image_count   INTEGER DEFAULT 0,
             has_video     INTEGER DEFAULT 0,
+            body_from_image INTEGER DEFAULT 0,
             UNIQUE(user_id, fb_post_id)
         );
         INSERT INTO posts_new (id, user_id, fb_post_id, source_id, author_id, body,
@@ -443,6 +448,9 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
                 body = COALESCE(NULLIF(?, ''), body),
                 image_url = COALESCE(image_url, ?),
                 image_count = MAX(image_count, ?),
+                body_from_image = CASE
+                    WHEN NULLIF(?, '') IS NOT NULL AND ? = 0 THEN 0
+                    ELSE body_from_image END,
                 updated_at = CURRENT_TIMESTAMP
             WHERE user_id IS ? AND fb_post_id = ?
             """,
@@ -454,6 +462,8 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
                 post.get("body", ""),
                 post.get("image_url"),
                 post.get("image_count", 0),
+                post.get("body", ""),
+                1 if post.get("body_from_image") else 0,
                 user_id,
                 post["fb_post_id"],
             ),
@@ -465,8 +475,9 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
         INSERT INTO posts (
             user_id, fb_post_id, source_id, author_id, body, permalink, post_type,
             posted_at, likes, comments, shares, video_plays, is_demo,
-            item_type, parent_fb_id, image_url, image_count, has_video
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            item_type, parent_fb_id, image_url, image_count, has_video,
+            body_from_image
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -487,6 +498,7 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
             post.get("image_url"),
             post.get("image_count", 0),
             1 if post.get("has_video") else 0,
+            1 if post.get("body_from_image") else 0,
         ),
     )
     return True

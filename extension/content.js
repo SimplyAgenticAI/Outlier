@@ -48,7 +48,9 @@
       candidates: 0,       // posts visible
       commentsOnPage: 0,   // comments visible
       // Cumulative — counted once per item, after the dedup check.
-      skipped: 0,          // rejected as shells / author-name-only
+      skipped: 0,          // rejected as shells — no text, no media, no counts
+      mediaOnly: 0,        // kept on the strength of an image/video alone
+      textFromImage: 0,    // caption read out of the graphic's alt text
       commentsFound: 0,    // comments actually captured
       usingFallback: false,
       fallbackNoted: false,
@@ -382,10 +384,27 @@
   }
 
   function extractBody(article, authorName, bar) {
-    // The caption is the longest text block ABOVE the action bar. Without the
-    // cutoff a long comment beats a short caption — which is how "that's
-    // funny, flat earthers will think this is a real picture" got saved as
-    // the body of a post captioned "Artemis 2 captures its first views".
+    // Strict first: the caption is the longest text block ABOVE the action
+    // bar. Without the cutoff a long comment beats a short caption — which is
+    // how "that's funny, flat earthers will think this is a real picture" got
+    // saved as the body of a post captioned "Artemis 2 captures its first
+    // views".
+    var strict = bodyPass(article, authorName, bar);
+    if (strict) return strict;
+
+    // Nothing above the bar. Either the post genuinely has no caption, or
+    // findActionBar latched onto something near the top of the article and
+    // declared the entire post to be "below" it — in which case the strict
+    // pass discards real text and the post is dropped as an empty shell.
+    // That was the "skipped, no text" case on posts that plainly had text.
+    //
+    // Retrying without the cutoff risks picking up a comment, which is the
+    // lesser failure: a post saved with the wrong caption is visible and
+    // fixable, a post never saved at all is invisible.
+    return bodyPass(article, authorName, null);
+  }
+
+  function bodyPass(article, authorName, bar) {
     var blocks = article.querySelectorAll('div[dir="auto"], span[dir="auto"]');
     var best = "";
 
@@ -411,6 +430,53 @@
       best = text;
     }
     return best.slice(0, 5000);
+  }
+
+  /* Text rendered into the graphic rather than typed into the post.
+   *
+   * Facebook runs its own OCR for screen readers and publishes the result in
+   * the image's alt attribute: "May be an image of text that says 'SALE ENDS
+   * FRIDAY'". A meme or a quote card carries its entire message that way, and
+   * discarding it means the post is captured as a caption-less shell — or
+   * dropped outright — when its words were sitting in the DOM the whole time.
+   *
+   * The boilerplate preamble is stripped so what is stored reads as the post's
+   * text, and quoted runs are preferred because those are the transcription.
+   */
+  var ALT_PREAMBLE_RE = /^(may be an image of|may be a graphic of|may be an? |image may contain:?|no photo description available)\s*/i;
+
+  var MIN_IMAGE_TEXT = 12;
+
+  function textFromAlt(alt) {
+    var raw = String(alt || "").trim();
+    if (!raw) return "";
+    if (/^no photo description available/i.test(raw)) return "";
+    if (/profile picture|avatar/i.test(raw)) return "";
+
+    // "…and text that says 'WORDS'" — everything before the lead-in is scene
+    // description ("2 people, smiling"), everything after is the transcription.
+    var says = raw.match(/text that says[:\s]*([\s\S]+)/i);
+    if (says) {
+      var transcribed = says[1].trim().replace(/^['"‘’“”]+|['"‘’“”.]+$/g, "").trim();
+      return transcribed.length >= MIN_IMAGE_TEXT ? transcribed.slice(0, 5000) : "";
+    }
+
+    // No lead-in, but quoted runs are still the OCR'd words.
+    var quoted = raw.match(/['"‘’“”]([^'"‘’“”]{4,})['"‘’“”]/g);
+    if (quoted && quoted.length) {
+      var joined = quoted.map(function (chunk) {
+        return chunk.replace(/^['"‘’“”]|['"‘’“”]$/g, "").trim();
+      }).join(" ");
+      if (joined.length >= MIN_IMAGE_TEXT) return joined.slice(0, 5000);
+    }
+
+    // What's left is either a scene description Facebook generated ("3 people,
+    // outdoors") or a real description the author wrote by hand. Only the
+    // second is worth keeping, and length is the only signal separating them —
+    // generated ones are short and comma-listed.
+    if (ALT_PREAMBLE_RE.test(raw)) return "";
+    var stripped = raw.trim();
+    return stripped.length >= 40 ? stripped.slice(0, 5000) : "";
   }
 
   function extractEngagement(article, bar) {
@@ -553,10 +619,10 @@
       if (width && width < MIN_MEDIA_PX) continue;
       if (height && height < MIN_MEDIA_PX) continue;
 
-      var label = (img.getAttribute("alt") || "").toLowerCase();
-      if (/profile picture|avatar/.test(label)) continue;
+      var alt = img.getAttribute("alt") || "";
+      if (/profile picture|avatar/i.test(alt)) continue;
 
-      found.push({ src: src, area: (width || 0) * (height || 0) });
+      found.push({ src: src, alt: alt, area: (width || 0) * (height || 0) });
     }
 
     // Largest first: on an album the biggest render is the one on display.
@@ -566,10 +632,18 @@
     var hasVideo = !!(video && !isBelowBar(video, bar)) ||
                    !!ownQuery(article, 'a[href*="/reel/"], a[href*="/videos/"]');
 
+    // Any image's alt may carry the transcription, not just the largest —
+    // a quote card sitting second in an album still holds the words.
+    var altText = "";
+    for (var k = 0; k < found.length && !altText; k++) {
+      altText = textFromAlt(found[k].alt);
+    }
+
     return {
       image_url: found.length ? found[0].src : null,
       image_count: found.length,
-      has_video: hasVideo
+      has_video: hasVideo,
+      image_text: altText
     };
   }
 
@@ -685,21 +759,41 @@
       // comments on every pass. Sitting still on one screen climbed past 300.
       if (!postId || SEEN.has(postId)) return;
 
-      // Reject shells: no text, or "text" that is just the author's name
-      // echoed out of the header.
-      if (!body || body.length < 12) { STATS.skipped++; return; }
-      if (body.replace(/\s+/g, " ") === author.name) { STATS.skipped++; return; }
+      // Engagement and media are read BEFORE the keep/skip decision, because
+      // they are part of that decision. Requiring a caption discarded whole
+      // categories of real post: image-only posts, memes whose words are
+      // rendered into the graphic, and short reactions ("This 👏"). Those are
+      // frequently a group's best performers, so dropping them didn't just
+      // lose rows — it biased the baseline the survivors are scored against.
+      var engagement = extractEngagement(article, bar);
+      var media = extractMedia(article, bar);
+
+      var bodyFromImage = false;
+      if ((!body || body.length < 12) && media.image_text) {
+        body = media.image_text;      // Facebook's own OCR, see textFromAlt
+        bodyFromImage = true;
+      }
+
+      // "Text" that is only the author's name echoed out of the header is a
+      // header, not a caption — drop it rather than store it as the body.
+      if (body && body.replace(/\s+/g, " ") === author.name) body = "";
+
+      var hasText = !!body && body.length >= 12;
+      var hasMedia = !!(media.image_url || media.has_video);
+      var hasEngagement = !!(engagement.likes || engagement.comments ||
+                             engagement.shares);
+
+      // A genuine shell has none of the three. Anything else is a real item.
+      if (!hasText && !hasMedia && !hasEngagement) { STATS.skipped++; return; }
 
       SEEN.add(postId);
       if (!isPost) STATS.commentsFound++;
       found++;
 
-      var engagement = extractEngagement(article, bar);
-      var media = extractMedia(article, bar);
-      if (engagement.likes || engagement.comments || engagement.shares) {
-        STATS.withEngagement++;
-      }
-      if (media.image_url || media.has_video) STATS.withMedia++;
+      if (hasEngagement) STATS.withEngagement++;
+      if (hasMedia) STATS.withMedia++;
+      if (!hasText) STATS.mediaOnly++;
+      if (bodyFromImage) STATS.textFromImage++;
       logLine((isPost ? "" : "↳ ") + engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
@@ -720,7 +814,8 @@
         parent_fb_id: isPost ? null : parentPostId(article, source),
         image_url: media.image_url,
         image_count: media.image_count,
-        has_video: media.has_video
+        has_video: media.has_video,
+        body_from_image: bodyFromImage ? 1 : 0
       });
     });
 
@@ -902,6 +997,17 @@
                  "c " + engagement.shares + "s " + engagement.video_plays + "v");
       lines.push("media       : " + (media.image_url ? media.image_count + " image(s)"
                  : "none") + (media.has_video ? " + video" : ""));
+      lines.push("image text  : " + (media.image_text
+                 ? JSON.stringify(media.image_text.slice(0, 80)) : "none"));
+
+      // Why this item would be kept or dropped, so a missing post can be
+      // traced to the rule that rejected it rather than guessed at.
+      var keeps = [];
+      if (body.length >= 12) keeps.push("text");
+      if (media.image_url || media.has_video) keeps.push("media");
+      if (engagement.likes || engagement.comments || engagement.shares) keeps.push("counts");
+      lines.push("would keep  : " + (keeps.length ? "yes (" + keeps.join(", ") + ")"
+                                                  : "NO — nothing found"));
 
       // The aria-labels are what the count patterns actually match against,
       // so when engagement reads zero this is the part that explains why.
@@ -1392,7 +1498,15 @@
     if (STATS.withMedia) {
       hudBody.appendChild(row("With images/video", String(STATS.withMedia)));
     }
-    if (STATS.skipped) hudBody.appendChild(row("Skipped (no text)", String(STATS.skipped)));
+    if (STATS.textFromImage) {
+      hudBody.appendChild(row("Text read from image", String(STATS.textFromImage), "#6ee7b7"));
+    }
+    if (STATS.mediaOnly) {
+      hudBody.appendChild(row("Image/video only", String(STATS.mediaOnly)));
+    }
+    // Named for what it means now: nothing at all was found, not merely
+    // "no caption" — captions are optional and no longer a reason to drop.
+    if (STATS.skipped) hudBody.appendChild(row("Skipped (empty)", String(STATS.skipped)));
     if (STATS.queued) hudBody.appendChild(row("Queued", String(STATS.queued)));
 
     if (STATS.articles > 0 && STATS.candidates === 0) {
