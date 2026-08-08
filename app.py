@@ -1,6 +1,7 @@
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -18,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "3.1"
+APP_VERSION = "3.2"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -904,39 +905,72 @@ def api_capture():
 
     new_count = 0
     with db.get_db() as conn:
-        source_id = db.upsert_source(
-            conn,
-            fb_id=str(source["fb_id"]),
-            kind=source.get("kind", "group"),
-            name=source.get("name") or "Untitled source",
-            url=source.get("url"),
-            member_count=source.get("member_count"),
-            user_id=api_user["id"],
-        )
+        # Cached: a feed batch carries a source object on most rows, and
+        # several dozen of them resolve to the same handful of groups.
+        source_ids = {}
+
+        def resolve(spec):
+            fb_id = str(spec["fb_id"])
+            if fb_id not in source_ids:
+                source_ids[fb_id] = db.upsert_source(
+                    conn,
+                    fb_id=fb_id,
+                    kind=spec.get("kind", "group"),
+                    name=spec.get("name") or "Untitled source",
+                    url=spec.get("url"),
+                    member_count=spec.get("member_count"),
+                    user_id=api_user["id"],
+                )
+            return source_ids[fb_id]
+
+        # Resolved lazily. On a feed capture every post carries its own
+        # origin, so creating the page-level "Home feed" source would leave an
+        # empty row cluttering /groups that the user never captured.
+        source_id = None
 
         for post in posts:
             if not post.get("fb_post_id"):
                 continue
+
+            # A post captured from the home or groups feed carries its own
+            # origin, because the post above it came from somewhere else.
+            # Filing a whole feed under one source would score unrelated
+            # posts against a shared median, which is the one thing this
+            # product must not do.
+            post_source = post.get("source")
+            if isinstance(post_source, dict) and post_source.get("fb_id"):
+                post_source_id = resolve(post_source)
+            else:
+                if source_id is None:
+                    source_id = resolve(source)
+                post_source_id = source_id
+
             author_id = db.upsert_author(
                 conn,
                 name=post.get("author_name"),
                 profile_url=post.get("author_url"),
             )
-            if db.upsert_post(conn, source_id, author_id, post,
+            if db.upsert_post(conn, post_source_id, author_id, post,
                               user_id=api_user["id"]):
                 new_count += 1
 
+        # The capture log points at the page-level source when there is one;
+        # for a feed scan it points at whichever source the batch touched.
+        logged_source = source_id
+        if logged_source is None and source_ids:
+            logged_source = next(iter(source_ids.values()))
         conn.execute(
             "INSERT INTO captures (user_id, source_id, post_count, new_count) "
             "VALUES (?, ?, ?, ?)",
-            (api_user["id"], source_id, len(posts), new_count),
+            (api_user["id"], logged_source, len(posts), new_count),
         )
 
     return jsonify({
         "ok": True,
         "received": len(posts),
         "new": new_count,
-        "source_id": source_id,
+        "source_id": logged_source,
+        "sources_touched": len(source_ids),
     })
 
 
@@ -1163,15 +1197,44 @@ def download_extension():
     if not os.path.isdir(ext_dir):
         return jsonify({"ok": False, "error": "Extension folder missing"}), 404
 
+    # The dashboard serving this zip is the dashboard the extension should
+    # talk to, so stamp this origin into it on the way out. Without this a
+    # hosted install starts life pointed at a localhost that was never
+    # running, reports itself offline, and asks the user to paste a URL the
+    # server already knows.
+    home = request.url_root.rstrip("/")
+
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for root, _dirs, files in os.walk(ext_dir):
             for name in files:
                 path = os.path.join(root, name)
-                archive.write(path, os.path.relpath(path, ext_dir))
+                arcname = os.path.relpath(path, ext_dir)
+
+                if arcname.replace("\\", "/") == "background.js":
+                    with open(path, "r", encoding="utf-8") as handle:
+                        source = handle.read()
+                    stamped, count = re.subn(
+                        r'const DEFAULT_ENDPOINT = "[^"]*"; /\*@@TALLGRASS_HOME@@\*/',
+                        'const DEFAULT_ENDPOINT = "%s"; /*@@TALLGRASS_HOME@@*/'
+                        % home.replace("\\", ""),
+                        source,
+                        count=1,
+                    )
+                    # A silent miss would ship the localhost default to every
+                    # hosted user, which is the exact bug this replaces.
+                    if not count:
+                        app.logger.error(
+                            "extension zip: DEFAULT_ENDPOINT marker not found; "
+                            "shipping unstamped background.js"
+                        )
+                    archive.writestr(arcname, stamped)
+                    continue
+
+                archive.write(path, arcname)
     buffer.seek(0)
     return send_file(buffer, mimetype="application/zip",
-                     as_attachment=True, download_name="outlier-extension.zip")
+                     as_attachment=True, download_name="tallgrass-extension.zip")
 
 
 @app.errorhandler(404)

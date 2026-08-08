@@ -52,6 +52,7 @@
       mediaOnly: 0,        // kept on the strength of an image/video alone
       textFromImage: 0,    // caption read out of the graphic's alt text
       commentsFound: 0,    // comments actually captured
+      unattributed: 0,     // feed posts whose origin could not be identified
       usingFallback: false,
       fallbackNoted: false,
       queued: 0,
@@ -136,9 +137,48 @@
     return fallback;
   }
 
+  // Paths that are Facebook's own furniture, never somebody's page.
+  var RESERVED_SLUGS = [
+    "", "watch", "marketplace", "groups", "home.php", "gaming", "events",
+    "notifications", "messages", "friends", "saved", "settings", "bookmarks",
+    "search", "stories", "reel", "reels", "video", "photo", "help", "policies",
+    "privacy", "login", "recover", "pages", "business", "ads"
+  ];
+
+  /* A "page" and a "profile" are the same URL shape, so the DOM has to say
+   * which. Pages carry follower counts and a Like/Follow control in their
+   * header; personal profiles carry friend counts and Add friend. Getting it
+   * wrong costs only a label — scoring keys off identity, not kind — so this
+   * guesses and moves on rather than refusing to capture.
+   */
+  function looksLikeAPage() {
+    var header = document.querySelector('div[role="main"]') || document.body;
+    var text = (header.innerText || "").slice(0, 1200);
+    if (/\b(followers|following)\b/i.test(text) && !/\bfriends\b/i.test(text)) return true;
+    if (document.querySelector('div[aria-label="Like"], div[aria-label="Follow"]')) return true;
+    return false;
+  }
+
+  /* Where are we, and can a single source describe everything on screen?
+   *
+   * Group and profile/page timelines are one source per page. The home feed
+   * and the groups feed are not: consecutive posts come from different
+   * groups and pages, so a single page-level source would file all of them
+   * under one name and score them against each other's medians. Those return
+   * kind "feed", and each post is attributed individually — see
+   * sourceForArticle.
+   */
   function detectSource() {
     var url = location.href;
+    var path = location.pathname.replace(/\/+$/, "");
 
+    // --- the group feed: many groups, one page --------------------------
+    if (/^\/groups\/feed$/.test(path)) {
+      return { fb_id: "feed:groups", kind: "feed", name: "Groups feed",
+               url: location.origin + "/groups/feed", perPost: true };
+    }
+
+    // --- a single group -------------------------------------------------
     var groupMatch = url.match(/\/groups\/([^/?#]+)/);
     if (groupMatch && groupMatch[1] !== "feed") {
       var slug = groupMatch[1];
@@ -161,18 +201,101 @@
       };
     }
 
-    var reserved = ["watch", "marketplace", "groups", "home.php", "gaming",
-                    "events", "notifications", "messages", "profile.php", ""];
-    var profileMatch = url.match(/facebook\.com\/([^/?#]*)/);
-    if (profileMatch && reserved.indexOf(profileMatch[1]) === -1) {
+    // --- the home feed --------------------------------------------------
+    if (path === "" || path === "/home.php" || /^\/?$/.test(path)) {
+      return { fb_id: "feed:home", kind: "feed", name: "Home feed",
+               url: location.origin + "/", perPost: true };
+    }
+
+    // --- numeric profiles: /profile.php?id=100001234567890 --------------
+    var numericId = (url.match(/profile\.php\?id=(\d+)/) || [])[1];
+    if (numericId) {
       return {
-        fb_id: "profile:" + profileMatch[1],
-        kind: "profile",
-        name: nameFromTitle(profileMatch[1]),
-        url: location.origin + "/" + profileMatch[1]
+        fb_id: "profile:" + numericId,
+        kind: looksLikeAPage() ? "page" : "profile",
+        name: nameFromTitle("Facebook profile " + numericId),
+        url: location.origin + "/profile.php?id=" + numericId
       };
     }
 
+    // --- legacy page URLs: /pages/Some-Name/123456 ----------------------
+    var legacyPage = url.match(/\/pages\/[^/]+\/(\d+)/);
+    if (legacyPage) {
+      return {
+        fb_id: "page:" + legacyPage[1],
+        kind: "page",
+        name: nameFromTitle("Facebook page " + legacyPage[1]),
+        url: location.origin + "/" + legacyPage[1]
+      };
+    }
+
+    // --- vanity URLs: /someone or /SomeBusiness -------------------------
+    var slugMatch = path.match(/^\/([^/?#]+)/);
+    var vanity = slugMatch ? slugMatch[1] : "";
+    if (vanity && RESERVED_SLUGS.indexOf(vanity.toLowerCase()) === -1) {
+      var isPage = looksLikeAPage();
+      return {
+        fb_id: (isPage ? "page:" : "profile:") + vanity,
+        kind: isPage ? "page" : "profile",
+        name: nameFromTitle(vanity),
+        url: location.origin + "/" + vanity
+      };
+    }
+
+    return null;
+  }
+
+  /* Which source a single article belongs to.
+   *
+   * On a one-source page this is just that source. On a feed it has to come
+   * out of the post's own header, because the next post down is from
+   * somewhere else entirely — and a post's baseline is only meaningful
+   * against others from the same place.
+   */
+  function sourceForArticle(article, pageSource) {
+    if (!pageSource || !pageSource.perPost) return pageSource;
+
+    var bar = findActionBar(article);
+
+    // A group post in the feed links to its group in the header.
+    var links = article.querySelectorAll('a[href*="/groups/"]');
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i];
+      if (isBelowBar(link, bar)) continue;
+      if (link.closest('div[role="article"]') !== article) continue;
+      var groupSlug = (link.getAttribute("href") || "").match(/\/groups\/([^/?#]+)/);
+      if (!groupSlug || groupSlug[1] === "feed") continue;
+      var label = (link.textContent || "").trim();
+      // The group name is the link's own text when it is the header link;
+      // "Join", "1 comment" and the like are controls that happen to sit
+      // inside the same anchor set.
+      if (!label || label.length > 120 || CHROME_RE.test(label)) continue;
+      return {
+        fb_id: "group:" + groupSlug[1],
+        kind: "group",
+        name: label,
+        url: location.origin + "/groups/" + groupSlug[1]
+      };
+    }
+
+    // Otherwise it is a page or profile post, identified by its author.
+    var author = extractAuthor(article, bar);
+    if (author.url && author.name) {
+      var slug = author.url.split("?")[0].replace(/\/+$/, "").split("/").pop();
+      var numeric = (author.url.match(/id=(\d+)/) || [])[1];
+      var id = numeric || slug;
+      if (id && RESERVED_SLUGS.indexOf(String(id).toLowerCase()) === -1) {
+        return {
+          fb_id: "profile:" + id,
+          kind: "profile",
+          name: author.name,
+          url: author.url
+        };
+      }
+    }
+
+    // Unattributable. Returning null drops the post rather than filing it
+    // under "Home feed", which would put unrelated posts in one baseline.
     return null;
   }
 
@@ -865,6 +988,11 @@
       if (isPost) STATS.candidates++;
       else STATS.commentsOnPage++;
 
+      // On a feed, each post belongs to a different group or page, so the
+      // source is resolved per article rather than per scan.
+      var postSource = sourceForArticle(article, source);
+      if (!postSource) { STATS.unattributed++; return; }
+
       var bar = findActionBar(article);
       var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
@@ -875,7 +1003,7 @@
       // the dedup check meant the passive re-scan — which fires roughly every
       // 800ms because Facebook mutates constantly — re-counted the same
       // comments on every pass. Sitting still on one screen climbed past 300.
-      if (!postId || SEEN.has(postId)) return;
+      if (!postId || SEEN.has(postSource.fb_id + "|" + postId)) return;
 
       // Engagement and media are read BEFORE the keep/skip decision, because
       // they are part of that decision. Requiring a caption discarded whole
@@ -904,7 +1032,7 @@
       // A genuine shell has none of the three. Anything else is a real item.
       if (!hasText && !hasMedia && !hasEngagement) { STATS.skipped++; return; }
 
-      SEEN.add(postId);
+      SEEN.add(postSource.fb_id + "|" + postId);
       if (!isPost) STATS.commentsFound++;
       found++;
 
@@ -917,7 +1045,7 @@
               body.slice(0, 30));
 
       QUEUE.push({
-        fb_post_id: source.fb_id + "-" + postId,
+        fb_post_id: postSource.fb_id + "-" + postId,
         body: body,
         permalink: permalink,
         post_type: isPost ? extractPostType(article) : "comment",
@@ -929,7 +1057,14 @@
         shares: engagement.shares,
         video_plays: engagement.video_plays,
         item_type: isPost ? "post" : "comment",
-        parent_fb_id: isPost ? null : parentPostId(article, source),
+        parent_fb_id: isPost ? null : parentPostId(article, postSource),
+        // Only sent when it differs from the batch's source — on a single
+        // group or profile page every post shares one and repeating it on
+        // every row would triple the payload for nothing.
+        source: postSource.fb_id === source.fb_id ? undefined : {
+          fb_id: postSource.fb_id, kind: postSource.kind,
+          name: postSource.name, url: postSource.url
+        },
         image_url: media.image_url,
         image_count: media.image_count,
         has_video: media.has_video,
@@ -1534,7 +1669,14 @@
 
     dash.addEventListener("click", function () {
       chrome.storage.local.get(["endpoint"], function (state) {
-        window.open(state.endpoint || "http://localhost:5050", "_blank");
+        // No endpoint means no dashboard to open. Guessing localhost sends
+        // the user to a dead tab and teaches them the tool is broken.
+        if (!state.endpoint) {
+          STATS.lastError = "Not connected yet — open your dashboard once while signed in.";
+          renderHud();
+          return;
+        }
+        window.open(state.endpoint, "_blank");
       });
     });
 
@@ -1682,8 +1824,10 @@
     hudBody.textContent = "";
 
     var source = detectSource();
+    var KIND_LABELS = { group: "Group", profile: "Profile", page: "Page",
+                        feed: "Feed" };
     hudBody.appendChild(row(
-      source ? (source.kind === "group" ? "Group" : "Profile") : "Page",
+      source ? (KIND_LABELS[source.kind] || "Source") : "Page",
       source ? source.name.slice(0, 24) : "unsupported",
       source ? "#6ee7b7" : "#e07a5f"
     ));
@@ -1708,8 +1852,13 @@
       hasApiKey ? (endpointLabel || "…") : "Not connected",
       hasApiKey ? "#7fa693" : "#d9b45f"
     ));
-    var where = source ? (source.kind === "group" ? "in this group"
-                                                 : "on this profile") : "on page";
+    var where = "on page";
+    if (source) {
+      if (source.kind === "group") where = "in this group";
+      else if (source.kind === "page") where = "on this page";
+      else if (source.kind === "profile") where = "on this profile";
+      else if (source.kind === "feed") where = "in this feed";
+    }
     hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
     if (STATS.commentsOnPage || STATS.commentsFound) {
       hudBody.appendChild(row(
@@ -1752,6 +1901,9 @@
     // Named for what it means now: nothing at all was found, not merely
     // "no caption" — captions are optional and no longer a reason to drop.
     if (STATS.skipped) hudBody.appendChild(row("Skipped (empty)", String(STATS.skipped)));
+    if (STATS.unattributed) {
+      hudBody.appendChild(row("No source found", String(STATS.unattributed), "#d9b45f"));
+    }
     if (STATS.queued) hudBody.appendChild(row("Queued", String(STATS.queued)));
 
     if (STATS.articles > 0 && STATS.candidates === 0) {
@@ -1783,8 +1935,13 @@
       });
       ideas.addEventListener("click", function () {
         chrome.storage.local.get(["endpoint"], function (state) {
-          var base = state.endpoint || "http://localhost:5050";
-          window.open(base + "/ideas?source=" + encodeURIComponent(currentSourceId), "_blank");
+          if (!state.endpoint) {
+            STATS.lastError = "Not connected yet — open your dashboard once while signed in.";
+            renderHud();
+            return;
+          }
+          window.open(state.endpoint + "/ideas?source=" +
+                      encodeURIComponent(currentSourceId), "_blank");
         });
       });
       hudBody.appendChild(ideas);

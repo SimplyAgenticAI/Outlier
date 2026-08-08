@@ -3,7 +3,18 @@
  * extension context rather than from facebook.com.
  */
 
-const DEFAULT_ENDPOINT = "http://localhost:5050";
+/* Where this copy of the extension came from.
+ *
+ * The dashboard builds the zip, so it stamps its own origin in here on the way
+ * out — the download from tallgrass.example already knows to talk to
+ * tallgrass.example. Nobody types a URL, and a hosted install never sits there
+ * pointing at a localhost that was never running.
+ *
+ * The literal below is the development default and is rewritten verbatim by
+ * download_extension() in app.py; the marker is what it matches on, so don't
+ * reformat this line.
+ */
+const DEFAULT_ENDPOINT = "http://localhost:5050"; /*@@TALLGRASS_HOME@@*/
 
 function toOrigin(url) {
   try {

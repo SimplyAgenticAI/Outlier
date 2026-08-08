@@ -84,7 +84,11 @@ function checkConnection() {
   chrome.runtime.sendMessage({ type: "OUTLIER_PING" }, (response) => {
     if (chrome.runtime.lastError || !response || !response.ok) {
       dotEl.className = "dot off";
-      statusEl.textContent = "offline";
+      // "offline" describes the dashboard as if it were down, when what has
+      // actually happened is that this extension has not been handed an
+      // account yet. Say the thing the user can act on.
+      statusEl.textContent = "not connected";
+      say("Open your dashboard once while signed in — it connects itself.");
       el("ext-version").textContent = "v" + running;
       return;
     }
@@ -198,7 +202,7 @@ el("save-endpoint").addEventListener("click", async () => {
   chrome.runtime.sendMessage({ type: "OUTLIER_PING" }, (response) => {
     if (chrome.runtime.lastError || !response || !response.ok) {
       dotEl.className = "dot off";
-      statusEl.textContent = "offline";
+      statusEl.textContent = "not connected";
       const detail = (response && response.error) ? " " + response.error : "";
       say("Saved, but nothing answered there." + detail, "err");
       return;
@@ -268,12 +272,13 @@ autoUpdateEl.addEventListener("change", () => {
   const limit = state.maxPosts || 200;
   maxPostsEl.value = limit;
   renderLimit(limit);
-  endpointEl.value = state.endpoint || "http://localhost:5050";
+  endpointEl.value = state.endpoint || "";
   // Never re-display the stored key; show only that one is present.
   apiKeyEl.placeholder = state.apiKey
     ? "Key saved — paste a new one to replace it"
     : "olk_… from the Account page";
-  openLink.href = endpointEl.value;
+  openLink.href = endpointEl.value || "#";
+  openLink.style.display = endpointEl.value ? "" : "none";
 
   // Report a completed self-update once, then clear the marker.
   if (state.lastUpdateTo && state.lastUpdateTo === chrome.runtime.getManifest().version) {
