@@ -18,7 +18,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "2.3"
+APP_VERSION = "2.4"
 
 db.init_db()
 db.promote_sole_account()

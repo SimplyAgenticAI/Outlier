@@ -30,6 +30,7 @@
   var maxMinutes = DEFAULT_MAX_MINUTES;
   var scanStartedAt = 0;
   var endpointLabel = null;
+  var hasApiKey = false;
 
   function hostOf(url) {
     try {
@@ -938,8 +939,12 @@
 
   var hudLog, hudEndpoint;
 
-  var HUD_MIN_W = 300;
-  var HUD_MIN_H = 240;
+  var HUD_MIN_W = 340;
+  var HUD_MIN_H = 320;
+  // Sized so every stat row, the log and the buttons all fit without
+  // resizing. Anything smaller and something is always clipped.
+  var HUD_DEFAULT_W = 430;
+  var HUD_DEFAULT_H = 580;
 
   /* Anchored by top/left, not bottom/right.
    *
@@ -952,10 +957,10 @@
   function loadHudBox() {
     var defaults = function () {
       return {
-        width: 380,
-        height: 460,
-        left: Math.max(8, window.innerWidth - 380 - 20),
-        top: Math.max(8, window.innerHeight - 460 - 20)
+        width: HUD_DEFAULT_W,
+        height: HUD_DEFAULT_H,
+        left: Math.max(8, window.innerWidth - HUD_DEFAULT_W - 20),
+        top: Math.max(8, window.innerHeight - HUD_DEFAULT_H - 20)
       };
     };
 
@@ -977,8 +982,8 @@
         return clampHudBox(box);
       }
       return clampHudBox({
-        width: saved.width || 380,
-        height: saved.height || 460,
+        width: saved.width || HUD_DEFAULT_W,
+        height: saved.height || HUD_DEFAULT_H,
         left: saved.left,
         top: saved.top
       });
@@ -1033,12 +1038,44 @@
     });
 
     /* --- draggable header --- */
+    // A vine down the inside edge, drawn on when the panel opens. Purely
+    // decorative — pointer-events off so it never intercepts a drag — and it
+    // carries the same organic-growth idea as the dashboard's meadow.
+    var vine = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    vine.setAttribute("viewBox", "0 0 40 600");
+    vine.setAttribute("preserveAspectRatio", "none");
+    vine.setAttribute("aria-hidden", "true");
+    styleEl(vine, {
+      position: "absolute", left: "0", top: "0",
+      width: "40px", height: "100%",
+      pointerEvents: "none", opacity: "0.5", zIndex: "0"
+    });
+    vine.innerHTML =
+      '<path d="M14 600 C 6 520, 26 470, 16 400 C 8 340, 26 300, 15 240 ' +
+      'C 6 190, 24 150, 14 90 C 9 55, 18 30, 15 0" ' +
+      'fill="none" stroke="rgba(52,211,153,0.5)" stroke-width="1.5" ' +
+      'stroke-linecap="round"/>' +
+      // Leaves along the stem, alternating sides.
+      '<path d="M16 460 q 14 -10 20 -2 q -12 10 -20 2 Z" fill="rgba(52,211,153,0.3)"/>' +
+      '<path d="M15 350 q -13 -10 -19 -2 q 11 10 19 2 Z" fill="rgba(52,211,153,0.26)"/>' +
+      '<path d="M17 250 q 14 -9 20 -1 q -12 9 -20 1 Z" fill="rgba(52,211,153,0.3)"/>' +
+      '<path d="M14 150 q -13 -9 -19 -1 q 11 9 19 1 Z" fill="rgba(52,211,153,0.24)"/>' +
+      '<circle cx="15" cy="40" r="2.4" fill="rgba(110,231,183,0.55)"/>';
+
+    var stem = vine.querySelector("path");
+    var stemLength = 900;                     // longer than the path; safe to over-dash
+    stem.style.strokeDasharray = stemLength;
+    stem.style.strokeDashoffset = stemLength;
+    stem.style.transition = "stroke-dashoffset 1.6s cubic-bezier(0.22,1,0.36,1)";
+    setTimeout(function () { stem.style.strokeDashoffset = "0"; }, 60);
+
     var header = document.createElement("div");
     styleEl(header, {
       display: "flex", alignItems: "center", justifyContent: "space-between",
       padding: "0.9em 1.1em", cursor: "move", flexShrink: "0",
       background: "rgba(16,40,27,0.75)",
-      borderBottom: "1px solid rgba(110,231,183,0.18)"
+      borderBottom: "1px solid rgba(110,231,183,0.18)",
+      position: "relative", zIndex: "1"
     });
 
     var title = document.createElement("span");
@@ -1067,7 +1104,9 @@
     var content = document.createElement("div");
     styleEl(content, {
       display: "flex", flexDirection: "column", flex: "1",
-      padding: "1em 1.1em", overflow: "hidden", minHeight: "0"
+      padding: "1em 1.1em 1em 1.5em",   // extra left inset clears the vine
+      overflow: "hidden", minHeight: "0",
+      position: "relative", zIndex: "1"
     });
 
     var expandedHeight = box.height;
@@ -1113,7 +1152,8 @@
       // Scaling on width alone made the text grow when dragged wider, which
       // pushed the buttons past the bottom edge. Take whichever axis grew
       // least so the contents always still fit vertically.
-      var scale = Math.min((rect.width || 380) / 380, (rect.height || 460) / 460);
+      var scale = Math.min((rect.width || HUD_DEFAULT_W) / HUD_DEFAULT_W,
+                           (rect.height || HUD_DEFAULT_H) / HUD_DEFAULT_H);
       scale = Math.max(0.85, Math.min(scale, 2.1));
       hud.style.fontSize = (13 * scale).toFixed(2) + "px";
     }
@@ -1143,7 +1183,8 @@
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: "0.84em", lineHeight: "1.65", color: "#7fa693",
       whiteSpace: "pre-wrap", overflowWrap: "anywhere",
-      scrollbarWidth: "thin"
+      scrollbarWidth: "thin",
+      scrollbarColor: "rgba(52,211,153,0.55) transparent"
     });
 
     /* --- buttons --- */
@@ -1237,7 +1278,11 @@
     var scroller = document.createElement("div");
     styleEl(scroller, {
       flex: "1", minHeight: "0", overflowY: "auto", overflowX: "hidden",
-      display: "flex", flexDirection: "column"
+      display: "flex", flexDirection: "column",
+      // Room for the scrollbar so it never sits on top of a number.
+      paddingRight: "0.55em",
+      scrollbarWidth: "thin",
+      scrollbarColor: "rgba(52,211,153,0.55) transparent"
     });
 
     scroller.appendChild(hudBody);
@@ -1250,6 +1295,7 @@
     content.appendChild(rowBtns2);
     content.appendChild(pause);
 
+    hud.appendChild(vine);
     hud.appendChild(header);
     hud.appendChild(content);
     document.body.appendChild(hud);
@@ -1300,14 +1346,17 @@
     } else if (autoScrolling) {
       mode = "Auto-scrolling"; modeColour = "#6ee7b7";
     } else {
-      mode = "Watching as you scroll"; modeColour = "#d9b45f";
+      mode = "Capturing"; modeColour = "#6ee7b7";
     }
     hudBody.appendChild(row("Status", mode, modeColour));
 
-    // Which dashboard this is feeding. Without it you can scan happily into
-    // localhost while reading a hosted dashboard and never see your posts.
-    hudBody.appendChild(row("Sending to", endpointLabel || "…",
-                            endpointLabel ? "#7fa693" : null));
+    // Which dashboard this is feeding. Until an account is connected there is
+    // no dashboard, and naming the seeded default would be misleading.
+    hudBody.appendChild(row(
+      "Dashboard",
+      hasApiKey ? (endpointLabel || "…") : "Not connected",
+      hasApiKey ? "#7fa693" : "#d9b45f"
+    ));
     var where = source ? (source.kind === "group" ? "in this group"
                                                  : "on this profile") : "on page";
     hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
@@ -1409,12 +1458,13 @@
   /* ------------------------------------------------------ wiring */
 
   chrome.storage.local.get(
-    ["enabled", "maxPosts", "maxMinutes", "endpoint"],
+    ["enabled", "maxPosts", "maxMinutes", "endpoint", "apiKey"],
     function (state) {
       enabled = state.enabled !== false;
       maxPosts = state.maxPosts || DEFAULT_MAX_POSTS;
       maxMinutes = state.maxMinutes || DEFAULT_MAX_MINUTES;
-      endpointLabel = hostOf(state.endpoint || "http://localhost:5050");
+      hasApiKey = !!(state.apiKey || "").trim();
+      endpointLabel = hasApiKey ? hostOf(state.endpoint || "") : null;
       renderHud();
     }
   );
@@ -1426,7 +1476,14 @@
     }
     if (changes.maxPosts) maxPosts = changes.maxPosts.newValue || DEFAULT_MAX_POSTS;
     if (changes.maxMinutes) maxMinutes = changes.maxMinutes.newValue || DEFAULT_MAX_MINUTES;
-    if (changes.endpoint) endpointLabel = hostOf(changes.endpoint.newValue || "");
+    if (changes.apiKey) hasApiKey = !!(changes.apiKey.newValue || "").trim();
+    if (changes.endpoint || changes.apiKey) {
+      chrome.storage.local.get(["endpoint", "apiKey"], function (state) {
+        hasApiKey = !!(state.apiKey || "").trim();
+        endpointLabel = hasApiKey ? hostOf(state.endpoint || "") : null;
+        renderHud();
+      });
+    }
     renderHud();
   });
 
