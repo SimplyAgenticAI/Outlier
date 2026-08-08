@@ -5,6 +5,30 @@
 
   var reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
+  /* ------------------------------------------------------------ requests */
+
+  // Every state-changing call carries the session's CSRF token. Wrapping fetch
+  // here means a new endpoint cannot forget it and fail in production only.
+  var CSRF = (document.querySelector('meta[name="csrf-token"]') || {}).content || "";
+
+  function post(url, body, method) {
+    var options = {
+      method: method || "POST",
+      headers: { "X-CSRF-Token": CSRF }
+    };
+    if (body !== undefined) {
+      options.headers["Content-Type"] = "application/json";
+      options.body = JSON.stringify(body);
+    }
+    return fetch(url, options).then(function (response) {
+      if (response.status === 401) {
+        window.location.href = "/login";
+        throw new Error("Signed out");
+      }
+      return response.json();
+    });
+  }
+
   /* ------------------------------------------------------------ toast */
 
   var toastEl = document.getElementById("toast");
@@ -189,12 +213,7 @@
       next = next.trim();
       if (!next) { toast("Name cannot be empty", true); return; }
 
-      fetch("/api/source/" + id, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: next })
-      })
-        .then(function (r) { return r.json(); })
+      post("/api/source/" + id, { name: next }, "PATCH")
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Rename failed");
           if (label) label.textContent = data.name;
@@ -210,8 +229,7 @@
       var name = deleteBtn.dataset.sourceName || "this source";
       if (!window.confirm('Delete "' + name + '" and every post captured from it?\n\nThis cannot be undone.')) return;
 
-      fetch("/api/source/" + sourceId, { method: "DELETE" })
-        .then(function (r) { return r.json(); })
+      post("/api/source/" + sourceId, undefined, "DELETE")
         .then(function (data) {
           if (!data.ok) throw new Error("Delete failed");
           var row = deleteBtn.closest("tr");
@@ -234,8 +252,7 @@
     if (!btn) return;
     event.preventDefault();
 
-    fetch("/api/save/" + btn.dataset.postId, { method: "POST" })
-      .then(function (r) { return r.json(); })
+    post("/api/save/" + btn.dataset.postId)
       .then(function (data) {
         if (!data.ok) throw new Error("save failed");
         btn.classList.toggle("is-saved", data.saved);
@@ -263,8 +280,7 @@
   function demoRequest(method, label) {
     return function () {
       toast(label + "…");
-      fetch("/api/demo", { method: method })
-        .then(function (r) { return r.json(); })
+      post("/api/demo", undefined, method)
         .then(function () { window.location.reload(); })
         .catch(function () { toast("That didn't work", true); });
     };
@@ -282,8 +298,7 @@
       // Destructive and unrecoverable — confirm before firing.
       if (!window.confirm("Delete every captured post, group, and saved item?\n\nThis cannot be undone.")) return;
       toast("Deleting everything…");
-      fetch("/api/reset", { method: "POST" })
-        .then(function (r) { return r.json(); })
+      post("/api/reset")
         .then(function () { window.location.href = "/"; })
         .catch(function () { toast("Reset failed", true); });
     });
@@ -299,8 +314,7 @@
       folderMsg.className = "istep-msg";
       folderMsg.textContent = "Opening…";
 
-      fetch("/api/open-folder", { method: "POST" })
-        .then(function (r) { return r.json(); })
+      post("/api/open-folder")
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Could not open the folder");
           folderMsg.className = "istep-msg ok";
@@ -343,8 +357,7 @@
       ideasStatus.className = "msg-line";
       ideasStatus.textContent = "Reading the group's outliers and drafting posts.";
 
-      fetch("/api/ideas/" + id, { method: "POST" })
-        .then(function (r) { return r.json(); })
+      post("/api/ideas/" + id)
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Could not generate ideas");
           renderIdeas(data.result);
@@ -483,12 +496,7 @@
 
       var pending = thinkingBubble();
 
-      fetch("/api/sage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message: question })
-      })
-        .then(function (r) { return r.json(); })
+      post("/api/sage", { message: question })
         .then(function (data) {
           pending.remove();
           if (!data.ok) throw new Error(data.error || "Sage could not answer");
@@ -522,8 +530,7 @@
     if (clearChat) {
       clearChat.addEventListener("click", function () {
         if (!window.confirm("Clear this conversation?")) return;
-        fetch("/api/sage/clear", { method: "POST" })
-          .then(function () { window.location.reload(); });
+        post("/api/sage/clear").then(function () { window.location.reload(); });
       });
     }
   }
@@ -561,12 +568,7 @@
       aiMsg.className = "msg-line";
       aiMsg.textContent = "Saving…";
 
-      fetch("/api/sage/config", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ provider: provider.value, key: key, model: model })
-      })
-        .then(function (r) { return r.json(); })
+      post("/api/sage/config", { provider: provider.value, key: key, model: model })
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Save failed");
           aiMsg.className = "msg-line ok";
@@ -578,6 +580,109 @@
         .catch(function (error) {
           aiMsg.className = "msg-line error";
           aiMsg.textContent = error.message;
+        });
+    });
+  }
+
+
+  /* ------------------------------------------------------------ account */
+
+  var rotateKey = document.getElementById("rotate-key");
+  if (rotateKey) {
+    var rotateMsg = document.getElementById("rotate-msg");
+    rotateKey.addEventListener("click", function () {
+      var warning = [
+        "Generate a new key?",
+        "",
+        "The current one stops working immediately, and any extension using",
+        "it must be updated."
+      ].join("\n");
+      if (!window.confirm(warning)) return;
+
+      rotateMsg.className = "msg-line";
+      rotateMsg.textContent = "Generating…";
+
+      post("/api/account/rotate-key")
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not rotate the key");
+          document.getElementById("new-key").textContent = data.api_key;
+          document.getElementById("new-key-row").style.display = "flex";
+          rotateMsg.className = "msg-line ok";
+          rotateMsg.textContent = "New key ready — copy it into the extension now.";
+        })
+        .catch(function (error) {
+          rotateMsg.className = "msg-line error";
+          rotateMsg.textContent = error.message;
+        });
+    });
+  }
+
+  var savePassword = document.getElementById("save-password");
+  if (savePassword) {
+    var pwMsg = document.getElementById("pw-msg");
+    savePassword.addEventListener("click", function () {
+      var current = document.getElementById("pw-current").value;
+      var next = document.getElementById("pw-new").value;
+      if (!current || !next) {
+        pwMsg.className = "msg-line error";
+        pwMsg.textContent = "Fill in both fields.";
+        return;
+      }
+
+      pwMsg.className = "msg-line";
+      pwMsg.textContent = "Updating…";
+
+      post("/api/account/password", { current: current, new: next })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not update");
+          pwMsg.className = "msg-line ok";
+          pwMsg.textContent = "Password updated.";
+          document.getElementById("pw-current").value = "";
+          document.getElementById("pw-new").value = "";
+        })
+        .catch(function (error) {
+          pwMsg.className = "msg-line error";
+          pwMsg.textContent = error.message;
+        });
+    });
+  }
+
+  /* ------------------------------------------------------------ pricing */
+
+  var intervalTabs = document.querySelectorAll(".interval-tab");
+  if (intervalTabs.length) {
+    intervalTabs.forEach(function (tab) {
+      tab.addEventListener("click", function () {
+        var interval = tab.dataset.interval;
+        intervalTabs.forEach(function (t2) { t2.classList.remove("active"); });
+        tab.classList.add("active");
+        document.querySelectorAll(".price-option").forEach(function (option) {
+          option.style.display = option.dataset.interval === interval ? "" : "none";
+        });
+        var cta = document.getElementById("checkout-btn");
+        if (cta) cta.dataset.interval = interval;
+      });
+    });
+  }
+
+  var checkoutBtn = document.getElementById("checkout-btn");
+  if (checkoutBtn) {
+    var checkoutMsg = document.getElementById("checkout-msg");
+    checkoutBtn.addEventListener("click", function () {
+      checkoutBtn.disabled = true;
+      checkoutMsg.className = "msg-line";
+      checkoutMsg.textContent = "Opening secure checkout…";
+
+      post("/billing/checkout/" + checkoutBtn.dataset.interval)
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Checkout unavailable");
+          // Card details are entered on Stripe's domain, never here.
+          window.location.href = data.url;
+        })
+        .catch(function (error) {
+          checkoutBtn.disabled = false;
+          checkoutMsg.className = "msg-line error";
+          checkoutMsg.textContent = error.message;
         });
     });
   }
@@ -602,12 +707,7 @@
       status.className = "remix-status";
       status.textContent = "Writing variants — this takes a few seconds.";
 
-      fetch("/api/remix/" + remixBtn.dataset.postId, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ angles: angles })
-      })
-        .then(function (r) { return r.json(); })
+      post("/api/remix/" + remixBtn.dataset.postId, { angles: angles })
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Remix failed");
           renderRemix(data.result);

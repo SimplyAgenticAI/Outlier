@@ -14,6 +14,7 @@ const toggleEl = el("toggle");
 const dotEl = el("dot");
 const statusEl = el("status-text");
 const endpointEl = el("endpoint");
+const apiKeyEl = el("api-key");
 const msgEl = el("msg");
 const openLink = el("open-dashboard");
 
@@ -181,6 +182,8 @@ el("save-endpoint").addEventListener("click", async () => {
   }
 
   await chrome.storage.local.set({ endpoint: value });
+  const key = apiKeyEl.value.trim();
+  if (key) await chrome.storage.local.set({ apiKey: key });
   openLink.href = value;
   say("Saved. Testing…");
 
@@ -247,7 +250,7 @@ autoUpdateEl.addEventListener("change", () => {
   activeTabId = tab ? tab.id : null;
 
   const state = await chrome.storage.local.get([
-    "enabled", "endpoint", "totalCaptured", "autoUpdate",
+    "enabled", "endpoint", "totalCaptured", "autoUpdate", "apiKey",
     "lastUpdateFrom", "lastUpdateTo", "maxPosts"
   ]);
   totalEl.textContent = state.totalCaptured || 0;
@@ -258,6 +261,10 @@ autoUpdateEl.addEventListener("change", () => {
   maxPostsEl.value = limit;
   renderLimit(limit);
   endpointEl.value = state.endpoint || "http://localhost:5050";
+  // Never re-display the stored key; show only that one is present.
+  apiKeyEl.placeholder = state.apiKey
+    ? "Key saved — paste a new one to replace it"
+    : "olk_… from the Account page";
   openLink.href = endpointEl.value;
 
   // Report a completed self-update once, then clear the marker.

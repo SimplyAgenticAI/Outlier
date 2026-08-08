@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Pricing — Outlier{% endblock %}
+
+{% block content %}
+<section class="pricing-head">
+  <h1>Find what broke out. Write the next one.</h1>
+  <p class="sub">
+    Start free on one group. Upgrade when the scoring earns it.
+  </p>
+</section>
+
+{% if not billing_ready %}
+<div class="glass notice reveal">
+  <b>Billing isn't switched on for this instance.</b>
+  Set <code>STRIPE_SECRET_KEY</code>, <code>STRIPE_PRICE_MONTH</code>,
+  <code>STRIPE_PRICE_YEAR</code> and <code>STRIPE_WEBHOOK_SECRET</code> to
+  enable checkout.
+</div>
+{% endif %}
+
+<div class="interval-switch">
+  <button class="interval-tab active" data-interval="month">Monthly</button>
+  <button class="interval-tab" data-interval="year">
+    Yearly <span class="save-badge">{{ plans.year.badge }}</span>
+  </button>
+</div>
+
+<section class="price-grid">
+
+  <div class="glass price-card reveal spotlight">
+    <div class="price-name">Free</div>
+    <div class="price-figure"><span class="price-amount">$0</span></div>
+    <div class="price-period">forever</div>
+    <p class="price-blurb">
+      Enough to tell whether the scoring says something useful about your
+      groups.
+    </p>
+    <ul class="price-features">
+      {% for feature in free_features %}
+      <li>{{ feature }}</li>
+      {% endfor %}
+    </ul>
+    {% if user and not is_pro %}
+      <div class="price-current">Your current plan</div>
+      {% if usage %}
+      <div class="price-usage">
+        {{ usage.sources }}/{{ free_limits.sources }} groups ·
+        {{ usage.posts }}/{{ free_limits.posts }} posts used
+      </div>
+      {% endif %}
+    {% elif not user %}
+      <a class="btn btn-ghost price-cta" href="{{ url_for('register') }}">Start free</a>
+    {% endif %}
+  </div>
+
+  <div class="glass price-card featured reveal spotlight">
+    <div class="price-flag">Recommended</div>
+    <div class="price-name">Pro</div>
+
+    {% for key, plan in plans.items() %}
+    <div class="price-option" data-interval="{{ key }}"
+         {% if key != 'month' %}style="display:none"{% endif %}>
+      <div class="price-figure">
+        <span class="price-amount">{{ plan.display }}</span>
+      </div>
+      <div class="price-period">{{ plan.period }}</div>
+      <div class="price-note">{{ plan.note }}</div>
+    </div>
+    {% endfor %}
+
+    <p class="price-blurb">
+      Everything, with no caps — for people running this weekly across several
+      groups.
+    </p>
+    <ul class="price-features">
+      {% for feature in pro_features %}
+      <li>{{ feature }}</li>
+      {% endfor %}
+    </ul>
+
+    {% if is_pro %}
+      <div class="price-current">Your current plan</div>
+    {% elif user %}
+      <button class="btn btn-primary price-cta" id="checkout-btn"
+              data-interval="month" {{ 'disabled' if not billing_ready }}>
+        Upgrade to Pro
+      </button>
+      <div class="msg-line" id="checkout-msg"></div>
+    {% else %}
+      <a class="btn btn-primary price-cta" href="{{ url_for('register') }}">Get started</a>
+    {% endif %}
+  </div>
+
+</section>
+
+<section class="glass panel reveal pricing-faq">
+  <h2>Worth knowing</h2>
+  <p class="fine">
+    <b>You bring your own AI key.</b> Sage and the post-idea writer run on your
+    own Claude or OpenAI key, so there's no model cost baked into the price and
+    no cap on how much you use them.
+  </p>
+  <p class="fine">
+    <b>Payments are handled by Stripe.</b> Card details go straight to Stripe
+    and are never seen or stored by this app.
+  </p>
+  <p class="fine">
+    <b>Cancel whenever.</b> Managed from your account page through Stripe's own
+    billing portal. Your captured data stays yours and stays exportable.
+  </p>
+</section>
+
+{% endblock %}

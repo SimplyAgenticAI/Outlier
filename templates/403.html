@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Blocked — Outlier{% endblock %}
+{% block content %}
+<section class="empty-hero">
+  <h1>Request blocked</h1>
+  <p class="empty-lead">
+    {{ message or "That request didn't carry a valid security token. This
+    usually means the page was left open a long time — reload and try again." }}
+  </p>
+  <a class="btn btn-primary" href="{{ url_for('feed') }}">Back to the feed</a>
+</section>
+{% endblock %}

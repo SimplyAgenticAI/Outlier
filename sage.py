@@ -58,10 +58,18 @@ is sample data, say that plainly first.
 # --------------------------------------------------------------- settings
 
 
+def _uid():
+    """Owner of the current request. Config is per-account, not per-install."""
+    import auth
+    user = auth.current_user()
+    return user["id"] if user else -1
+
+
 def get_setting(key, default=None):
     with db.get_db() as conn:
         row = conn.execute(
-            "SELECT value FROM settings WHERE key = ?", (key,)
+            "SELECT value FROM user_settings WHERE user_id = ? AND key = ?",
+            (_uid(), key),
         ).fetchone()
     return row["value"] if row else default
 
@@ -70,10 +78,10 @@ def set_setting(key, value):
     with db.get_db() as conn:
         conn.execute(
             """
-            INSERT INTO settings (key, value) VALUES (?, ?)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+            INSERT INTO user_settings (user_id, key, value) VALUES (?, ?, ?)
+            ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value
             """,
-            (key, value),
+            (_uid(), key, value),
         )
 
 

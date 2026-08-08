@@ -105,8 +105,8 @@ DEMO_POSTS = [
 ]
 
 
-def seed_demo_data():
-    """Insert the demo set. Returns the number of posts written."""
+def seed_demo_data(user_id=None):
+    """Insert the demo set for one account. Returns posts written."""
     rng = random.Random(SEED)
     now = datetime.now(timezone.utc)
     written = 0
@@ -120,6 +120,7 @@ def seed_demo_data():
                 name=source["name"],
                 url=f"https://facebook.com/groups/{source['fb_id']}",
                 member_count=source["member_count"],
+                user_id=user_id,
             )
 
             # Give each group a different baseline so the scoring has to
@@ -155,6 +156,7 @@ def seed_demo_data():
                         "video_plays": int(likes * 12) if post_type == "video" else 0,
                         "is_demo": 1,
                     },
+                    user_id=user_id,
                 )
                 if created:
                     written += 1

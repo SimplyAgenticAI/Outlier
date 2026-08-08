@@ -10,6 +10,13 @@ async function getEndpoint() {
   return (stored.endpoint || DEFAULT_ENDPOINT).replace(/\/+$/, "");
 }
 
+// The dashboard is multi-account now, so a capture has to say whose it is.
+// The key is a bearer token: it is the only credential the extension holds.
+async function getApiKey() {
+  const stored = await chrome.storage.local.get(["apiKey"]);
+  return (stored.apiKey || "").trim();
+}
+
 async function bumpCounter(newCount) {
   const stored = await chrome.storage.local.get(["totalCaptured"]);
   const total = (stored.totalCaptured || 0) + newCount;
@@ -43,12 +50,27 @@ async function handleCapture(message) {
   }
 
   try {
+    const apiKey = await getApiKey();
+    if (!apiKey) {
+      return {
+        ok: false,
+        error: "No account key set — paste it from the dashboard's Account page"
+      };
+    }
+
     const response = await fetch(`${endpoint}/api/capture`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "X-Outlier-Key": apiKey },
       body: JSON.stringify({ source: message.source, posts: message.posts })
     });
 
+    if (response.status === 401) {
+      return { ok: false, error: "Account key rejected — check it on the Account page" };
+    }
+    if (response.status === 402) {
+      const body = await response.json().catch(() => ({}));
+      return { ok: false, error: body.error || "Plan limit reached", upgrade: true };
+    }
     if (!response.ok) {
       return { ok: false, error: `Dashboard returned ${response.status}` };
     }

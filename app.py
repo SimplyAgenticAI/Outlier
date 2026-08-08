@@ -5,8 +5,11 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-from flask import Flask, jsonify, render_template, request, send_file
+from flask import (Flask, jsonify, redirect, render_template, request,
+                   send_file, session, url_for)
 
+import auth
+import billing
 import db
 import outliers
 import remix
@@ -15,7 +18,20 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "1.8"
+APP_VERSION = "1.9"
+
+db.init_db()
+
+# Signed sessions. Secure is off for localhost only — a Secure cookie is never
+# sent over plain HTTP, which would break local development entirely.
+app.secret_key = auth.get_secret_key()
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,      # unreadable from JavaScript
+    SESSION_COOKIE_SAMESITE="Lax",     # not sent on cross-site POSTs
+    SESSION_COOKIE_SECURE=bool(os.environ.get("RENDER")),
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+    MAX_CONTENT_LENGTH=8 * 1024 * 1024,   # cap capture payloads
+)
 
 # The extension posts cross-origin from facebook.com, so the ingest endpoints
 # need permissive CORS. Everything else is same-origin.
@@ -26,7 +42,7 @@ INGEST_PATHS = ("/api/capture", "/api/ping")
 def add_cors_headers(response):
     if request.path in INGEST_PATHS:
         response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+        response.headers["Access-Control-Allow-Headers"] = "Content-Type, X-Outlier-Key"
         response.headers["Access-Control-Allow-Methods"] = "POST, OPTIONS"
 
     # Pages reflect a database that changes while the tab sits open. Without
@@ -37,19 +53,36 @@ def add_cors_headers(response):
     return response
 
 
-def _fetch_posts(source_id=None, limit=None):
-    """Pull posts joined to their source and author, ready for scoring."""
+def _uid():
+    """Current owner id, or a value that matches nothing when signed out."""
+    user = auth.current_user()
+    return user["id"] if user else -1
+
+
+def _fetch_posts(source_id=None, limit=None, user_id=None):
+    """Pull posts joined to their source and author, ready for scoring.
+
+    Always scoped to one owner. The user_id filter is not optional — an
+    unscoped variant would be one forgotten argument away from serving another
+    account's captures.
+    """
+    if user_id is None:
+        user = auth.current_user()
+        user_id = user["id"] if user else -1
+
     sql = """
         SELECT p.*, s.name AS source_name, s.kind AS source_kind,
                s.fb_id AS source_fb_id, a.name AS author_name,
-               (SELECT COUNT(*) FROM saved WHERE saved.post_id = p.id) AS is_saved
+               (SELECT COUNT(*) FROM saved
+                 WHERE saved.post_id = p.id AND saved.user_id = p.user_id) AS is_saved
         FROM posts p
         LEFT JOIN sources s ON s.id = p.source_id
         LEFT JOIN authors a ON a.id = p.author_id
+        WHERE p.user_id = ?
     """
-    params = []
+    params = [user_id]
     if source_id:
-        sql += " WHERE p.source_id = ?"
+        sql += " AND p.source_id = ?"
         params.append(source_id)
     sql += " ORDER BY p.posted_at DESC"
     if limit:
@@ -67,8 +100,10 @@ def _global_stats(scored):
     breakouts = [s for s in posts if s["tier"] == "breakout"]
 
     with db.get_db() as conn:
+        user = auth.current_user()
         source_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM sources"
+            "SELECT COUNT(*) AS n FROM sources WHERE user_id = ?",
+            (user["id"] if user else -1,),
         ).fetchone()["n"]
 
     return {
@@ -84,6 +119,7 @@ def _global_stats(scored):
 
 
 @app.route("/")
+@auth.login_required
 def feed():
     """The outlier feed — posts ranked by how far they beat their own baseline."""
     tier_filter = request.args.get("tier", "all")
@@ -141,6 +177,9 @@ def _sources_with_stats():
     mixing invented sample content into the same feed as real captures with
     no visible distinction is actively misleading.
     """
+    user = auth.current_user()
+    user_id = user["id"] if user else -1
+
     with db.get_db() as conn:
         sources = [dict(r) for r in conn.execute(
             """
@@ -150,8 +189,9 @@ def _sources_with_stats():
                    SUM(CASE WHEN p.likes > 0 OR p.comments > 0 OR p.shares > 0
                             THEN 1 ELSE 0 END) AS engaged_count
             FROM sources s LEFT JOIN posts p ON p.source_id = s.id
+            WHERE s.user_id = ?
             GROUP BY s.id ORDER BY s.last_capture DESC
-            """
+            """, (user_id,)
         ).fetchall()]
 
     for source in sources:
@@ -176,6 +216,7 @@ def _sources_with_stats():
 
 
 @app.route("/groups")
+@auth.login_required
 def groups():
     return render_template(
         "groups.html",
@@ -186,11 +227,13 @@ def groups():
 
 
 @app.route("/sage")
+@auth.login_required
 def sage_page():
     """Chat with Sage, the built-in analyst."""
     with db.get_db() as conn:
         history = [dict(r) for r in conn.execute(
-            "SELECT role, content FROM sage_messages ORDER BY id ASC LIMIT 60"
+            "SELECT role, content FROM sage_messages WHERE user_id = ? "
+            "ORDER BY id ASC LIMIT 60", (_uid(),)
         ).fetchall()]
 
     config = sage.get_config()
@@ -207,6 +250,7 @@ def sage_page():
 
 
 @app.route("/ideas")
+@auth.login_required
 def ideas_page():
     """Post ideas modelled on what outperformed in one group.
 
@@ -218,9 +262,11 @@ def ideas_page():
 
     with db.get_db() as conn:
         if fb_id:
-            row = conn.execute("SELECT * FROM sources WHERE fb_id = ?", (fb_id,)).fetchone()
+            row = conn.execute("SELECT * FROM sources WHERE fb_id = ? AND user_id = ?",
+                               (fb_id, _uid())).fetchone()
         elif source_id:
-            row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+            row = conn.execute("SELECT * FROM sources WHERE id = ? AND user_id = ?",
+            (source_id, _uid())).fetchone()
         else:
             row = None
 
@@ -247,9 +293,11 @@ def ideas_page():
 
 
 @app.route("/api/ideas/<int:source_id>", methods=["POST"])
+@auth.login_required
 def api_ideas(source_id):
     with db.get_db() as conn:
-        row = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
+        row = conn.execute("SELECT * FROM sources WHERE id = ? AND user_id = ?",
+                               (source_id, _uid())).fetchone()
     if not row:
         return jsonify({"ok": False, "error": "Group not found"}), 404
 
@@ -272,6 +320,7 @@ def api_ideas(source_id):
 
 
 @app.route("/api/sage", methods=["POST"])
+@auth.login_required
 def api_sage():
     body = request.get_json(silent=True) or {}
     question = (body.get("message") or "").strip()
@@ -281,7 +330,8 @@ def api_sage():
     # Replay recent turns so follow-ups ("why that one?") have their referent.
     with db.get_db() as conn:
         prior = [dict(r) for r in conn.execute(
-            "SELECT role, content FROM sage_messages ORDER BY id DESC LIMIT 12"
+            "SELECT role, content FROM sage_messages WHERE user_id = ? "
+            "ORDER BY id DESC LIMIT 12", (_uid(),)
         ).fetchall()][::-1]
 
     messages = [{"role": m["role"], "content": m["content"]} for m in prior]
@@ -292,22 +342,24 @@ def api_sage():
         return jsonify({"ok": False, "error": error}), 400
 
     with db.get_db() as conn:
-        conn.execute("INSERT INTO sage_messages (role, content) VALUES ('user', ?)",
-                     (question,))
-        conn.execute("INSERT INTO sage_messages (role, content) VALUES ('assistant', ?)",
-                     (answer,))
+        conn.execute("INSERT INTO sage_messages (user_id, role, content) "
+                     "VALUES (?, 'user', ?)", (_uid(), question))
+        conn.execute("INSERT INTO sage_messages (user_id, role, content) "
+                     "VALUES (?, 'assistant', ?)", (_uid(), answer))
 
     return jsonify({"ok": True, "answer": answer})
 
 
 @app.route("/api/sage/clear", methods=["POST"])
+@auth.login_required
 def api_sage_clear():
     with db.get_db() as conn:
-        conn.execute("DELETE FROM sage_messages")
+        conn.execute("DELETE FROM sage_messages WHERE user_id = ?", (_uid(),))
     return jsonify({"ok": True})
 
 
 @app.route("/api/sage/config", methods=["POST"])
+@auth.login_required
 def api_sage_config():
     body = request.get_json(silent=True) or {}
     provider = body.get("provider")
@@ -336,6 +388,7 @@ def api_sage_config():
 
 
 @app.route("/settings")
+@auth.login_required
 def settings():
     sources = _sources_with_stats()
     return render_template(
@@ -356,10 +409,12 @@ def settings():
 
 
 @app.route("/groups/<int:source_id>")
+@auth.login_required
 def group_detail(source_id):
     with db.get_db() as conn:
         source = conn.execute(
-            "SELECT * FROM sources WHERE id = ?", (source_id,)
+            "SELECT * FROM sources WHERE id = ? AND user_id = ?",
+            (source_id, _uid()),
         ).fetchone()
     if not source:
         return render_template("404.html", version=APP_VERSION), 404
@@ -379,6 +434,7 @@ def group_detail(source_id):
 
 
 @app.route("/post/<int:post_id>")
+@auth.login_required
 def post_detail(post_id):
     # Score against the full set so the multiple matches what the feed showed.
     scored = outliers.score_posts(_fetch_posts())
@@ -388,8 +444,8 @@ def post_detail(post_id):
 
     with db.get_db() as conn:
         remix_rows = [dict(r) for r in conn.execute(
-            "SELECT * FROM remixes WHERE post_id = ? ORDER BY created_at DESC",
-            (post_id,),
+            "SELECT * FROM remixes WHERE post_id = ? AND user_id = ? "
+            "ORDER BY created_at DESC", (post_id, _uid()),
         ).fetchall()]
 
     for row in remix_rows:
@@ -411,13 +467,15 @@ def post_detail(post_id):
 
 
 @app.route("/library")
+@auth.login_required
 def library():
     with db.get_db() as conn:
         saved_ids = [r["post_id"] for r in conn.execute(
-            "SELECT post_id FROM saved ORDER BY created_at DESC"
+            "SELECT post_id FROM saved WHERE user_id = ? ORDER BY created_at DESC",
+            (_uid(),)
         ).fetchall()]
         remix_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM remixes"
+            "SELECT COUNT(*) AS n FROM remixes WHERE user_id = ?", (_uid(),)
         ).fetchone()["n"]
 
     scored = outliers.score_posts(_fetch_posts())
@@ -435,14 +493,16 @@ def library():
 
 
 @app.route("/capture")
+@auth.login_required
 def capture():
     with db.get_db() as conn:
         recent = [dict(r) for r in conn.execute(
             """
             SELECT c.*, s.name AS source_name
             FROM captures c LEFT JOIN sources s ON s.id = c.source_id
+            WHERE c.user_id = ?
             ORDER BY c.created_at DESC LIMIT 10
-            """
+            """, (_uid(),)
         ).fetchall()]
 
     return render_template(
@@ -453,7 +513,7 @@ def capture():
         extension_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), "extension"),
         extension_version=_extension_version(),
         is_local=_is_local_dashboard(),
-        has_data=db.has_any_posts(),
+        has_data=db.has_any_posts(_uid()),
         version=APP_VERSION,
         active="capture",
     )
@@ -465,7 +525,238 @@ def capture():
 @app.context_processor
 def inject_globals():
     """Values every page needs, so no route can forget them."""
-    return {"ephemeral": db.storage_is_ephemeral()}
+    return {
+        "ephemeral": db.storage_is_ephemeral(),
+        "user": auth.current_user(),
+        "csrf_token": auth.csrf_token,
+    }
+
+
+# Endpoints that legitimately have no session cookie to protect: the extension
+# authenticates with an API key, and Stripe signs its webhooks.
+CSRF_EXEMPT = {"/api/capture", "/api/ping", "/api/stripe/webhook"}
+
+
+@app.before_request
+def enforce_csrf():
+    """Reject state-changing requests that don't carry the session's token.
+
+    SameSite=Lax already blocks cross-site form posts, but that is a single
+    browser-enforced control. This is the second, and it is server-side.
+    """
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    if request.path in CSRF_EXEMPT:
+        return None
+    if not auth.current_user():
+        return None                       # nothing to forge against yet
+    if auth.check_csrf():
+        return None
+
+    if request.path.startswith("/api/"):
+        return jsonify({"ok": False, "error": "Invalid or missing CSRF token"}), 403
+    return render_template("403.html", version=APP_VERSION), 403
+
+
+# ---------------------------------------------------------------- accounts
+
+
+ALLOW_SIGNUPS = os.environ.get("ALLOW_SIGNUPS", "1") != "0"
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if auth.current_user():
+        return redirect(url_for("feed"))
+
+    error = None
+    if request.method == "POST":
+        user, error = auth.verify_user(
+            request.form.get("email"), request.form.get("password")
+        )
+        if user:
+            auth.login_session(user)
+            # Only accept a relative path, so ?next= cannot bounce a freshly
+            # signed-in user to another site.
+            target = request.args.get("next", "")
+            if not target.startswith("/") or target.startswith("//"):
+                target = url_for("feed")
+            return redirect(target)
+
+    return render_template(
+        "login.html", error=error, allow_signups=ALLOW_SIGNUPS,
+        version=APP_VERSION,
+    ), (400 if error else 200)
+
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if auth.current_user():
+        return redirect(url_for("feed"))
+    if not ALLOW_SIGNUPS:
+        return render_template(
+            "login.html", error="Registration is closed on this instance.",
+            allow_signups=False, version=APP_VERSION,
+        ), 403
+
+    error = None
+    if request.method == "POST":
+        password = request.form.get("password") or ""
+        if password != (request.form.get("password_confirm") or ""):
+            error = "Passwords don't match."
+        else:
+            user, error = auth.create_user(request.form.get("email"), password)
+            if user:
+                # A pre-existing single-user install would otherwise find its
+                # own captures invisible once everything is owner-scoped.
+                claimed = db.claim_unowned_data(user["id"])
+                auth.login_session(user)
+                session["fresh_api_key"] = user["api_key"]
+                session["claimed_rows"] = claimed
+                return redirect(url_for("capture"))
+
+    return render_template(
+        "register.html", error=error, min_length=auth.MIN_PASSWORD_LENGTH,
+        version=APP_VERSION,
+    ), (400 if error else 200)
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    auth.logout_session()
+    return redirect(url_for("login"))
+
+
+@app.route("/account")
+@auth.login_required
+def account():
+    user = auth.current_user()
+    return render_template(
+        "account.html",
+        account=user,
+        # Shown once, immediately after registration — never retrievable later.
+        fresh_api_key=session.pop("fresh_api_key", None),
+        claimed_rows=session.pop("claimed_rows", 0),
+        version=APP_VERSION,
+        active="account",
+    )
+
+
+@app.route("/pricing")
+def pricing():
+    user = auth.current_user()
+    return render_template(
+        "pricing.html",
+        plans=billing.PLANS,
+        pro_features=billing.PRO_FEATURES,
+        free_features=billing.FREE_FEATURES,
+        free_limits=billing.FREE_LIMITS,
+        billing_ready=billing.is_configured(),
+        is_pro=billing.is_pro(user),
+        usage=billing.usage(user["id"]) if user else None,
+        version=APP_VERSION,
+        active="pricing",
+    )
+
+
+@app.route("/billing/checkout/<interval>", methods=["POST"])
+@auth.login_required
+def billing_checkout(interval):
+    user = auth.current_user()
+    url, error = billing.create_checkout_session(
+        user,
+        interval,
+        success_url=url_for("account", _external=True) + "?upgraded=1",
+        cancel_url=url_for("pricing", _external=True),
+    )
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+    return jsonify({"ok": True, "url": url})
+
+
+@app.route("/billing/portal", methods=["POST"])
+@auth.login_required
+def billing_portal():
+    url, error = billing.create_portal_session(
+        auth.current_user(), return_url=url_for("account", _external=True)
+    )
+    if error:
+        return render_template("403.html", message=error, version=APP_VERSION), 400
+    return redirect(url)
+
+
+@app.route("/api/stripe/webhook", methods=["POST"])
+def stripe_webhook():
+    """Entitlement is granted here and nowhere else.
+
+    The success redirect is attacker-controllable — anyone can visit it — so
+    it only shows a confirmation. What a user is actually entitled to comes
+    from this signature-verified call.
+    """
+    event, error = billing.verify_webhook(
+        request.get_data(), request.headers.get("Stripe-Signature", "")
+    )
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+
+    kind = event["type"]
+    obj = event["data"]["object"]
+
+    if kind == "checkout.session.completed":
+        user_id = (obj.get("client_reference_id")
+                   or (obj.get("metadata") or {}).get("user_id"))
+        if user_id:
+            billing.apply_subscription(
+                int(user_id),
+                plan="pro",
+                billing_interval=(obj.get("metadata") or {}).get("interval"),
+                stripe_customer_id=obj.get("customer"),
+                stripe_subscription_id=obj.get("subscription"),
+                subscription_status="active",
+            )
+
+    elif kind in ("customer.subscription.updated", "customer.subscription.deleted"):
+        user_id = billing.user_id_for_customer(obj.get("customer"))
+        if user_id:
+            status = obj.get("status")
+            ended = kind.endswith("deleted") or status in ("canceled", "unpaid")
+            period_end = obj.get("current_period_end")
+            billing.apply_subscription(
+                user_id,
+                plan="free" if ended else "pro",
+                subscription_status="canceled" if ended else status,
+                current_period_end=(
+                    datetime.fromtimestamp(period_end, tz=timezone.utc).isoformat()
+                    if period_end else None
+                ),
+            )
+
+    return jsonify({"ok": True})
+
+
+@app.route("/api/account/rotate-key", methods=["POST"])
+@auth.login_required
+def api_rotate_key():
+    new_key = auth.rotate_api_key(auth.current_user()["id"])
+    return jsonify({"ok": True, "api_key": new_key})
+
+
+@app.route("/api/account/password", methods=["POST"])
+@auth.login_required
+def api_change_password():
+    body = request.get_json(silent=True) or {}
+    user = auth.current_user()
+
+    # Re-authenticate before changing the credential, so a hijacked session
+    # cannot lock the real owner out.
+    _, error = auth.verify_user(user["email"], body.get("current") or "")
+    if error:
+        return jsonify({"ok": False, "error": "Current password is incorrect."}), 400
+
+    error = auth.set_password(user["id"], body.get("new") or "")
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+    return jsonify({"ok": True})
 
 
 def _is_local_dashboard():
@@ -509,9 +800,22 @@ def api_ping():
 
 @app.route("/api/capture", methods=["POST", "OPTIONS"])
 def api_capture():
-    """Ingest a batch of posts scraped by the extension."""
+    """Ingest a batch of posts scraped by the extension.
+
+    Authenticated by API key rather than session cookie: this endpoint is
+    called cross-origin from facebook.com, and accepting ambient browser
+    authority there would let any page drive it for a signed-in user.
+    """
     if request.method == "OPTIONS":
         return "", 204
+
+    api_user = auth.user_for_api_key(request.headers.get("X-Outlier-Key", "").strip())
+    if not api_user:
+        return jsonify({
+            "ok": False,
+            "error": "Invalid or missing API key — copy it from your account "
+                     "page into the extension.",
+        }), 401
 
     payload = request.get_json(silent=True)
     if not payload:
@@ -525,8 +829,22 @@ def api_capture():
     if not isinstance(posts, list):
         return jsonify({"ok": False, "error": "posts must be a list"}), 400
 
+    allowed, limit_reason = billing.capture_allowed(api_user)
+    if allowed is False:
+        return jsonify({"ok": False, "error": limit_reason, "upgrade": True}), 402
+
     new_count = 0
     with db.get_db() as conn:
+        # "existing_only" means the free source allowance is used up: keep
+        # topping up a group already tracked, refuse to start a new one.
+        if allowed == "existing_only":
+            known = conn.execute(
+                "SELECT id FROM sources WHERE user_id = ? AND fb_id = ?",
+                (api_user["id"], str(source["fb_id"])),
+            ).fetchone()
+            if not known:
+                return jsonify({"ok": False, "error": limit_reason,
+                                "upgrade": True}), 402
         source_id = db.upsert_source(
             conn,
             fb_id=str(source["fb_id"]),
@@ -534,6 +852,7 @@ def api_capture():
             name=source.get("name") or "Untitled source",
             url=source.get("url"),
             member_count=source.get("member_count"),
+            user_id=api_user["id"],
         )
 
         for post in posts:
@@ -544,12 +863,14 @@ def api_capture():
                 name=post.get("author_name") or "Unknown",
                 profile_url=post.get("author_url"),
             )
-            if db.upsert_post(conn, source_id, author_id, post):
+            if db.upsert_post(conn, source_id, author_id, post,
+                              user_id=api_user["id"]):
                 new_count += 1
 
         conn.execute(
-            "INSERT INTO captures (source_id, post_count, new_count) VALUES (?, ?, ?)",
-            (source_id, len(posts), new_count),
+            "INSERT INTO captures (user_id, source_id, post_count, new_count) "
+            "VALUES (?, ?, ?, ?)",
+            (api_user["id"], source_id, len(posts), new_count),
         )
 
     return jsonify({
@@ -564,21 +885,25 @@ def api_capture():
 
 
 @app.route("/api/save/<int:post_id>", methods=["POST"])
+@auth.login_required
 def api_save(post_id):
     with db.get_db() as conn:
         existing = conn.execute(
-            "SELECT id FROM saved WHERE post_id = ?", (post_id,)
+            "SELECT id FROM saved WHERE post_id = ? AND user_id = ?", (post_id, _uid())
         ).fetchone()
         if existing:
-            conn.execute("DELETE FROM saved WHERE post_id = ?", (post_id,))
+            conn.execute("DELETE FROM saved WHERE post_id = ? AND user_id = ?",
+                         (post_id, _uid()))
             saved = False
         else:
-            conn.execute("INSERT INTO saved (post_id) VALUES (?)", (post_id,))
+            conn.execute("INSERT INTO saved (post_id, user_id) VALUES (?, ?)",
+                         (post_id, _uid()))
             saved = True
     return jsonify({"ok": True, "saved": saved})
 
 
 @app.route("/api/remix/<int:post_id>", methods=["POST"])
+@auth.login_required
 def api_remix(post_id):
     body = request.get_json(silent=True) or {}
     angles = body.get("angles") or None
@@ -594,14 +919,16 @@ def api_remix(post_id):
 
     with db.get_db() as conn:
         conn.execute(
-            "INSERT INTO remixes (post_id, angle, output, model) VALUES (?, ?, ?, ?)",
-            (post_id, ",".join(angles or []), json.dumps(result), remix.MODEL),
+            "INSERT INTO remixes (post_id, user_id, angle, output, model) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (post_id, _uid(), ",".join(angles or []), json.dumps(result), remix.MODEL),
         )
 
     return jsonify({"ok": True, "result": result})
 
 
 @app.route("/api/demo", methods=["POST", "DELETE"])
+@auth.login_required
 def api_demo():
     """Load or clear clearly-labelled sample data.
 
@@ -610,14 +937,15 @@ def api_demo():
     flagged is_demo=1 and can be wiped in one call.
     """
     if request.method == "DELETE":
-        db.clear_demo_data()
+        db.clear_demo_data(_uid())
         return jsonify({"ok": True, "cleared": True})
 
-    count = seed_demo_data()
+    count = seed_demo_data(_uid())
     return jsonify({"ok": True, "seeded": count})
 
 
 @app.route("/api/source/<int:source_id>", methods=["DELETE", "PATCH"])
+@auth.login_required
 def api_source(source_id):
     """Rename or delete a single source and everything under it."""
     if request.method == "PATCH":
@@ -627,26 +955,41 @@ def api_source(source_id):
             return jsonify({"ok": False, "error": "Name cannot be empty"}), 400
 
         with db.get_db() as conn:
-            conn.execute("UPDATE sources SET name = ? WHERE id = ?", (name[:120], source_id))
+            updated = conn.execute(
+                "UPDATE sources SET name = ? WHERE id = ? AND user_id = ?",
+                (name[:120], source_id, _uid()),
+            )
+            if not updated.rowcount:
+                return jsonify({"ok": False, "error": "Not found"}), 404
         return jsonify({"ok": True, "name": name[:120]})
 
     # Captures reference sources, and saved/remix rows reference posts, so the
     # dependents have to go before the source itself or the FK trips.
     with db.get_db() as conn:
         post_ids = [r["id"] for r in conn.execute(
-            "SELECT id FROM posts WHERE source_id = ?", (source_id,)
+            "SELECT id FROM posts WHERE source_id = ? AND user_id = ?",
+            (source_id, _uid()),
         ).fetchall()]
         for post_id in post_ids:
-            conn.execute("DELETE FROM remixes WHERE post_id = ?", (post_id,))
-            conn.execute("DELETE FROM saved WHERE post_id = ?", (post_id,))
-        conn.execute("DELETE FROM posts WHERE source_id = ?", (source_id,))
-        conn.execute("DELETE FROM captures WHERE source_id = ?", (source_id,))
-        conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
+            conn.execute("DELETE FROM remixes WHERE post_id = ? AND user_id = ?",
+                         (post_id, _uid()))
+            conn.execute("DELETE FROM saved WHERE post_id = ? AND user_id = ?",
+                         (post_id, _uid()))
+        conn.execute("DELETE FROM posts WHERE source_id = ? AND user_id = ?",
+                     (source_id, _uid()))
+        conn.execute("DELETE FROM captures WHERE source_id = ? AND user_id = ?",
+                     (source_id, _uid()))
+        removed = conn.execute(
+            "DELETE FROM sources WHERE id = ? AND user_id = ?", (source_id, _uid())
+        )
+        if not removed.rowcount:
+            return jsonify({"ok": False, "error": "Not found"}), 404
 
     return jsonify({"ok": True, "deleted": len(post_ids)})
 
 
 @app.route("/api/open-folder", methods=["POST"])
+@auth.login_required
 def api_open_folder():
     """Open the extension folder in the OS file manager.
 
@@ -680,6 +1023,7 @@ def api_open_folder():
 
 
 @app.route("/api/reset", methods=["POST"])
+@auth.login_required
 def api_reset():
     """Wipe every captured post, keeping nothing but an empty schema.
 
@@ -687,17 +1031,20 @@ def api_reset():
     engagement and wrong source names, which poisons every baseline they touch.
     Re-capturing is the only fix, and that has to start from clean.
     """
+    uid = _uid()
     with db.get_db() as conn:
-        conn.execute("DELETE FROM remixes")
-        conn.execute("DELETE FROM saved")
-        conn.execute("DELETE FROM posts")
-        conn.execute("DELETE FROM captures")
-        conn.execute("DELETE FROM sources")
-        conn.execute("DELETE FROM authors")
+        for table in ("remixes", "saved", "posts", "captures", "sources"):
+            conn.execute(f"DELETE FROM {table} WHERE user_id = ?", (uid,))
+        # authors are shared reference rows with no owner; drop only orphans
+        conn.execute(
+            "DELETE FROM authors WHERE id NOT IN "
+            "(SELECT DISTINCT author_id FROM posts WHERE author_id IS NOT NULL)"
+        )
     return jsonify({"ok": True, "reset": True})
 
 
 @app.route("/api/export/<fmt>")
+@auth.login_required
 def api_export(fmt):
     """Export scored posts for pasting into an LLM or a spreadsheet."""
     source_id = request.args.get("source_id", type=int)

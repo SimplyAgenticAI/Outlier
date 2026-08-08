@@ -1051,3 +1051,119 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 @media (prefers-reduced-motion: reduce) {
   .scale-fill, .scale-over, .ring-fill { transition: none; }
 }
+
+/* ---------------------------------------------------------------- auth */
+
+.auth-body { display: grid; place-items: center; min-height: 100vh; }
+.auth-shell { position: relative; z-index: 1; width: 100%; max-width: 420px; padding: 24px; }
+.auth-card { padding: 34px 32px; }
+.auth-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
+.auth-card h1 { font-size: 23px; margin: 0 0 6px; }
+.auth-sub { color: var(--text-muted); font-size: 13.5px; margin: 0 0 22px; }
+
+.auth-form { display: flex; flex-direction: column; gap: 15px; }
+.auth-form label { display: flex; flex-direction: column; gap: 6px; }
+.auth-form label > span { font-size: 12.5px; color: var(--text-muted); font-weight: 550; }
+.auth-form input {
+  padding: 11px 14px; border-radius: 10px;
+  background: rgba(6,20,13,0.62); border: 1px solid var(--border);
+  color: var(--text); font-size: 14.5px;
+  transition: border-color 0.18s var(--ease);
+}
+.auth-form input:focus { outline: none; border-color: var(--border-lit); }
+.auth-form small { font-size: 11.5px; color: var(--text-faint); }
+.auth-submit { justify-content: center; margin-top: 6px; padding: 12px; }
+
+.auth-error {
+  padding: 11px 14px; border-radius: 9px; margin-bottom: 18px;
+  font-size: 13px; color: var(--ember);
+  background: rgba(224,122,95,0.1); border: 1px solid rgba(224,122,95,0.35);
+}
+.auth-alt { text-align: center; margin: 20px 0 0; font-size: 13px; color: var(--text-muted); }
+.auth-alt a { color: var(--emerald-bright); text-decoration: none; }
+.auth-alt a:hover { text-decoration: underline; }
+
+/* ------------------------------------------------------------- account */
+
+.account-link {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: linear-gradient(135deg, var(--emerald), var(--forest-700));
+  color: #06140d; font-size: 13px; font-weight: 700; text-decoration: none;
+  border: 1px solid transparent; transition: border-color 0.18s var(--ease);
+}
+.account-link:hover, .account-link.active { border-color: var(--emerald-bright); }
+.upgrade-pill { padding: 6px 13px; font-size: 12.5px; }
+
+.plan-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.plan-badge {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700;
+  padding: 3px 10px; border-radius: 999px;
+}
+.plan-free { background: rgba(110,231,183,0.1); color: var(--text-muted); border: 1px solid var(--border); }
+.plan-pro  { background: rgba(52,211,153,0.16); color: var(--emerald-bright); border: 1px solid var(--border-lit); }
+
+/* ------------------------------------------------------------- pricing */
+
+.pricing-head { text-align: center; max-width: 620px; margin: 0 auto 26px; }
+.pricing-head h1 { font-size: 31px; }
+.pricing-head .sub { margin-top: 10px; }
+
+.interval-switch {
+  display: flex; gap: 4px; justify-content: center; margin: 0 auto 26px;
+  padding: 4px; border-radius: 12px; width: fit-content;
+  background: rgba(6,20,13,0.5); border: 1px solid var(--border);
+}
+.interval-tab {
+  padding: 9px 20px; border-radius: 9px; border: none; cursor: pointer;
+  background: transparent; color: var(--text-muted);
+  font-size: 13.5px; font-weight: 600; display: flex; align-items: center; gap: 8px;
+  transition: all 0.18s var(--ease);
+}
+.interval-tab:hover { color: var(--text); }
+.interval-tab.active {
+  background: rgba(52,211,153,0.15); color: var(--emerald-bright);
+  box-shadow: inset 0 0 0 1px var(--border-lit);
+}
+.save-badge {
+  font-size: 10px; padding: 2px 7px; border-radius: 999px; font-weight: 700;
+  background: rgba(52,211,153,0.2); color: var(--emerald-bright);
+}
+
+.price-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 18px; max-width: 780px; margin: 0 auto;
+}
+.price-card { padding: 30px 28px; display: flex; flex-direction: column; position: relative; }
+.price-card.featured { border-color: var(--border-lit); box-shadow: 0 0 40px rgba(52,211,153,0.1); }
+.price-flag {
+  position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+  font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700;
+  padding: 4px 12px; border-radius: 999px;
+  background: linear-gradient(135deg, var(--emerald), var(--emerald-dim)); color: #04150c;
+}
+.price-name { font-size: 14px; font-weight: 650; color: var(--text-muted); margin-bottom: 12px; }
+.price-figure { display: flex; align-items: baseline; gap: 4px; }
+.price-amount { font-size: 40px; font-weight: 780; letter-spacing: -1.5px; }
+.price-period { font-size: 13px; color: var(--text-faint); margin-top: 2px; }
+.price-note { font-size: 12px; color: var(--emerald-bright); margin-top: 7px; }
+.price-blurb { font-size: 13px; color: var(--text-muted); line-height: 1.6; margin: 18px 0 16px; }
+
+.price-features { list-style: none; margin: 0 0 22px; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.price-features li {
+  font-size: 13.5px; color: var(--text-muted); padding-left: 24px; position: relative; line-height: 1.45;
+}
+.price-features li::before {
+  content: ""; position: absolute; left: 4px; top: 6px;
+  width: 7px; height: 4px; border-left: 2px solid var(--emerald); border-bottom: 2px solid var(--emerald);
+  transform: rotate(-45deg);
+}
+.price-cta { justify-content: center; margin-top: auto; padding: 12px; }
+.price-current {
+  margin-top: auto; text-align: center; padding: 11px; border-radius: 10px;
+  font-size: 13px; font-weight: 600; color: var(--emerald-bright);
+  background: rgba(52,211,153,0.1); border: 1px solid var(--border-lit);
+}
+.price-usage { text-align: center; font-size: 11.5px; color: var(--text-faint); margin-top: 9px; }
+.pricing-faq { max-width: 780px; margin: 24px auto 0; padding: 26px 28px; }
+.pricing-faq .fine { margin: 0 0 13px; }
+.pricing-faq .fine:last-child { margin-bottom: 0; }

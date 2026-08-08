@@ -30,6 +30,26 @@ def storage_is_ephemeral():
     return bool(os.environ.get("RENDER") or os.environ.get("DYNO"))
 
 SCHEMA = """
+CREATE TABLE IF NOT EXISTS users (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    email                 TEXT UNIQUE NOT NULL,
+    password_hash         TEXT NOT NULL,
+    -- Bearer token for the extension. Only the hash is kept; the prefix is a
+    -- lookup handle so a presented key resolves in one indexed query.
+    api_key_prefix        TEXT UNIQUE,
+    api_key_hash          TEXT,
+    plan                  TEXT DEFAULT 'free',        -- free | pro
+    billing_interval      TEXT,                       -- month | year
+    stripe_customer_id    TEXT,
+    stripe_subscription_id TEXT,
+    subscription_status   TEXT,                       -- active | past_due | canceled
+    current_period_end    TEXT,
+    is_admin              INTEGER DEFAULT 0,
+    created_at            TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_keyprefix ON users(api_key_prefix);
+
 CREATE TABLE IF NOT EXISTS sources (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     fb_id         TEXT UNIQUE NOT NULL,
@@ -106,6 +126,16 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Per-user configuration (AI provider, key, model). Separate from `settings`,
+-- which stays global and holds app-level values such as the session secret.
+CREATE TABLE IF NOT EXISTS user_settings (
+    user_id       INTEGER NOT NULL,
+    key           TEXT NOT NULL,
+    value         TEXT,
+    updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, key)
+);
+
 CREATE TABLE IF NOT EXISTS sage_messages (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     role          TEXT NOT NULL,
@@ -146,37 +176,174 @@ def init_db():
         _migrate(conn)
 
 
+def _columns(conn, table):
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
+
+
 def _migrate(conn):
-    """Add columns that arrived after a database was first created.
+    """Bring an existing database up to the current schema.
 
-    CREATE TABLE IF NOT EXISTS silently does nothing for an existing table, so
-    new columns have to be added explicitly or an upgraded install breaks on
-    the first query that mentions them.
+    CREATE TABLE IF NOT EXISTS silently does nothing for a table that already
+    exists, so anything added later has to be applied here or an upgraded
+    install breaks on the first query that mentions it.
     """
-    existing = {row["name"] for row in conn.execute("PRAGMA table_info(posts)")}
+    post_cols = _columns(conn, "posts")
 
-    if "item_type" not in existing:
+    if "item_type" not in post_cols:
         conn.execute("ALTER TABLE posts ADD COLUMN item_type TEXT DEFAULT 'post'")
         conn.execute("UPDATE posts SET item_type = 'post' WHERE item_type IS NULL")
-    if "parent_fb_id" not in existing:
+    if "parent_fb_id" not in post_cols:
         conn.execute("ALTER TABLE posts ADD COLUMN parent_fb_id TEXT")
 
+    _migrate_multi_user(conn)
 
-def upsert_source(conn, fb_id, kind, name, url=None, member_count=None):
-    """Insert or refresh a group/profile we're capturing from."""
+
+# Tables that gained an owner when the app became multi-user.
+_OWNED_TABLES = ("sources", "posts", "saved", "remixes", "sage_messages", "captures")
+
+
+def _migrate_multi_user(conn):
+    """Scope every row to a user, and make identity uniqueness per-user.
+
+    fb_id and fb_post_id were globally unique, which is wrong the moment two
+    accounts exist: both may legitimately capture the same public group, and
+    the second insert would be treated as a duplicate of the first — silently
+    overwriting another account's row. Uniqueness has to be (user_id, fb_id).
+    """
+    if "user_id" in _columns(conn, "sources"):
+        return                                    # already migrated
+
+    for table in _OWNED_TABLES:
+        if table in {r["name"] for r in conn.execute(
+            "SELECT name FROM sqlite_master WHERE type='table'"
+        )} and "user_id" not in _columns(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER")
+
+    # Pre-existing data belongs to whoever was already using this install, so
+    # it is handed to the first account rather than orphaned. If no account
+    # exists yet, the first registration claims it (see claim_unowned_data).
+    owner = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+    if owner:
+        for table in _OWNED_TABLES:
+            conn.execute(
+                f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL", (owner["id"],)
+            )
+
+    _rebuild_with_scoped_uniqueness(conn)
+
+
+def _rebuild_with_scoped_uniqueness(conn):
+    """Recreate sources and posts so their unique keys include user_id.
+
+    SQLite cannot drop a UNIQUE constraint in place, so the table is rebuilt
+    and the rows copied across.
+    """
+    conn.execute("PRAGMA foreign_keys = OFF")
+
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS sources_new (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER,
+            fb_id         TEXT NOT NULL,
+            kind          TEXT NOT NULL,
+            name          TEXT NOT NULL,
+            url           TEXT,
+            member_count  INTEGER,
+            tracked       INTEGER DEFAULT 1,
+            first_seen    TEXT DEFAULT CURRENT_TIMESTAMP,
+            last_capture  TEXT,
+            UNIQUE(user_id, fb_id)
+        );
+        INSERT INTO sources_new (id, user_id, fb_id, kind, name, url, member_count,
+                                 tracked, first_seen, last_capture)
+            SELECT id, user_id, fb_id, kind, name, url, member_count,
+                   tracked, first_seen, last_capture FROM sources;
+        DROP TABLE sources;
+        ALTER TABLE sources_new RENAME TO sources;
+
+        CREATE TABLE IF NOT EXISTS posts_new (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id       INTEGER,
+            fb_post_id    TEXT NOT NULL,
+            source_id     INTEGER,
+            author_id     INTEGER,
+            body          TEXT,
+            permalink     TEXT,
+            post_type     TEXT,
+            posted_at     TEXT,
+            likes         INTEGER DEFAULT 0,
+            comments      INTEGER DEFAULT 0,
+            shares        INTEGER DEFAULT 0,
+            video_plays   INTEGER DEFAULT 0,
+            captured_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+            updated_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+            is_demo       INTEGER DEFAULT 0,
+            item_type     TEXT DEFAULT 'post',
+            parent_fb_id  TEXT,
+            UNIQUE(user_id, fb_post_id)
+        );
+        INSERT INTO posts_new (id, user_id, fb_post_id, source_id, author_id, body,
+                               permalink, post_type, posted_at, likes, comments,
+                               shares, video_plays, captured_at, updated_at,
+                               is_demo, item_type, parent_fb_id)
+            SELECT id, user_id, fb_post_id, source_id, author_id, body,
+                   permalink, post_type, posted_at, likes, comments,
+                   shares, video_plays, captured_at, updated_at,
+                   is_demo, COALESCE(item_type,'post'), parent_fb_id FROM posts;
+        DROP TABLE posts;
+        ALTER TABLE posts_new RENAME TO posts;
+
+        CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source_id);
+        CREATE INDEX IF NOT EXISTS idx_posts_user ON posts(user_id);
+        CREATE INDEX IF NOT EXISTS idx_sources_user ON sources(user_id);
+    """)
+
+    conn.execute("PRAGMA foreign_keys = ON")
+
+
+def claim_unowned_data(user_id):
+    """Hand pre-multi-user rows to the first account created.
+
+    A single-user install that later signs up would otherwise find its own
+    captures invisible, since every query is now scoped by owner.
+    """
+    with get_db() as conn:
+        others = conn.execute(
+            "SELECT COUNT(*) AS n FROM users WHERE id != ?", (user_id,)
+        ).fetchone()["n"]
+        if others:
+            return 0                       # not the first account; claim nothing
+
+        claimed = 0
+        for table in _OWNED_TABLES:
+            cur = conn.execute(
+                f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL", (user_id,)
+            )
+            claimed += cur.rowcount or 0
+    return claimed
+
+
+def upsert_source(conn, fb_id, kind, name, url=None, member_count=None, user_id=None):
+    """Insert or refresh a group/profile we're capturing from.
+
+    Keyed on (user_id, fb_id): two accounts may track the same public group
+    without either one overwriting the other.
+    """
     conn.execute(
         """
-        INSERT INTO sources (fb_id, kind, name, url, member_count, last_capture)
-        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ON CONFLICT(fb_id) DO UPDATE SET
+        INSERT INTO sources (user_id, fb_id, kind, name, url, member_count, last_capture)
+        VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id, fb_id) DO UPDATE SET
             name         = excluded.name,
             url          = COALESCE(excluded.url, sources.url),
             member_count = COALESCE(excluded.member_count, sources.member_count),
             last_capture = CURRENT_TIMESTAMP
         """,
-        (fb_id, kind, name, url, member_count),
+        (user_id, fb_id, kind, name, url, member_count),
     )
-    row = conn.execute("SELECT id FROM sources WHERE fb_id = ?", (fb_id,)).fetchone()
+    row = conn.execute(
+        "SELECT id FROM sources WHERE user_id IS ? AND fb_id = ?", (user_id, fb_id)
+    ).fetchone()
     return row["id"]
 
 
@@ -200,14 +367,15 @@ def upsert_author(conn, name, fb_id=None, profile_url=None):
     return row["id"]
 
 
-def upsert_post(conn, source_id, author_id, post):
+def upsert_post(conn, source_id, author_id, post, user_id=None):
     """Insert a post, or update its engagement counts if we've seen it before.
 
     Returns True when the post is new — the caller reports this back to the
     extension so the user can see capture progress.
     """
     existing = conn.execute(
-        "SELECT id FROM posts WHERE fb_post_id = ?", (post["fb_post_id"],)
+        "SELECT id FROM posts WHERE user_id IS ? AND fb_post_id = ?",
+        (user_id, post["fb_post_id"]),
     ).fetchone()
 
     if existing:
@@ -217,7 +385,7 @@ def upsert_post(conn, source_id, author_id, post):
                 likes = ?, comments = ?, shares = ?, video_plays = ?,
                 body = COALESCE(NULLIF(?, ''), body),
                 updated_at = CURRENT_TIMESTAMP
-            WHERE fb_post_id = ?
+            WHERE user_id IS ? AND fb_post_id = ?
             """,
             (
                 post.get("likes", 0),
@@ -225,6 +393,7 @@ def upsert_post(conn, source_id, author_id, post):
                 post.get("shares", 0),
                 post.get("video_plays", 0),
                 post.get("body", ""),
+                user_id,
                 post["fb_post_id"],
             ),
         )
@@ -233,12 +402,13 @@ def upsert_post(conn, source_id, author_id, post):
     conn.execute(
         """
         INSERT INTO posts (
-            fb_post_id, source_id, author_id, body, permalink, post_type,
+            user_id, fb_post_id, source_id, author_id, body, permalink, post_type,
             posted_at, likes, comments, shares, video_plays, is_demo,
             item_type, parent_fb_id
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
+            user_id,
             post["fb_post_id"],
             source_id,
             author_id,
@@ -258,13 +428,18 @@ def upsert_post(conn, source_id, author_id, post):
     return True
 
 
-def has_any_posts():
+def has_any_posts(user_id=None):
     with get_db() as conn:
-        row = conn.execute("SELECT COUNT(*) AS n FROM posts").fetchone()
+        if user_id is None:
+            row = conn.execute("SELECT COUNT(*) AS n FROM posts").fetchone()
+        else:
+            row = conn.execute(
+                "SELECT COUNT(*) AS n FROM posts WHERE user_id = ?", (user_id,)
+            ).fetchone()
         return row["n"] > 0
 
 
-def clear_demo_data():
+def clear_demo_data(user_id=None):
     """Remove demo posts and any source left with nothing behind it.
 
     Capture-log rows reference sources, so they have to go first or the source
@@ -272,12 +447,14 @@ def clear_demo_data():
     on their own.
     """
     with get_db() as conn:
-        conn.execute("DELETE FROM posts WHERE is_demo = 1")
+        conn.execute("DELETE FROM posts WHERE is_demo = 1 AND user_id IS ?",
+                     (user_id,))
 
         orphans = [
             r["id"] for r in conn.execute(
-                "SELECT id FROM sources WHERE id NOT IN "
-                "(SELECT DISTINCT source_id FROM posts WHERE source_id IS NOT NULL)"
+                "SELECT id FROM sources WHERE user_id IS ? AND id NOT IN "
+                "(SELECT DISTINCT source_id FROM posts WHERE source_id IS NOT NULL)",
+                (user_id,),
             ).fetchall()
         ]
         for source_id in orphans:
