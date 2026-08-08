@@ -6,6 +6,7 @@ exposes group post engagement, so the extension is the only ingest path.
 """
 
 import os
+import re
 import sqlite3
 from contextlib import contextmanager
 
@@ -219,27 +220,55 @@ def _migrate_multi_user(conn):
     accounts exist: both may legitimately capture the same public group, and
     the second insert would be treated as a duplicate of the first — silently
     overwriting another account's row. Uniqueness has to be (user_id, fb_id).
-    """
-    if "user_id" in _columns(conn, "sources"):
-        return                                    # already migrated
 
+    Each table is checked on its own. An earlier version short-circuited the
+    whole function when `sources` already had user_id, so any table added to
+    _OWNED_TABLES afterwards never got its column on a database that had
+    already migrated — `captures` shipped that way and every /capture load
+    died on "no such column: c.user_id".
+    """
+    existing = {r["name"] for r in conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table'"
+    )}
+
+    added = []
     for table in _OWNED_TABLES:
-        if table in {r["name"] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table'"
-        )} and "user_id" not in _columns(conn, table):
+        if table in existing and "user_id" not in _columns(conn, table):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN user_id INTEGER")
+            added.append(table)
 
     # Pre-existing data belongs to whoever was already using this install, so
     # it is handed to the first account rather than orphaned. If no account
     # exists yet, the first registration claims it (see claim_unowned_data).
-    owner = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
-    if owner:
-        for table in _OWNED_TABLES:
-            conn.execute(
-                f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL", (owner["id"],)
-            )
+    if added:
+        owner = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+        if owner:
+            for table in added:
+                conn.execute(
+                    f"UPDATE {table} SET user_id = ? WHERE user_id IS NULL",
+                    (owner["id"],)
+                )
 
-    _rebuild_with_scoped_uniqueness(conn)
+    if _needs_scoped_uniqueness(conn):
+        _rebuild_with_scoped_uniqueness(conn)
+
+
+def _needs_scoped_uniqueness(conn):
+    """True while sources/posts still carry the old global UNIQUE constraint.
+
+    Read from the stored DDL rather than a column check — the column can exist
+    (ALTER TABLE above adds it) while the constraint is still global.
+    """
+    for table in ("sources", "posts"):
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name = ?", (table,)
+        ).fetchone()
+        if not row or not row["sql"]:
+            continue
+        ddl = re.sub(r"\s+", "", row["sql"]).upper()
+        if "UNIQUE(USER_ID," not in ddl:
+            return True
+    return False
 
 
 def _rebuild_with_scoped_uniqueness(conn):

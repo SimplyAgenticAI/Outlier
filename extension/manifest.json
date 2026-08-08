@@ -1,12 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Outlier — Facebook capture",
-  "version": "0.18.0",
+  "version": "0.19.0",
   "description": "Captures posts from Facebook groups and profiles you're viewing, and sends them to your Outlier dashboard for outlier analysis.",
   "permissions": ["storage", "activeTab", "alarms"],
+  "comment_hosts": "Chrome match patterns ignore port numbers, so the portless form covers 5050, 5000 and anything else Flask is started on. Pinning :5050 meant a dashboard on any other port silently had no connect script and no way to be reached.",
   "host_permissions": [
-    "http://localhost:5050/*",
-    "http://127.0.0.1:5050/*",
+    "http://localhost/*",
+    "http://127.0.0.1/*",
     "https://*.onrender.com/*",
     "https://*.facebook.com/*"
   ],
@@ -24,10 +25,10 @@
       "run_at": "document_idle"
     },
     {
-      "comment": "Runs on the dashboard only, so it can hand the extension its endpoint and key in one click instead of the user typing them.",
+      "comment": "Runs on the dashboard only, so it can hand the extension its endpoint and key with nothing for the user to type or click.",
       "matches": [
-        "http://localhost:5050/*",
-        "http://127.0.0.1:5050/*",
+        "http://localhost/*",
+        "http://127.0.0.1/*",
         "https://*.onrender.com/*"
       ],
       "js": ["connect.js"],

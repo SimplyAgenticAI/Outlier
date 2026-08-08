@@ -13,12 +13,24 @@
 (function () {
   "use strict";
 
-  // Tell the page an extension is present, so it can offer Connect rather
-  // than instructions for an extension that may not be installed.
+  // Tell the page an extension is present, and whether it is already wired to
+  // this dashboard. The page needs the second half to decide between "connect
+  // it now, silently" and "leave the existing key alone" — connecting mints a
+  // fresh key, so doing it on every page load would rotate the key forever.
   function announce() {
-    window.dispatchEvent(new CustomEvent("outlier:extension-present", {
-      detail: { version: chrome.runtime.getManifest().version }
-    }));
+    chrome.storage.local.get(["endpoint", "apiKey"], function (stored) {
+      var endpoint = String((stored && stored.endpoint) || "");
+      var connected = !!(stored && stored.apiKey) &&
+                      endpoint.replace(/\/+$/, "") === window.location.origin;
+
+      window.dispatchEvent(new CustomEvent("outlier:extension-present", {
+        detail: {
+          version: chrome.runtime.getManifest().version,
+          connected: connected,
+          endpoint: endpoint
+        }
+      }));
+    });
   }
 
   window.addEventListener("outlier:connect", function (event) {

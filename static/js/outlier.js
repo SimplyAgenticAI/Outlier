@@ -591,55 +591,29 @@
 
   // Typing a dashboard URL and pasting a key is friction that solves nothing:
   // this page knows both. A content script running on this origin takes them
-  // directly, so connecting is one click with nothing to mistype.
-  var connectBlock = document.getElementById("connect-block");
-  if (connectBlock) {
+  // directly, so there is nothing to type and — when the extension isn't
+  // already wired here — nothing to click either.
+  //
+  // This runs on every dashboard page, not just Capture and Account. Landing
+  // anywhere while signed in is enough to connect; the visible copy below is
+  // just reporting, and is skipped on pages that have no connect block.
+  {
     var connectBtn = document.getElementById("connect-btn");
     var connectCopy = document.getElementById("connect-copy");
     var connectMsg = document.getElementById("connect-msg");
     var extensionSeen = false;
 
-    window.addEventListener("outlier:extension-present", function (event) {
-      extensionSeen = true;
-      var version = (event.detail && event.detail.version) || "";
-      connectCopy.textContent =
-        "Extension detected" + (version ? " (v" + version + ")" : "") +
-        ". One click sends it this dashboard's address and a fresh key.";
-      connectBtn.style.display = "";
-    });
+    function say(el, text, cls) {
+      if (!el) return;
+      el.textContent = text;
+      if (cls !== undefined) el.className = cls;
+    }
 
-    // The content script announces on load; ask again in case this page was
-    // ready first.
-    window.dispatchEvent(new CustomEvent("outlier:ping-extension"));
+    function issueKey(silent) {
+      if (connectBtn) connectBtn.disabled = true;
+      say(connectMsg, silent ? "Connecting…" : "Issuing a key…", "msg-line");
 
-    setTimeout(function () {
-      if (extensionSeen) return;
-      connectCopy.textContent =
-        "No extension detected on this page. Install it from the Capture page, " +
-        "then reload here — or connect manually below.";
-    }, 1200);
-
-    window.addEventListener("outlier:connect-result", function (event) {
-      var detail = event.detail || {};
-      connectBtn.disabled = false;
-      if (detail.ok) {
-        connectMsg.className = "msg-line ok";
-        connectMsg.textContent =
-          "Connected. The extension will send captures to " + detail.endpoint +
-          " — reload any open Facebook tabs.";
-        connectBtn.textContent = "Reconnect";
-      } else {
-        connectMsg.className = "msg-line error";
-        connectMsg.textContent = detail.error || "The extension didn't accept it.";
-      }
-    });
-
-    connectBtn.addEventListener("click", function () {
-      connectBtn.disabled = true;
-      connectMsg.className = "msg-line";
-      connectMsg.textContent = "Issuing a key…";
-
-      post("/api/account/connect")
+      return post("/api/account/connect")
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Could not issue a key");
           // Handed to the content script, which writes it into extension
@@ -649,11 +623,62 @@
           }));
         })
         .catch(function (error) {
-          connectBtn.disabled = false;
-          connectMsg.className = "msg-line error";
-          connectMsg.textContent = error.message;
+          if (connectBtn) connectBtn.disabled = false;
+          say(connectMsg, error.message, "msg-line error");
         });
+    }
+
+    window.addEventListener("outlier:extension-present", function (event) {
+      extensionSeen = true;
+      var detail = event.detail || {};
+      var version = detail.version ? " (v" + detail.version + ")" : "";
+      if (connectBtn) {
+        connectBtn.style.display = "";
+        connectBtn.textContent = "Reconnect";
+      }
+
+      if (detail.connected) {
+        say(connectCopy, "Extension connected" + version +
+                         ". Captures come straight here.");
+        return;
+      }
+
+      // Nothing to click. The page is signed in and knows its own address, so
+      // asking the user to confirm that adds a step and no information. A key
+      // is only minted when the extension is unconnected or pointed somewhere
+      // else, so this cannot rotate the key on every page load.
+      say(connectCopy, "Extension detected" + version + ". Connecting it now…");
+      issueKey(true);
     });
+
+    // The content script announces on load; ask again in case this page was
+    // ready first.
+    window.dispatchEvent(new CustomEvent("outlier:ping-extension"));
+
+    setTimeout(function () {
+      if (extensionSeen) return;
+      say(connectCopy,
+        "No extension detected on this page. Install it from the Capture page, " +
+        "then reload here — or connect manually below.");
+    }, 1200);
+
+    window.addEventListener("outlier:connect-result", function (event) {
+      var detail = event.detail || {};
+      if (connectBtn) {
+        connectBtn.disabled = false;
+        connectBtn.textContent = "Reconnect";
+      }
+      if (detail.ok) {
+        say(connectMsg,
+          "Connected. The extension will send captures to " + detail.endpoint +
+          " — reload any open Facebook tabs.", "msg-line ok");
+      } else {
+        say(connectMsg, detail.error || "The extension didn't accept it.",
+            "msg-line error");
+      }
+    });
+
+    connectBtn.addEventListener("click", function () { issueKey(false); });
   }
 
   var rotateKey = document.getElementById("rotate-key");
