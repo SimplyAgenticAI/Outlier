@@ -4,6 +4,7 @@
 <article class="post-card reveal spotlight tier-{{ post.tier }}{{ ' is-demo' if post.is_demo }}{{ ' is-comment' if post.item_type == 'comment' }}"
          data-post-id="{{ post.id }}">
 
+  {% if post.has_baseline %}
   <div class="post-badge" data-arc="{{ post.bar_pct }}">
     <svg class="badge-ring" viewBox="0 0 52 52" aria-hidden="true">
       <circle class="ring-track" cx="26" cy="26" r="22"/>
@@ -14,6 +15,17 @@
     </span>
     <span class="badge-label">{{ tier_labels[post.tier] }}</span>
   </div>
+  {% else %}
+  {# Without a baseline there is no multiple. Printing "0.0×" next to "needs
+     more data" states a number the app cannot actually stand behind, so the
+     badge shows the one figure that is real: what this post got. #}
+  <div class="post-badge is-unscored" title="{{ post.rank_basis_label }}">
+    <span class="badge-num">
+      <span class="raw-count">{{ "{:,}".format(post.total_engagement) }}</span>
+    </span>
+    <span class="badge-label">{{ 'engagement' if post.total_engagement else 'no counts' }}</span>
+  </div>
+  {% endif %}
 
   <div class="post-main">
     <div class="post-meta">
@@ -45,9 +57,25 @@
         {% if post.has_video %}<span class="thumb-play">▶</span>{% endif %}
       </a>
       {% endif %}
-      <a class="post-body" href="{{ url_for('post_detail', post_id=post.id) }}">{{ post.body }}</a>
+      <a class="post-body{{ ' is-empty' if not post.body }}"
+         href="{{ url_for('post_detail', post_id=post.id) }}">
+        {%- if post.body -%}
+          {{ post.body }}
+        {%- elif post.image_url or post.has_video -%}
+          No caption — {{ 'video' if post.has_video else 'image' }} post
+        {%- else -%}
+          No caption captured
+        {%- endif -%}
+      </a>
     </div>
 
+    {% if post.body_from_image %}
+    {# The words came out of Facebook's own description of the graphic, not
+       from something the author typed. Saying so keeps the card honest. #}
+    <p class="from-image">Text read from the image</p>
+    {% endif %}
+
+    {% if post.has_baseline %}
     {# The score, drawn. The notch is the group's median; the glowing part is
        everything this post cleared it by. #}
     <div class="scale" title="{{ post.weighted_engagement }} weighted engagement vs a median of {{ post.baseline | round | int }}">
@@ -64,6 +92,9 @@
         <span class="scale-vs">vs {{ post.baseline | round | int }} typical here</span>
       </div>
     </div>
+    {% else %}
+    <p class="rank-basis">{{ post.rank_basis_label }}</p>
+    {% endif %}
 
     <div class="post-stats">
       <span><b>{{ "{:,}".format(post.likes) }}</b> reactions</span>

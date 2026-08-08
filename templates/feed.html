@@ -91,8 +91,13 @@
         {% if kind == 'comment' %}
           Comments ranked against other comments in the same group — what the
           room responds to, not what gets posted.
-        {% else %}
+        {% elif scored_visible %}
           Ranked by how far each post beat the median in its own group.
+          {% if unscored_visible %}
+          Unscored captures follow, ordered by raw engagement.
+          {% endif %}
+        {% else %}
+          Ranked by raw engagement — no group has a baseline yet.
         {% endif %}
       </p>
     </div>
@@ -112,27 +117,42 @@
   </section>
 
   {% if posts %}
+  {% if not scored_visible and unscored_visible %}
+  {# Everything on screen is unscored. Say so once, at the top, rather than
+     repeating a caveat on every card. #}
+  <div class="glass notice reveal">
+    <b>Showing {{ unscored_visible }} posts ranked by raw engagement.</b>
+    None of these groups has a usable baseline yet, so there's no median to
+    measure against and no multiple to report. A group needs
+    <b>8+ posts</b> and a median engagement of <b>8+</b> before scoring turns on.
+  </div>
+  {% endif %}
+
   <section class="post-list">
     {% for post in posts %}
+      {% if loop.first or (posts[loop.index0 - 1].has_baseline and not post.has_baseline) %}
+        {% if not post.has_baseline and scored_visible %}
+        {# The break between "measured against a baseline" and "just sorted by
+           engagement" is a real change in what the ordering means. #}
+        <div class="list-divider">
+          <span>Not scored yet — {{ unscored_visible }} posts, ranked by raw engagement</span>
+        </div>
+        {% endif %}
+      {% endif %}
       {% include "_post_card.html" %}
     {% endfor %}
   </section>
   {% else %}
   <div class="glass empty-panel">
-    {% if unscored_count and not real_count %}
+    {# Unscored posts are shown now, so an empty list means the *filter* is
+       empty — not that the data is hidden. #}
+    {% if tier_filter != 'all' and unscored_count %}
       <p>
-        You've captured {{ unscored_count }} posts, but no group has enough yet
-        to score. A group needs <b>8+ posts with engagement</b> before there's a
-        median to compare against.
+        No posts in the <b>{{ tier_filter }}</b> band. Only scored posts can land
+        in a band, and {{ unscored_count }} of your captures aren't scored yet —
+        their groups need more posts, or were captured without engagement counts.
       </p>
-      <a class="btn btn-primary" href="{{ url_for('groups') }}">See what's captured</a>
-    {% elif unscored_count %}
-      <p>
-        Nothing in this band. {{ unscored_count }} captured posts aren't scored
-        yet — their groups need more posts, or were captured without engagement
-        counts.
-      </p>
-      <a class="btn btn-ghost" href="{{ url_for('groups') }}">Check your groups</a>
+      <a class="btn btn-primary" href="{{ url_for('feed', kind=kind) }}">Show all posts</a>
     {% elif tier_filter != 'all' %}
       <p>No posts in the <b>{{ tier_filter }}</b> band. Try a wider filter.</p>
       <a class="btn btn-ghost" href="{{ url_for('feed') }}">Show all</a>

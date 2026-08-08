@@ -18,7 +18,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "2.6"
+APP_VERSION = "2.7"
 
 db.init_db()
 db.promote_sole_account()
@@ -149,16 +149,21 @@ def feed():
         if (s.get("item_type") or "post") == "comment" and s["has_baseline"]
     )
 
-    visible = [
-        s for s in scored
-        if s["has_baseline"] and (s.get("item_type") or "post") == kind
-    ]
+    # Everything of this kind, scored or not. Requiring a baseline here is
+    # what made the feed useless: hundreds of captured posts sat in the
+    # database while the page said "nothing in this band". Unscored posts are
+    # ranked by whatever signal they carry and labelled with which one, which
+    # is more honest than hiding them and far more useful.
+    visible = [s for s in scored if (s.get("item_type") or "post") == kind]
+
     # Once there are real captures, sample posts stop being helpful and start
     # being noise you have to mentally filter — so hide them by default.
     if real_count and not show_samples:
         visible = [s for s in visible if not s["is_demo"]]
     if tier_filter != "all":
         visible = [s for s in visible if s["tier"] == tier_filter]
+
+    scored_visible = sum(1 for s in visible if s["has_baseline"])
 
     return render_template(
         "feed.html",
@@ -175,6 +180,11 @@ def feed():
         # Distinguishes "nothing captured" from "captured, but not enough of
         # any one group to score" — completely different problems.
         unscored_count=sum(1 for s in scored if not s["has_baseline"]),
+        # How much of what's on screen is actually scored, so the page can say
+        # which ranking is in force instead of implying every row is a multiple.
+        scored_visible=scored_visible,
+        unscored_visible=len(visible) - scored_visible,
+        rank_basis_labels=outliers.RANK_BASIS_LABELS,
         version=APP_VERSION,
         active="feed",
     )

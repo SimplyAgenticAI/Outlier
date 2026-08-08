@@ -150,12 +150,53 @@ def score_posts(posts):
                     "age_hours": round(age_hours, 1) if age_hours is not None else None,
                     "tier": _tier(multiple, sufficient),
                     "bar_pct": bar_position(multiple),
+                    # What this post's position in a list actually means. A
+                    # multiple is only honest with a baseline behind it; saying
+                    # so per-post lets the UI show everything and stay truthful
+                    # rather than hiding whatever it can't score.
+                    "rank_basis": _rank_basis(sufficient, eng),
                 }
             )
+            # Carried on the record rather than passed as a template global,
+            # because the post card is included from four different pages and
+            # any one of them forgetting the global would render a blank line.
+            record["rank_basis_label"] = RANK_BASIS_LABELS[record["rank_basis"]]
             scored.append(record)
 
-    scored.sort(key=lambda r: r["outlier_multiple"], reverse=True)
+    scored.sort(key=_rank_key, reverse=True)
     return scored
+
+
+# Ordered worst-to-best, so a plain comparison ranks them.
+RANK_BASIS_ORDER = {"recency": 0, "engagement": 1, "baseline": 2}
+
+RANK_BASIS_LABELS = {
+    "baseline": "Scored against this group's median",
+    "engagement": "Ranked by raw engagement — this group has no baseline yet",
+    "recency": "No engagement recorded — ordered by when it was captured",
+}
+
+
+def _rank_basis(sufficient, engagement):
+    if sufficient:
+        return "baseline"
+    return "engagement" if engagement > 0 else "recency"
+
+
+def _rank_key(record):
+    """Sort scored posts above unscored ones, each by the best signal it has.
+
+    Posts without a baseline used to be dropped from every list rather than
+    ranked, which left the feed blank while hundreds of rows sat in the
+    database. They're ranked here by whatever signal they do carry, and the
+    UI labels which one was used.
+    """
+    return (
+        RANK_BASIS_ORDER.get(record["rank_basis"], 0),
+        record["outlier_multiple"] if record["has_baseline"] else 0,
+        record["weighted_engagement"],
+        record.get("captured_at") or "",
+    )
 
 
 def bar_position(multiple):
