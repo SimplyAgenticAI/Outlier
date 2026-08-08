@@ -18,13 +18,17 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "2.9"
+APP_VERSION = "3.0"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
 # like boilerplate.
-APP_NAME = "Outlier For Facebook"
-APP_SHORT_NAME = "Outlier"
+APP_NAME = "Tallgrass"
+APP_SHORT_NAME = "Tallgrass"
+
+# The umbrella brand. Shown under the mark, not inside it.
+APP_PARENT = "by MacRandle Acres"
+APP_TAGLINE = "Find the standout posts in your Facebook groups, and write the next one."
 
 db.init_db()
 db.promote_sole_account()
@@ -578,6 +582,8 @@ def inject_globals():
         "csrf_token": auth.csrf_token,
         "app_name": APP_NAME,
         "app_short_name": APP_SHORT_NAME,
+        "app_parent": APP_PARENT,
+        "app_tagline": APP_TAGLINE,
     }
 
 
@@ -913,7 +919,7 @@ def api_capture():
                 continue
             author_id = db.upsert_author(
                 conn,
-                name=post.get("author_name") or "Unknown",
+                name=post.get("author_name"),
                 profile_url=post.get("author_url"),
             )
             if db.upsert_post(conn, source_id, author_id, post,

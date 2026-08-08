@@ -57,17 +57,32 @@
         </div>
         {% endif %}
       </div>
+      {% elif source.stats.unread_count and source.stats.measured_count < 8 %}
+      {# The real blocker, stated plainly. This used to render
+         "needs {{ 8 - post_count }} more", which went negative the moment a
+         group had 40 captured posts and only 3 readable ones. #}
+      <p class="needs-data">
+        <b class="warn-tone">Not scored.</b>
+        {{ source.stats.post_count }} posts captured, but engagement could only
+        be read from {{ source.stats.measured_count }} of them — a baseline needs
+        8. Re-scan this group; if it stays low, press <b>Diagnose</b> in the
+        Tallgrass panel.
+      </p>
       {% elif source.stats.low_baseline %}
       <p class="needs-data">
         <b class="warn-tone">Not scored.</b>
-        Median engagement is {{ source.stats.raw_baseline | round | int }} — too low to
-        compare against. Usually means these were captured before the extension
-        could read engagement. Re-scan to fix.
+        Median engagement across the {{ source.stats.measured_count }} readable
+        posts is {{ source.stats.raw_baseline | round | int }} — too low to compare
+        against without manufacturing outliers out of near-zero.
       </p>
       {% else %}
       <p class="needs-data">
-        {{ source.stats.post_count }} posts — needs
-        {{ 8 - source.stats.post_count }} more for a baseline.
+        {{ source.stats.measured_count }} readable
+        post{{ '' if source.stats.measured_count == 1 else 's' }} — needs
+        {{ 8 - source.stats.measured_count }} more for a baseline.
+        {%- if source.stats.unread_count %}
+        ({{ source.stats.unread_count }} captured without engagement counts.)
+        {%- endif %}
       </p>
       {% endif %}
     {% else %}

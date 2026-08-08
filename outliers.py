@@ -86,6 +86,25 @@ def _hours_since(timestamp):
     return None
 
 
+def engagement_known(post):
+    """Did the extractor actually read this post's counts?
+
+    engagement_read is 1 when at least one count was found, 0 when none were,
+    and NULL for rows captured before the flag existed — for those, a non-zero
+    total is the only evidence available that something was read.
+
+    This matters well beyond display. A post whose counts failed to extract
+    contributes a zero to its group's median, so a group where half the
+    captures failed gets a baseline dragged toward nothing, and every post in
+    it is then scored against that. Unread posts are excluded from the
+    baseline entirely rather than counted as zeros.
+    """
+    flag = post.get("engagement_read")
+    if flag is None:
+        return total_engagement(post) > 0
+    return bool(flag)
+
+
 def score_posts(posts):
     """Score every post against the baseline of its own source.
 
@@ -105,7 +124,12 @@ def score_posts(posts):
 
     scored = []
     for _key, group_posts in by_source.items():
-        engagements = [weighted_engagement(p) for p in group_posts]
+        # The baseline describes posts we actually measured. Including failed
+        # extractions as zeros doesn't make it more representative, it makes
+        # it wrong — and the sample size has to shrink with them, or eight
+        # unread posts would look like enough evidence to score against.
+        measured = [p for p in group_posts if engagement_known(p)]
+        engagements = [weighted_engagement(p) for p in measured]
         baseline = _median(engagements)
         mad = _mad(engagements, baseline)
 
@@ -114,11 +138,18 @@ def score_posts(posts):
 
         # Both conditions must hold for a ratio to mean anything: enough items
         # to have a median, and a median far enough from zero to divide by.
-        sufficient = len(group_posts) >= MIN_SAMPLE and baseline >= floor
-        low_baseline = baseline < floor
+        sufficient = len(measured) >= MIN_SAMPLE and baseline >= floor
+        low_baseline = bool(measured) and baseline < floor
 
         for post in group_posts:
             eng = weighted_engagement(post)
+
+            # A post whose counts were never read has a weighted engagement of
+            # zero for want of data, not for want of performance. Scoring it
+            # against the group would file it under "Underperformed" — a claim
+            # about a post nobody measured.
+            known = engagement_known(post)
+            scoreable = sufficient and known
 
             # How many times the typical post did this one beat?
             #
@@ -130,7 +161,7 @@ def score_posts(posts):
             # headline duly printed "Biggest outlier 99.9x" while reporting
             # zero scored posts. None cannot be formatted into a plausible
             # figure by accident.
-            if sufficient and baseline > 0:
+            if scoreable and baseline > 0:
                 multiple = min(eng / baseline, MAX_MULTIPLE)
             else:
                 multiple = None
@@ -138,7 +169,7 @@ def score_posts(posts):
             # Robust z-score. The 0.6745 constant rescales MAD so that for
             # normally-distributed data it matches a standard deviation. Same
             # rule as the multiple: no baseline, no claim.
-            if sufficient and mad > 0:
+            if scoreable and mad > 0:
                 robust_z = 0.6745 * (eng - baseline) / mad
             else:
                 robust_z = None
@@ -154,20 +185,23 @@ def score_posts(posts):
                     # The group median is only meaningful as a comparator when
                     # it clears the floor; below it, it is an artefact of
                     # failed extraction rather than a description of the group.
-                    "baseline": baseline if sufficient else None,
+                    "baseline": baseline if scoreable else None,
                     "outlier_multiple": round(multiple, 1) if multiple is not None else None,
                     "robust_z": round(robust_z, 2) if robust_z is not None else None,
-                    "has_baseline": sufficient,
+                    "has_baseline": scoreable,
                     "low_baseline": low_baseline,
                     "still_climbing": still_climbing,
+                    # Lets the UI separate "this post got nothing" from "we
+                    # could not read what it got".
+                    "engagement_known": known,
                     "age_hours": round(age_hours, 1) if age_hours is not None else None,
-                    "tier": _tier(multiple, sufficient),
+                    "tier": _tier(multiple, scoreable),
                     "bar_pct": bar_position(multiple) if multiple is not None else None,
                     # What this post's position in a list actually means. A
                     # multiple is only honest with a baseline behind it; saying
                     # so per-post lets the UI show everything and stay truthful
                     # rather than hiding whatever it can't score.
-                    "rank_basis": _rank_basis(sufficient, eng),
+                    "rank_basis": _rank_basis(scoreable, known, eng),
                 }
             )
             # Carried on the record rather than passed as a template global,
@@ -181,18 +215,21 @@ def score_posts(posts):
 
 
 # Ordered worst-to-best, so a plain comparison ranks them.
-RANK_BASIS_ORDER = {"recency": 0, "engagement": 1, "baseline": 2}
+RANK_BASIS_ORDER = {"unread": 0, "recency": 1, "engagement": 2, "baseline": 3}
 
 RANK_BASIS_LABELS = {
     "baseline": "Scored against this group's median",
     "engagement": "Ranked by raw engagement — this group has no baseline yet",
-    "recency": "No engagement recorded — ordered by when it was captured",
+    "recency": "No engagement on this post — ordered by when it was captured",
+    "unread": "Engagement couldn't be read from this post — re-capture the group",
 }
 
 
-def _rank_basis(sufficient, engagement):
-    if sufficient:
+def _rank_basis(scoreable, known, engagement):
+    if scoreable:
         return "baseline"
+    if not known:
+        return "unread"
     return "engagement" if engagement > 0 else "recency"
 
 
@@ -267,9 +304,11 @@ def source_stats(items):
     posts = [p for p in items if (p.get("item_type") or "post") == "post"]
     comments = [p for p in items if (p.get("item_type") or "post") == "comment"]
 
-    post_engagements = [weighted_engagement(p) for p in posts]
+    # Same rule as score_posts: the baseline describes measured posts only.
+    measured = [p for p in posts if engagement_known(p)]
+    post_engagements = [weighted_engagement(p) for p in measured]
     raw_baseline = _median(post_engagements)
-    scoreable = len(posts) >= MIN_SAMPLE and raw_baseline >= MIN_BASELINE
+    scoreable = len(measured) >= MIN_SAMPLE and raw_baseline >= MIN_BASELINE
 
     scored = score_posts(items)
     scored_posts = [s for s in scored if (s.get("item_type") or "post") == "post"]
@@ -289,7 +328,13 @@ def source_stats(items):
         "outlier_count": len(outlier_posts),
         "top_comment_count": len(top_comments),
         "has_baseline": scoreable,
-        "low_baseline": bool(posts) and raw_baseline < MIN_BASELINE,
+        "low_baseline": bool(measured) and raw_baseline < MIN_BASELINE,
+        # How much of this group was actually read. The single most useful
+        # number when a group refuses to score, and it was not reported
+        # anywhere: 40 posts captured with 2 of them measured looks identical
+        # to 40 measured posts that all did badly.
+        "measured_count": len(measured),
+        "unread_count": len(posts) - len(measured),
         # Only posts that actually carry a baseline. Reading the max across
         # every post reported a multiple for groups where nothing was scored.
         "top_multiple": max(

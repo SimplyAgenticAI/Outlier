@@ -1,4 +1,4 @@
-/* Outlier content script.
+/* Tallgrass content script.
  *
  * Facebook regenerates its class names per build, so nothing here keys off a
  * class — extraction hangs off ARIA roles, aria-labels, and visible text.
@@ -215,9 +215,27 @@
   var NOT_A_NAME = /^(like|comment|share|reply|see more|follow|join|group|admin|moderator|top contributor|author|·|\d+[hdwmy]|anonymous participant)$/i;
 
   function extractAuthor(article, bar) {
-    // The author link lives in the post header, above the action bar. Casting
-    // wider than that picks up commenters, tagged users, and link previews —
-    // which is how posts ended up attributed to "Unknown" or to a commenter.
+    // Strict first: the author link lives in the post header, above the action
+    // bar. Casting wider than that picks up commenters, tagged users and link
+    // previews — which is how posts ended up attributed to a commenter.
+    var strict = authorPass(article, bar);
+    if (strict) return strict;
+
+    // Nothing above the bar. Same failure as extractBody: when findActionBar
+    // latches onto something near the top of the article, every candidate
+    // counts as "below" it and the post is attributed to nobody. A name
+    // picked from the whole article is occasionally the wrong person; the
+    // literal string "Unknown" printed where a name goes is always wrong.
+    var relaxed = authorPass(article, null);
+    if (relaxed) return relaxed;
+
+    // Genuinely could not read it. null rather than "Unknown" — the UI needs
+    // to be able to tell "no author captured" from a person with that name,
+    // and "Unknown" reads as a real byline on the card.
+    return { name: null, url: null };
+  }
+
+  function authorPass(article, bar) {
     var candidates = article.querySelectorAll(
       'h2 a[role="link"], h3 a[role="link"], h4 a[role="link"], ' +
       'h2 a, h3 a, h4 a, strong a, a[role="link"] strong, ' +
@@ -256,7 +274,7 @@
       }
     }
 
-    return { name: "Unknown", url: null };
+    return null;   // caller decides what an unreadable author means
   }
 
   var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
@@ -479,8 +497,31 @@
     return stripped.length >= 40 ? stripped.slice(0, 5000) : "";
   }
 
+  /* Is this token plausibly an engagement count?
+   *
+   * The structural fallback grabs the first number it finds above the action
+   * bar, and the things that sit there besides a reaction total are a
+   * timestamp ("5h", "3d") and a date ("2024"). parseCount happily turns "5h"
+   * into 5 and "2024" into 2024, so a post's age was being stored as its
+   * reaction count and a year as a four-figure one — which then set the
+   * group's median and every multiple scored against it.
+   */
+  function looksLikeACount(token) {
+    var text = String(token || "").trim();
+    if (!text) return false;
+    // h/d/w/y are unambiguously time. "m" is not: lowercase is minutes or
+    // months, uppercase is millions — and Facebook is consistent about the
+    // case, so "2m" is an age and "2M" is a count.
+    if (/^\d+\s*[hdwy]$/i.test(text)) return false;           // 5h, 3d, 2w
+    if (/^\d+\s*m$/.test(text)) return false;                 // 2m — minutes
+    if (/^(19|20)\d{2}$/.test(text.replace(/,/g, ""))) return false;   // a year
+    if (/^\d{1,2}:\d/.test(text)) return false;               // 10:30
+    if (/^\d{1,2}\/\d/.test(text)) return false;              // 3/4
+    return /^\d[\d.,]*\s*[KMB]?$/.test(text);
+  }
+
   function extractEngagement(article, bar) {
-    var result = { likes: 0, comments: 0, shares: 0, video_plays: 0 };
+    var result = { likes: 0, comments: 0, shares: 0, video_plays: 0, read: false };
 
     // Facebook splits counts across text nodes and aria-labels inconsistently
     // between layouts, and often puts the number in an aria-label while the
@@ -564,7 +605,9 @@
           var text = (previous.innerText || "").trim();
           // A summary row is short and mostly digits; post copy is not.
           if (text && text.length < 60 && /\d/.test(text)) {
-            var candidate = parseCount(text.split(/\s+/)[0]);
+            var first = text.split(/\s+/)[0];
+            if (!looksLikeACount(first)) { previous = previous.previousElementSibling; continue; }
+            var candidate = parseCount(first);
             if (candidate) { result.likes = candidate; break; }
           }
           previous = previous.previousElementSibling;
@@ -574,19 +617,21 @@
       }
     }
 
-    // Same idea for the comment tally, which usually sits beside the
-    // reaction count rather than carrying its own label.
-    if (!result.comments) {
-      var counts = (visible.match(/\b\d[\d.,]*\s*[KMB]?\b/g) || [])
-        .map(parseCount).filter(function (n) { return n > 0; });
-      if (counts.length >= 2 && result.likes) {
-        // Anything smaller than the reaction total on the same row is a
-        // plausible comment count; the largest such value is the best guess.
-        var below = counts.filter(function (n) { return n < result.likes; });
-        if (below.length) result.comments = Math.max.apply(null, below);
-      }
-    }
+    // There is deliberately no fallback for the comment count.
+    //
+    // There used to be one: take every number in the post, keep those smaller
+    // than the reaction total, and call the largest of them the comment count.
+    // That reads the post's own copy. "We closed 12 deals this quarter" on a
+    // post with 300 reactions was silently stored as 12 comments — a number
+    // nobody measured, indistinguishable on the card from one that was, and
+    // feeding straight into the weighted score at 3x. A missing count has to
+    // stay missing.
 
+    // Whether any of this was actually read, as opposed to defaulting to zero.
+    // Without it, "0 reactions" claims the post got none when the truth is
+    // that nothing could be found — and those are completely different facts.
+    result.read = !!(result.likes || result.comments || result.shares ||
+                     result.video_plays);
     return result;
   }
 
@@ -751,7 +796,7 @@
       var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
       var permalink = extractPermalink(article);
-      var postId = extractPostId(article, permalink, body, author.name);
+      var postId = extractPostId(article, permalink, body, author.name || "");
 
       // Everything past this point counts only ONCE per item. Counting before
       // the dedup check meant the passive re-scan — which fires roughly every
@@ -776,7 +821,7 @@
 
       // "Text" that is only the author's name echoed out of the header is a
       // header, not a caption — drop it rather than store it as the body.
-      if (body && body.replace(/\s+/g, " ") === author.name) body = "";
+      if (body && author.name && body.replace(/\s+/g, " ") === author.name) body = "";
 
       var hasText = !!body && body.length >= 12;
       var hasMedia = !!(media.image_url || media.has_video);
@@ -815,7 +860,8 @@
         image_url: media.image_url,
         image_count: media.image_count,
         has_video: media.has_video,
-        body_from_image: bodyFromImage ? 1 : 0
+        body_from_image: bodyFromImage ? 1 : 0,
+        engagement_read: engagement.read ? 1 : 0
       });
     });
 
@@ -968,7 +1014,7 @@
     var articles = document.querySelectorAll('div[role="article"]');
     var lines = [];
 
-    lines.push("OUTLIER DIAGNOSTIC");
+    lines.push("TALLGRASS DIAGNOSTIC");
     lines.push("page: " + (source ? source.kind + " / " + source.name.slice(0, 40)
                                   : "unsupported"));
     lines.push("articles on page: " + articles.length);
@@ -990,11 +1036,12 @@
       lines.push("action bar  : " + (bar ? "found <" + bar.tagName.toLowerCase() +
                  " aria-label=\"" + (bar.getAttribute("aria-label") || "") + "\">"
                  : "NOT FOUND"));
-      lines.push("author      : " + author.name);
+      lines.push("author      : " + (author.name || "NOT READ"));
       lines.push("body chars  : " + body.length + "  " +
                  JSON.stringify(body.slice(0, 60)));
       lines.push("engagement  : " + engagement.likes + "r " + engagement.comments +
-                 "c " + engagement.shares + "s " + engagement.video_plays + "v");
+                 "c " + engagement.shares + "s " + engagement.video_plays + "v" +
+                 (engagement.read ? "" : "   <- NOTHING READ"));
       lines.push("media       : " + (media.image_url ? media.image_count + " image(s)"
                  : "none") + (media.has_video ? " + video" : ""));
       lines.push("image text  : " + (media.image_text
@@ -1189,11 +1236,11 @@
                      display: "inline-flex", alignItems: "baseline", gap: "0.35em" });
 
     var titleMain = document.createElement("span");
-    titleMain.textContent = "Outlier";
+    titleMain.textContent = "Tallgrass";
     title.appendChild(titleMain);
 
     var titleSuffix = document.createElement("span");
-    titleSuffix.textContent = "for Facebook";
+    titleSuffix.textContent = "by MacRandle Acres";
     styleEl(titleSuffix, { fontWeight: "500", fontSize: "0.6em", color: "#7fa693",
                            letterSpacing: "0.02em" });
     title.appendChild(titleSuffix);

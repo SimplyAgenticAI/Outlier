@@ -21,15 +21,26 @@
      badge shows the one figure that is real: what this post got. #}
   <div class="post-badge is-unscored" title="{{ post.rank_basis_label }}">
     <span class="badge-num">
-      <span class="raw-count">{{ "{:,}".format(post.total_engagement) }}</span>
+      <span class="raw-count">
+        {%- if post.engagement_known -%}{{ "{:,}".format(post.total_engagement) }}
+        {%- else -%}&mdash;{%- endif -%}
+      </span>
     </span>
-    <span class="badge-label">{{ 'engagement' if post.total_engagement else 'no counts' }}</span>
+    <span class="badge-label">
+      {%- if not post.engagement_known -%}not read
+      {%- elif post.total_engagement -%}engagement
+      {%- else -%}no engagement{%- endif -%}
+    </span>
   </div>
   {% endif %}
 
   <div class="post-main">
     <div class="post-meta">
-      <span class="author">{{ post.author_name }}</span>
+      {# A missing author is stated as missing. Blank would read as a layout
+         bug, and "Unknown" read as a byline. #}
+      <span class="author{{ ' is-missing' if not post.author_name }}">
+        {{ post.author_name or 'Author not captured' }}
+      </span>
       <span class="dot-sep">·</span>
       <a class="source" href="{{ url_for('group_detail', source_id=post.source_id) }}">{{ post.source_name }}</a>
       <span class="dot-sep">·</span>
@@ -97,10 +108,16 @@
     {% endif %}
 
     <div class="post-stats">
+      {% if post.engagement_known %}
       <span><b>{{ "{:,}".format(post.likes) }}</b> reactions</span>
       <span><b>{{ "{:,}".format(post.comments) }}</b> comments</span>
       {% if post.item_type != 'comment' %}
       <span><b>{{ "{:,}".format(post.shares) }}</b> shares</span>
+      {% endif %}
+      {% else %}
+      {# "0 reactions" is a claim that the post got none. It didn't -- the
+         counts could not be read, which is a different fact entirely. #}
+      <span class="stats-unread">Engagement couldn't be read from this post</span>
       {% endif %}
     </div>
   </div>

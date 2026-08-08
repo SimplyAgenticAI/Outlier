@@ -22,7 +22,9 @@
       </div>
       {% endif %}
       <div>
-        <div class="detail-author">{{ post.author_name }}</div>
+        <div class="detail-author{{ ' is-missing' if not post.author_name }}">
+          {{ post.author_name or 'Author not captured' }}
+        </div>
         <a class="detail-source" href="{{ url_for('group_detail', source_id=post.source_id) }}">
           {{ post.source_name }}
         </a>

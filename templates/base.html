@@ -21,7 +21,7 @@
         <circle class="mark-outlier" cx="19" cy="5" r="2.6"/>
       </svg>
     </span>
-    <span class="brand-name">Outlier<span class="brand-suffix"> for Facebook</span></span>
+    <span class="brand-text"><span class="brand-name">{{ app_name }}</span><span class="brand-parent">{{ app_parent }}</span></span>
   </a>
 
   <nav class="topnav">
@@ -52,7 +52,7 @@
   <div class="ephemeral-warning">
     <b>Captured posts will be lost when this app restarts.</b>
     This dashboard is hosted on a disk that resets on every deploy, so scans
-    don't survive. Run Outlier on your own machine to keep your data —
+    don't survive. Run Tallgrass on your own machine to keep your data —
     <a href="{{ url_for('capture') }}">see how</a>.
   </div>
   {% endif %}

@@ -228,7 +228,7 @@ async function checkForUpdate() {
     lastUpdateFrom: running,
     lastUpdateTo: latest
   });
-  console.log(`[Outlier] updating extension ${running} → ${latest}`);
+  console.log(`[Tallgrass] updating extension ${running} → ${latest}`);
   chrome.runtime.reload();
 }
 
