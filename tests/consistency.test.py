@@ -99,26 +99,34 @@ def main():
     check("comments are not labelled twice",
           feed.count('class="type-chip">comment<'), 0)
 
-    print("comments are reachable in both directions")
-    comments = c.get("/?kind=comment").get_data(as_text=True)
-    check("comment cards render", comments.count('class="post-card') > 0)
-    cid = re.search(r'data-post-id="(\d+)"', comments)
-    check("a comment has a detail page", bool(cid))
-    if cid:
-        detail = c.get("/post/" + cid.group(1)).get_data(as_text=True)
-        check("that page links back to what it replied to",
-              "Replying to" in detail)
+    print("comments are not presented as a ranking")
+    # Facebook previews one or two replies per post, chosen by "Most
+    # relevant", so any ranked comments view would be ranking Facebook's
+    # picks. Capture was removed; older rows must not resurface as a feed.
+    feed_html = c.get("/").get_data(as_text=True)
+    check("no Comments tab on the feed", "kind=comment" not in feed_html)
+    check("no 'Comments captured' headline stat",
+          "Comments captured" not in feed_html)
+    check("?kind=comment does not open a ranked comment feed",
+          "Top comments" not in c.get("/?kind=comment").get_data(as_text=True))
+    check("no Comments tab on a group page",
+          "kind=comment" not in c.get("/groups/2").get_data(as_text=True))
 
+    # Rows captured by older versions still render on their post's page, and
+    # must say what they are.
     detail_pages = [c.get("/post/" + p).get_data(as_text=True)
                     for p in re.findall(r'data-post-id="(\d+)"',
                                         c.get("/groups/2").get_data(as_text=True))]
-    check("the parent post lists its captured replies",
-          any("captured comment" in d for d in detail_pages))
+    with_replies = [d for d in detail_pages if "preview comment" in d]
+    check("legacy replies still show on their post", len(with_replies) > 0)
+    if with_replies:
+        check("and are labelled as Facebook's selection, not a ranking",
+              "not the top ones" in with_replies[0])
 
     print("every page still renders")
     for path in ["/", "/groups", "/library", "/ideas", "/settings",
                  "/capture", "/account", "/sage", "/?kind=comment",
-                 "/?tier=breakout"]:
+                 "/?tier=breakout", "/?page=2", "/groups/1?kind=comment"]:
         check("GET %s" % path, c.get(path).status_code, 200)
 
     shutil.rmtree(tmp, ignore_errors=True)

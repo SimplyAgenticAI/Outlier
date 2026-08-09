@@ -31,9 +31,10 @@ MIN_SAMPLE = 8
 # "8647x breakout", so such sources are marked unscored instead.
 MIN_BASELINE = 8
 
-# Comments run far lower than posts, so the posts threshold would leave most
-# groups' comments permanently unscored. Low enough to admit real discussion,
-# high enough that a median of 1 or 2 still can't manufacture outliers.
+# Comments are no longer captured or scored. Facebook previews one or two
+# replies per post, chosen by "Most relevant", so any ranking built from them
+# ranks Facebook's selection rather than the room's. Rows captured by older
+# versions keep this floor so they still render on their post's page.
 MIN_BASELINE_COMMENT = 3
 
 # Ratios above this are not informative, only alarming. Anything this far out

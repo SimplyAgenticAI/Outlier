@@ -51,7 +51,7 @@
       skipped: 0,          // rejected as shells — no text, no media, no counts
       mediaOnly: 0,        // kept on the strength of an image/video alone
       textFromImage: 0,    // caption read out of the graphic's alt text
-      commentsFound: 0,    // comments actually captured
+      expanded: 0,         // "See more" clicks — captured on the next pass
       unattributed: 0,     // feed posts whose origin could not be identified
       usingFallback: false,
       fallbackNoted: false,
@@ -433,27 +433,138 @@
     return !!(bar.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
   }
 
-  // Which post a comment belongs to. Nested comments have the post as an
-  // ancestor; siblings are matched to the nearest preceding post instead.
-  function parentPostId(article, source) {
-    var owner = article.parentElement &&
-                article.parentElement.closest('div[role="article"]');
-    if (owner && looksLikePost(owner)) {
-      var link = extractPermalink(owner);
-      var id = extractPostId(owner, link, extractBody(owner, "", findActionBar(owner)), "");
-      return id ? source.fb_id + "-" + id : null;
-    }
+  /* ------------------------------------------------------ post extraction */
 
-    var all = Array.prototype.slice.call(document.querySelectorAll('div[role="article"]'));
-    var index = all.indexOf(article);
-    for (var i = index - 1; i >= 0; i--) {
-      if (looksLikePost(all[i])) {
-        var pl = extractPermalink(all[i]);
-        var pid = extractPostId(all[i], pl, extractBody(all[i], "", findActionBar(all[i])), "");
-        return pid ? source.fb_id + "-" + pid : null;
+  function extractPermalink(article) {
+    var links = article.querySelectorAll(
+      'a[href*="/posts/"], a[href*="permalink"], a[href*="story_fbid"], ' +
+      'a[href*="/videos/"], a[href*="/reel/"]'
+    );
+    for (var i = 0; i < links.length; i++) {
+      if (links[i].href && links[i].href.indexOf("facebook.com") !== -1) {
+        return links[i].href.split("?")[0];
       }
     }
     return null;
+  }
+
+  function hashString(str) {
+    var hash = 0;
+    for (var i = 0; i < str.length; i++) {
+      hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
+    }
+    return Math.abs(hash).toString(36);
+  }
+
+  function extractPostId(article, permalink, body, author) {
+    if (permalink) {
+      var idMatch = permalink.match(/(?:posts|permalink|videos|reel)\/(\d+)/);
+      if (idMatch) return idMatch[1];
+      return permalink;
+    }
+    // Group feeds frequently render without a permalink until hover, so fall
+    // back to hashing author+body — stable enough to dedupe across scrolls.
+    if (!body && !author) return null;
+    return "h" + hashString(author + "|" + body.slice(0, 200));
+  }
+
+  // Names that are chrome, not people.
+  var NOT_A_NAME = /^(like|comment|share|reply|see more|follow|join|group|admin|moderator|top contributor|author|·|\d+[hdwmy]|anonymous participant)$/i;
+
+  function extractAuthor(article, bar) {
+    // Strict first: the author link lives in the post header, above the action
+    // bar. Casting wider than that picks up commenters, tagged users and link
+    // previews — which is how posts ended up attributed to a commenter.
+    var strict = authorPass(article, bar);
+    if (strict) return strict;
+
+    // Nothing above the bar. Same failure as extractBody: when findActionBar
+    // latches onto something near the top of the article, every candidate
+    // counts as "below" it and the post is attributed to nobody. A name
+    // picked from the whole article is occasionally the wrong person; the
+    // literal string "Unknown" printed where a name goes is always wrong.
+    var relaxed = authorPass(article, null);
+    if (relaxed) return relaxed;
+
+    // Genuinely could not read it. null rather than "Unknown" — the UI needs
+    // to be able to tell "no author captured" from a person with that name,
+    // and "Unknown" reads as a real byline on the card.
+    return { name: null, url: null };
+  }
+
+  function authorPass(article, bar) {
+    var candidates = article.querySelectorAll(
+      'h2 a[role="link"], h3 a[role="link"], h4 a[role="link"], ' +
+      'h2 a, h3 a, h4 a, strong a, a[role="link"] strong, ' +
+      'span a[role="link"], a[role="link"]'
+    );
+
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (isBelowBar(el, bar)) continue;
+      if (el.closest('div[role="article"]') !== article) continue;
+
+      var text = (el.textContent || "").trim().replace(/\s+/g, " ");
+      var anchor = el.tagName === "A" ? el : el.closest("a");
+      var href = (anchor && anchor.href) || "";
+
+      if (!text || text.length < 2 || text.length > 80) continue;
+      if (NOT_A_NAME.test(text)) continue;
+      if (text.charAt(0) === "#") continue;
+      // A link into the group itself is the group name, not a person.
+      if (href.indexOf("/groups/") !== -1 && href.indexOf("/user/") === -1) continue;
+      // Reject anything that is plainly a timestamp or a bare number.
+      if (/^\d[\d.,:\s]*$/.test(text)) continue;
+
+      return { name: text, url: href ? href.split("?")[0] : null };
+    }
+
+    // Fallback: a profile URL in the header still identifies the author even
+    // when the visible name is rendered in a way the selectors miss.
+    var profile = article.querySelector(
+      'a[href*="/user/"], a[href*="profile.php"], a[href*="facebook.com/"][role="link"]'
+    );
+    if (profile && !isBelowBar(profile, bar)) {
+      var slug = (profile.href || "").split("?")[0].replace(/\/$/, "").split("/").pop();
+      if (slug && !/^\d+$/.test(slug) && slug !== "groups") {
+        return { name: slug.replace(/[._-]/g, " "), url: profile.href.split("?")[0] };
+      }
+    }
+
+    return null;   // caller decides what an unreadable author means
+  }
+
+  var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
+
+  /* The post/comment boundary.
+   *
+   * Facebook gives comments role="article" too, and does not reliably nest
+   * them inside the post's own article — so "exclude nested articles" let
+   * every comment through as a post. Worse, a comment is often longer than
+   * the caption, so picking the longest text block returned the comment even
+   * for posts that were correctly identified.
+   *
+   * Two structural facts fix both: a post offers Share (a comment offers
+   * Reply), and everything belonging to the post sits ABOVE the Like/Comment/
+   * Share bar while comments sit below it.
+   */
+
+  function findActionBar(article) {
+    var candidates = article.querySelectorAll('[role="button"], [aria-label]');
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      var label = (el.getAttribute("aria-label") || "").trim();
+      var text = (el.textContent || "").trim();
+      if (/^(like|comment|share)$/i.test(text)) return el;
+      if (/^(like|comment|share|leave a comment|send this to friends)/i.test(label)) return el;
+    }
+    return null;
+  }
+
+  // True when `el` sits after the action bar — i.e. in the comments.
+  function isBelowBar(el, bar) {
+    if (!bar || !el) return false;
+    return !!(bar.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
   }
 
   // Elements belonging to THIS article, excluding anything owned by a nested
@@ -543,6 +654,30 @@
     // lesser failure: a post saved with the wrong caption is visible and
     // fixable, a post never saved at all is invisible.
     return bodyPass(article, authorName, null);
+  }
+
+  /* "See more".
+   *
+   * Facebook clamps a long caption and hides the rest behind a See more
+   * control. Reading innerText off a clamped post stores the first ~250
+   * characters and silently drops the rest — so the copy you'd actually want
+   * to study, and the copy Sage rewrites from, was a fragment.
+   *
+   * Expanding is a local DOM toggle: no request, nothing written to Facebook,
+   * nothing visible to anyone else. Clicking it is the only way to see what
+   * a person reading the post would see.
+   */
+  var SEE_MORE_RE = /^see more$/i;
+
+  function findSeeMore(article, bar) {
+    var buttons = article.querySelectorAll('div[role="button"], span[role="button"]');
+    for (var i = 0; i < buttons.length; i++) {
+      var el = buttons[i];
+      if (isBelowBar(el, bar)) continue;                  // comment expanders
+      if (el.closest('div[role="article"]') !== article) continue;
+      if (SEE_MORE_RE.test((el.textContent || "").trim())) return el;
+    }
+    return null;
   }
 
   function bodyPass(article, authorName, bar) {
@@ -978,15 +1113,26 @@
     STATS.commentsOnPage = 0;
 
     articles.forEach(function (article, articleIndex) {
-      // Comments carry role="article" as well, and are not reliably nested
-      // inside the post — so this has to be a positive test for post-ness,
-      // not merely a nesting check. Comments are still captured, just tagged
-      // and scored against other comments rather than against posts.
+      // Comments carry role="article" too, so this is a positive test for
+      // post-ness rather than a nesting check.
       var isPost = verdicts[articleIndex].isPost;
 
       // Per-scan gauges: what is on screen right now. Reset every pass.
       if (isPost) STATS.candidates++;
       else STATS.commentsOnPage++;
+
+      /* Comments are counted, not captured.
+       *
+       * Facebook renders one or two preview replies under a post, picked by
+       * "Most relevant" — an algorithmic choice, not an engagement ranking.
+       * Scoring those meant ranking two comments out of a hundred and ninety
+       * five, chosen by someone else's algorithm, and calling the winner a
+       * top comment. The sample is neither complete nor random, so no honest
+       * ranking can be built from it. Reading every comment would mean
+       * expanding each thread repeatedly on every post, which is slow,
+       * fragile, and not what this tool is for.
+       */
+      if (!isPost) return;
 
       // On a feed, each post belongs to a different group or page, so the
       // source is resolved per article rather than per scan.
@@ -994,6 +1140,17 @@
       if (!postSource) { STATS.unattributed++; return; }
 
       var bar = findActionBar(article);
+
+      // A clamped caption is a fragment, and a fragment stored as the post is
+      // worse than waiting one pass for the real thing. Expand, then let the
+      // next sweep (~800ms) capture it in full.
+      var seeMore = findSeeMore(article, bar);
+      if (seeMore) {
+        try { seeMore.click(); } catch (e) { /* detached node */ }
+        STATS.expanded++;
+        return;
+      }
+
       var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
       var permalink = extractPermalink(article);
@@ -1033,14 +1190,13 @@
       if (!hasText && !hasMedia && !hasEngagement) { STATS.skipped++; return; }
 
       SEEN.add(postSource.fb_id + "|" + postId);
-      if (!isPost) STATS.commentsFound++;
       found++;
 
       if (hasEngagement) STATS.withEngagement++;
       if (hasMedia) STATS.withMedia++;
       if (!hasText) STATS.mediaOnly++;
       if (bodyFromImage) STATS.textFromImage++;
-      logLine((isPost ? "" : "↳ ") + engagement.likes + "r " +
+      logLine(engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
 
@@ -1048,7 +1204,7 @@
         fb_post_id: postSource.fb_id + "-" + postId,
         body: body,
         permalink: permalink,
-        post_type: isPost ? extractPostType(article) : "comment",
+        post_type: extractPostType(article),
         posted_at: extractTimestamp(article),
         author_name: author.name,
         author_url: author.url,
@@ -1056,8 +1212,7 @@
         comments: engagement.comments,
         shares: engagement.shares,
         video_plays: engagement.video_plays,
-        item_type: isPost ? "post" : "comment",
-        parent_fb_id: isPost ? null : parentPostId(article, postSource),
+        item_type: "post",
         // Only sent when it differs from the batch's source — on a single
         // group or profile page every post shares one and repeating it on
         // every row would triple the payload for nothing.
@@ -1399,37 +1554,6 @@
     });
 
     /* --- draggable header --- */
-    // A vine down the inside edge, drawn on when the panel opens. Purely
-    // decorative — pointer-events off so it never intercepts a drag — and it
-    // carries the same organic-growth idea as the dashboard's meadow.
-    var vine = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    vine.setAttribute("viewBox", "0 0 40 600");
-    vine.setAttribute("preserveAspectRatio", "none");
-    vine.setAttribute("aria-hidden", "true");
-    styleEl(vine, {
-      position: "absolute", left: "0", top: "0",
-      width: "40px", height: "100%",
-      pointerEvents: "none", opacity: "0.5", zIndex: "0"
-    });
-    vine.innerHTML =
-      '<path d="M14 600 C 6 520, 26 470, 16 400 C 8 340, 26 300, 15 240 ' +
-      'C 6 190, 24 150, 14 90 C 9 55, 18 30, 15 0" ' +
-      'fill="none" stroke="rgba(52,211,153,0.5)" stroke-width="1.5" ' +
-      'stroke-linecap="round"/>' +
-      // Leaves along the stem, alternating sides.
-      '<path d="M16 460 q 14 -10 20 -2 q -12 10 -20 2 Z" fill="rgba(52,211,153,0.3)"/>' +
-      '<path d="M15 350 q -13 -10 -19 -2 q 11 10 19 2 Z" fill="rgba(52,211,153,0.26)"/>' +
-      '<path d="M17 250 q 14 -9 20 -1 q -12 9 -20 1 Z" fill="rgba(52,211,153,0.3)"/>' +
-      '<path d="M14 150 q -13 -9 -19 -1 q 11 9 19 1 Z" fill="rgba(52,211,153,0.24)"/>' +
-      '<circle cx="15" cy="40" r="2.4" fill="rgba(110,231,183,0.55)"/>';
-
-    var stem = vine.querySelector("path");
-    var stemLength = 900;                     // longer than the path; safe to over-dash
-    stem.style.strokeDasharray = stemLength;
-    stem.style.strokeDashoffset = stemLength;
-    stem.style.transition = "stroke-dashoffset 1.6s cubic-bezier(0.22,1,0.36,1)";
-    setTimeout(function () { stem.style.strokeDashoffset = "0"; }, 60);
-
     var header = document.createElement("div");
     styleEl(header, {
       display: "flex", alignItems: "center", justifyContent: "space-between",
@@ -1488,7 +1612,7 @@
     var content = document.createElement("div");
     styleEl(content, {
       display: "flex", flexDirection: "column", flex: "1",
-      padding: "1em 1.1em 1em 1.5em",   // extra left inset clears the vine
+      padding: "1em 1.1em",
       overflow: "hidden", minHeight: "0",
       position: "relative", zIndex: "1"
     });
@@ -1688,7 +1812,6 @@
     content.appendChild(rowBtns2);
     content.appendChild(pause);
 
-    hud.appendChild(vine);
     hud.appendChild(header);
     hud.appendChild(content);
     document.body.appendChild(hud);
@@ -1838,11 +1961,16 @@
       else if (source.kind === "feed") where = "in this feed";
     }
     hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
-    if (STATS.commentsOnPage || STATS.commentsFound) {
+    if (STATS.commentsOnPage) {
+      // Reported so the count is explained rather than mysterious: Facebook
+      // only previews a couple of replies per post, so any ranking built
+      // from them would be a ranking of Facebook's picks.
       hudBody.appendChild(row(
-        "Comments",
-        STATS.commentsFound + " kept / " + STATS.commentsOnPage + " on screen"
+        "Comments skipped", String(STATS.commentsOnPage), "#7fa693"
       ));
+    }
+    if (STATS.expanded) {
+      hudBody.appendChild(row("Expanded (See more)", String(STATS.expanded), "#6ee7b7"));
     }
     hudBody.appendChild(row(
       "Captured this group",

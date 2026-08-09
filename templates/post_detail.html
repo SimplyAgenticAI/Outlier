@@ -89,8 +89,11 @@
     {% if replies %}
     <div class="replies">
       <h3 class="replies-head">
-        {{ replies|length }} captured comment{{ '' if replies|length == 1 else 's' }}
-        on this post
+        {{ replies|length }} preview comment{{ '' if replies|length == 1 else 's' }}
+        <span class="replies-note">
+          — what Facebook showed inline, not the top ones. Comments aren't
+          ranked: only a couple are visible per post and Facebook chooses them.
+        </span>
       </h3>
       <ul class="reply-list">
         {% for reply in replies[:8] %}

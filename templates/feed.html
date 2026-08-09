@@ -66,29 +66,11 @@
       </span>
     </div>
     <div class="stat glass reveal spotlight">
-      <span class="stat-value" data-countup="{{ stats.comment_count }}">{{ stats.comment_count }}</span>
-      <span class="stat-label">Comments captured</span>
-    </div>
-    <div class="stat glass reveal spotlight">
       <span class="stat-value" data-countup="{{ stats.source_count }}">{{ stats.source_count }}</span>
       <span class="stat-label">Groups tracked</span>
     </div>
   </section>
 
-  {% if comment_count %}
-  {# Posts and comments are ranked against their own kind, so switching view
-     is switching population — not filtering one list. #}
-  <div class="kind-switch">
-    <a class="kind-tab {{ 'active' if kind == 'post' }}"
-       href="{{ url_for('feed', kind='post', samples='1' if show_samples else None) }}">
-      Posts
-    </a>
-    <a class="kind-tab {{ 'active' if kind == 'comment' }}"
-       href="{{ url_for('feed', kind='comment', samples='1' if show_samples else None) }}">
-      Comments <span class="kind-count">{{ comment_count }}</span>
-    </a>
-  </div>
-  {% endif %}
 
   {% if stats.no_engagement_count and stats.no_engagement_count > stats.post_count // 2 %}
   <div class="glass notice reveal">
@@ -101,12 +83,9 @@
 
   <section class="feed-head">
     <div>
-      <h1>{{ 'Top comments' if kind == 'comment' else 'Outlier feed' }}</h1>
+      <h1>Outlier feed</h1>
       <p class="sub">
-        {% if kind == 'comment' %}
-          Comments ranked against other comments in the same group — what the
-          room responds to, not what gets posted.
-        {% elif scored_visible %}
+        {% if scored_visible %}
           Ranked by how far each post beat the median in its own group.
           {% if unscored_visible %}
           Unscored captures follow, ordered by raw engagement.
@@ -119,11 +98,11 @@
     <div class="filters">
       {% for key, label in [('all','All'),('breakout','Breakout'),('strong','Strong'),('above','Above baseline')] %}
       <a class="filter {{ 'active' if tier_filter == key }}"
-         href="{{ url_for('feed', tier=key, kind=kind, samples='1' if show_samples else None) }}">{{ label }}</a>
+         href="{{ url_for('feed', tier=key, samples='1' if show_samples else None) }}">{{ label }}</a>
       {% endfor %}
       {% if sample_count and real_count %}
       <a class="filter {{ 'active' if show_samples }}"
-         href="{{ url_for('feed', tier=tier_filter, kind=kind, samples=None if show_samples else '1') }}"
+         href="{{ url_for('feed', tier=tier_filter, samples=None if show_samples else '1') }}"
          title="{{ sample_count }} generated sample posts">
         {{ 'Hide' if show_samples else 'Show' }} samples
       </a>
@@ -166,14 +145,14 @@
   {% if page_count > 1 %}
   <nav class="pager">
     <a class="btn btn-ghost{{ ' is-off' if page <= 1 }}"
-       href="{{ url_for('feed', tier=tier_filter, kind=kind, page=page-1,
+       href="{{ url_for('feed', tier=tier_filter, page=page-1,
                         samples='1' if show_samples else None) }}">← Newer</a>
     <span class="pager-count">
       Showing <b>{{ range_start }}–{{ range_end }}</b> of {{ total_visible }}
       · page {{ page }} of {{ page_count }}
     </span>
     <a class="btn btn-ghost{{ ' is-off' if page >= page_count }}"
-       href="{{ url_for('feed', tier=tier_filter, kind=kind, page=page+1,
+       href="{{ url_for('feed', tier=tier_filter, page=page+1,
                         samples='1' if show_samples else None) }}">Older →</a>
   </nav>
   {% endif %}
@@ -187,7 +166,7 @@
         in a band, and {{ unscored_count }} of your captures aren't scored yet —
         their groups need more posts, or were captured without engagement counts.
       </p>
-      <a class="btn btn-primary" href="{{ url_for('feed', kind=kind) }}">Show all posts</a>
+      <a class="btn btn-primary" href="{{ url_for('feed') }}">Show all posts</a>
     {% elif tier_filter != 'all' %}
       <p>No posts in the <b>{{ tier_filter }}</b> band. Try a wider filter.</p>
       <a class="btn btn-ghost" href="{{ url_for('feed') }}">Show all</a>

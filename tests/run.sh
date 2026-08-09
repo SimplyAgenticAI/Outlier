@@ -14,6 +14,8 @@ print('templates ok')"
 python -c "import json;json.load(open('extension/manifest.json',encoding='utf-8'));print('manifest ok')"
 echo "--- engagement extraction ---"
 node tests/engagement.test.js
+echo "--- see more expansion ---"
+node tests/seemore.test.js
 echo "--- source detection ---"
 node tests/surfaces.test.js
 echo "--- app consistency ---"

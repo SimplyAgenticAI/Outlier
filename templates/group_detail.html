@@ -32,20 +32,6 @@
 <div class="glass notice">{% include "_blocker.html" %}</div>
 {% endif %}
 
-{% if comment_count %}
-{# Posts and comments have separate baselines, so switching here switches
-   population — the same control the feed uses, for the same reason. #}
-<div class="kind-switch">
-  <a class="kind-tab {{ 'active' if kind == 'post' }}"
-     href="{{ url_for('group_detail', source_id=source.id, kind='post') }}">
-    Posts <span class="kind-count">{{ stats.post_count }}</span>
-  </a>
-  <a class="kind-tab {{ 'active' if kind == 'comment' }}"
-     href="{{ url_for('group_detail', source_id=source.id, kind='comment') }}">
-    Comments <span class="kind-count">{{ comment_count }}</span>
-  </a>
-</div>
-{% endif %}
 
 {% if posts %}
 <section class="post-list">
@@ -55,10 +41,7 @@
 </section>
 {% else %}
 <div class="glass empty-panel">
-  <p>
-    {% if kind == 'comment' %}No comments captured from this source yet.
-    {% else %}No posts captured from this source yet.{% endif %}
-  </p>
+  <p>No posts captured from this source yet.</p>
 </div>
 {% endif %}
 

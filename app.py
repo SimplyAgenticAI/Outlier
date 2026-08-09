@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "3.5"
+APP_VERSION = "3.6"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -171,20 +171,21 @@ def feed():
     """The outlier feed — posts ranked by how far they beat their own baseline."""
     tier_filter = request.args.get("tier", "all")
     show_samples = request.args.get("samples") == "1"
-    # Posts and comments are separate populations with separate baselines, so
-    # they get separate views rather than one mixed ranking.
-    kind = request.args.get("kind", "post")
-    if kind not in ("post", "comment"):
-        kind = "post"
+
+    # Posts only.
+    #
+    # Facebook previews one or two replies per post, chosen by "Most
+    # relevant". Ranking those produced a "top comment" out of two samples
+    # drawn from a hundred and ninety five by somebody else's algorithm.
+    # Comment capture is gone; any comment rows still in the database are
+    # from older versions and are shown on their post's page as what they
+    # are — a partial preview — rather than ranked.
+    kind = "post"
 
     all_posts = _fetch_posts()
     scored = outliers.score_posts(all_posts)
 
     real_count = sum(1 for s in scored if not s["is_demo"])
-    comment_count = sum(
-        1 for s in scored
-        if (s.get("item_type") or "post") == "comment" and s["has_baseline"]
-    )
 
     # Everything of this kind, scored or not. Requiring a baseline here is
     # what made the feed useless: hundreds of captured posts sat in the
@@ -227,8 +228,6 @@ def feed():
         real_count=real_count,
         sample_count=len(scored) - real_count,
         show_samples=show_samples,
-        kind=kind,
-        comment_count=comment_count,
         # Distinguishes "nothing captured" from "captured, but not enough of
         # any one group to score" — completely different problems.
         unscored_count=sum(1 for s in scored if not s["has_baseline"]),
@@ -491,25 +490,17 @@ def group_detail(source_id):
     if not source:
         return render_template("404.html", version=APP_VERSION), 404
 
-    # Same split as the feed. This page listed posts and comments in one
-    # stream under a heading that counted only the posts, so a 25-post group
-    # rendered 31 cards.
-    kind = request.args.get("kind", "post")
-    if kind not in ("post", "comment"):
-        kind = "post"
-
+    # Posts only, same reason as the feed. This page used to list posts and
+    # comments in one stream under a heading that counted only the posts, so
+    # a 25-post group rendered 31 cards.
     posts = _fetch_posts(source_id=source_id)
     scored = outliers.score_posts(posts)
-    visible = [s for s in scored if (s.get("item_type") or "post") == kind]
-    comment_count = sum(1 for s in scored
-                        if (s.get("item_type") or "post") == "comment")
+    visible = [s for s in scored if (s.get("item_type") or "post") == "post"]
 
     return render_template(
         "group_detail.html",
         source=dict(source),
         posts=visible,
-        kind=kind,
-        comment_count=comment_count,
         stats=outliers.source_stats(posts) if posts else None,
         tier_labels=outliers.TIER_LABELS,
         version=APP_VERSION,
