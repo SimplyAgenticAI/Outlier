@@ -1202,6 +1202,23 @@
       hudBody.appendChild(err);
     }
 
+    // Captures that cannot be sent are the worst silent failure in the
+    // product: the counter climbs, everything looks healthy, and the
+    // dashboard stays empty.
+    if (STATS.lastError) {
+      var errBox = document.createElement("div");
+      errBox.textContent = STATS.lastError;
+      styleEl(errBox, {
+        margin: "0.6em 0 0", padding: "0.55em 0.7em", borderRadius: "8px",
+        background: "rgba(224,122,95,0.16)",
+        border: "1px solid rgba(224,122,95,0.4)",
+        color: "#ffb59d", fontSize: "0.92em", lineHeight: "1.45"
+      });
+      hudBody.appendChild(errBox);
+    } else if (STATS.queued > 0 && STATS.sent === 0) {
+      hudBody.appendChild(row("⚠ waiting to send", String(STATS.queued), "#d9b45f"));
+    }
+
     hudLog.textContent = STATS.log.length
       ? STATS.log.join("\n")
       : "Nothing captured yet.\nPress Start auto-scroll.";

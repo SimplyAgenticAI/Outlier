@@ -29,10 +29,10 @@
         Download extension (v{{ extension_version }})
       </a>
       <p class="fine" style="margin-top:9px">
-        This download is yours specifically — it carries your account key, so
-        the extension works the moment Chrome loads it. Don't pass this file
-        on; use the sharing link below, which contains no credentials.
-        Downloading again issues a fresh key and disconnects earlier copies.
+        Carries this dashboard's address, and no credentials — so it's safe to
+        pass on, and downloading it again won't disconnect anything. Your
+        account key is handed over automatically the first time you open this
+        dashboard with the extension installed.
       </p>
     </div>
   </div>
@@ -102,9 +102,9 @@
       <span class="step-n">6</span>
       <div>
         <b>Open Facebook and press Start</b>
-        <p>That's it — the download above already carries this dashboard's
-           address and your account key, so there is nothing to connect.
-           Works on groups, pages, profiles and your feed.</p>
+        <p>That's it. Loading this page while signed in is all the connecting
+           it needs — the extension is handed a key automatically. Works on
+           groups, pages, profiles and your feed.</p>
       </div>
     </div>
     <div class="istep-body">
@@ -126,16 +126,7 @@
   <code>chrome://extensions</code>. You don't need to remove and re-add it.
 </div>
 
-<details class="share-details">
-  <summary>Sharing it with someone else</summary>
-  <p class="fine">
-    This build carries no account key, so whoever installs it connects with
-    their own. Safe to pass on; the one above is not.
-  </p>
-  <a class="btn btn-ghost" href="{{ url_for('download_extension', share=1) }}">
-    Download a shareable copy
-  </a>
-</details>
+
 
 {% else %}
 

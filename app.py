@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "4.8"
+APP_VERSION = "4.9"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -1256,16 +1256,18 @@ def download_extension():
     # server already knows.
     home = request.url_root.rstrip("/")
 
-    # And the account key with it. The person downloading this is signed in —
-    # the server can mint a key and bake it in, so the extension works the
-    # moment Chrome loads it. Asking them to visit the Account page, copy a
-    # key and paste it into a popup was a step that existed only because the
-    # zip was built without knowing who asked for it.
+    # No key is stamped into the zip, and downloading no longer rotates one.
     #
-    # ?share=1 builds the same zip with no credentials, for handing to someone
-    # else. Never stamp a key into that one.
-    share = request.args.get("share") == "1"
-    api_key = "" if share else auth.rotate_api_key(auth.current_user()["id"])
+    # Baking a key in removed a setup step, but keys are stored hashed and
+    # cannot be read back — so stamping one meant MINTING one, and every
+    # download silently revoked the key the extension was already using.
+    # Fourteen downloads later the extension held a dead key, kept sending
+    # with it, and none of the captures landed.
+    #
+    # The dashboard's auto-connect covers this anyway: opening it while
+    # signed in hands the extension a key with nothing to click, and issues
+    # one when it is actually needed rather than one per download.
+    api_key = ""
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:

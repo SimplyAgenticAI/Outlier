@@ -95,7 +95,19 @@ async function handleCapture(message) {
     });
 
     if (response.status === 401) {
-      return { ok: false, error: "Account key rejected — check it on the Account page" };
+      /* Throw the dead key away.
+       *
+       * Keeping it meant the extension looked connected forever: the
+       * dashboard's auto-connect only re-issues when it believes there is
+       * no key, and a REVOKED key is indistinguishable from a live one
+       * until it is used. Captures piled up locally and never landed, with
+       * nothing on either side saying why.
+       */
+      await chrome.storage.local.remove(["apiKey"]);
+      return {
+        ok: false,
+        error: "Key was rejected and has been cleared — open your dashboard once to reconnect."
+      };
     }
     if (response.status === 402) {
       const body = await response.json().catch(() => ({}));
