@@ -242,8 +242,21 @@
     '[role="complementary"], [role="banner"], [role="navigation"]';
 
   function feedArticles() {
-    var main = document.querySelector('div[role="main"]') || document.body;
-    var all = main.querySelectorAll('div[role="article"]');
+    /* Scoping to role="main" keeps Messenger and dialogs out, but it is an
+     * assumption about Facebook's layout — and if this group's main region
+     * does not contain the posts, it returns nothing and the scan has
+     * nothing to do. Silently. So: try the narrow scope, and fall back to
+     * the whole document with the chat filter still applied.
+     */
+    var main = document.querySelector('div[role="main"]');
+    var found = collectArticles(main);
+    if (found.length) return found;
+    return collectArticles(document.body);
+  }
+
+  function collectArticles(root) {
+    if (!root) return [];
+    var all = root.querySelectorAll('div[role="article"], [role="article"]');
     var out = [];
     for (var i = 0; i < all.length; i++) {
       if (all[i].closest(NOT_FEED)) { STATS.skippedChat++; continue; }
@@ -1144,7 +1157,7 @@
       width: "100%", marginTop: "0.5em", padding: "0.65em", borderRadius: "8px",
       border: "1px solid rgba(217,180,95,0.45)", cursor: "pointer",
       background: "rgba(217,180,95,0.12)", color: "#e8c66f",
-      fontSize: "0.92em", flexShrink: "0", display: "none"
+      fontSize: "0.92em", flexShrink: "0"
     });
     saveBtn.addEventListener("click", savePageReport);
 
@@ -1227,12 +1240,13 @@
 
     // Nothing captured is never left unexplained: each cause has a different
     // fix, and they used to be indistinguishable from one another.
-    // Only shown when something is wrong. A working scan has no reason to
-    // display counters about what it discarded.
-    if (capturedCount === 0 && STATS.articles > 0) {
+    // Shown whenever nothing has been captured — including when no articles
+    // were found at all, which the previous condition hid entirely.
+    if (capturedCount === 0) {
       hudBody.appendChild(row("On screen",
         STATS.articles + " items · " + STATS.skippedComment + " replies · " +
-        STATS.skippedEmpty + " unreadable"));
+        STATS.skippedEmpty + " unreadable",
+        STATS.articles === 0 ? "#e07a5f" : null));
     }
 
     if (STATS.errors) {
@@ -1254,12 +1268,6 @@
 
     hudLog.textContent = STATS.log.length ? STATS.log.join("\n")
                                           : "Nothing captured yet.\nPress Start.";
-    // Offered only when a scan has run and found nothing.
-    if (saveBtn) {
-      saveBtn.style.display =
-        (capturedCount === 0 && STATS.articles > 0) ? "" : "none";
-    }
-
     hudBtn.textContent = autoScrolling ? "Stop" : "Start auto-scroll";
     hudBtn.style.background = autoScrolling
       ? "rgba(224,122,95,0.92)" : "linear-gradient(135deg, #34d399, #10b981)";
