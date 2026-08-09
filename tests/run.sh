@@ -2,6 +2,7 @@
 # Every test, one command. Run before pushing.
 set -e
 cd "$(dirname "$0")/.."
+
 echo "--- syntax ---"
 for f in extension/*.js static/js/*.js; do node --check "$f"; done
 python -c "import ast,glob;[ast.parse(open(f,encoding='utf-8').read()) for f in glob.glob('*.py')];print('python ok')"
@@ -12,13 +13,26 @@ for p in pathlib.Path('templates').glob('*.html'):
     env.parse(p.read_text(encoding='utf-8'), filename=p.name)
 print('templates ok')"
 python -c "import json;json.load(open('extension/manifest.json',encoding='utf-8'));print('manifest ok')"
+
+echo "--- no duplicate definitions ---"
+# A duplicated block once meant edits landed in code the browser never ran.
+node -e '
+var src = require("fs").readFileSync("extension/content.js", "utf8").split("\n");
+var seen = {}, dupes = [];
+src.forEach(function (l, i) {
+  var m = l.match(/^\s*(?:function (\w+)|var ([A-Z_]+) =)/);
+  if (!m) return;
+  var n = m[1] || m[2];
+  if (seen[n]) dupes.push(n + " (lines " + seen[n] + ", " + (i + 1) + ")");
+  else seen[n] = i + 1;
+});
+if (dupes.length) { console.error("DUPLICATE DEFINITIONS: " + dupes.join(", ")); process.exit(1); }
+console.log("content.js clean");
+'
+
 echo "--- scan captures posts ---"
 node tests/scan.test.js
-echo "--- engagement extraction ---"
-node tests/engagement.test.js
-echo "--- see more expansion ---"
-node tests/seemore.test.js
-echo "--- source detection ---"
-node tests/surfaces.test.js
+echo "--- extraction ---"
+node tests/extract.test.js
 echo "--- app consistency ---"
 python tests/consistency.test.py
