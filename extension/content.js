@@ -1007,7 +1007,9 @@
       background: "rgba(4,14,9,0.7)", border: "1px solid rgba(110,231,183,0.14)",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
       fontSize: "0.84em", lineHeight: "1.65", color: "#7fa693",
-      whiteSpace: "pre", scrollbarWidth: "thin"
+      whiteSpace: "pre",
+      scrollbarWidth: "thin",
+      scrollbarColor: "rgba(52,211,153,0.45) rgba(255,255,255,0.03)"
     });
 
     /* --- buttons --- */
@@ -1054,7 +1056,15 @@
     var scroller = document.createElement("div");
     styleEl(scroller, {
       flex: "1", minHeight: "0", overflowY: "auto", overflowX: "hidden",
-      display: "flex", flexDirection: "column"
+      display: "flex", flexDirection: "column",
+      // The bar sat directly over the right-hand column, clipping the very
+      // numbers the panel exists to show.
+      paddingRight: "0.7em",
+      // Chrome's default bar is a wide light grey slab on a dark panel.
+      // Set through element.style because Facebook's CSP rejects an
+      // injected stylesheet, so ::-webkit-scrollbar rules are unavailable.
+      scrollbarWidth: "thin",
+      scrollbarColor: "rgba(52,211,153,0.6) rgba(255,255,255,0.04)"
     });
 
     scroller.appendChild(hudBody);
@@ -1073,17 +1083,25 @@
   function row(label, value, accent) {
     var line = document.createElement("div");
     styleEl(line, {
-      display: "flex", justifyContent: "space-between",
-      padding: "0.22em 0", fontSize: "0.98em"
+      display: "flex", justifyContent: "space-between", alignItems: "baseline",
+      gap: "0.8em", padding: "0.3em 0", fontSize: "1.02em"
     });
 
     var l = document.createElement("span");
     l.textContent = label;
-    styleEl(l, { color: "#567a67" });
+    // Was #567a67 — a thin grey measuring under 3:1 against this panel and
+    // hard to read at 13px.
+    styleEl(l, { color: "#b8d4c6", fontWeight: "600", flexShrink: "0" });
 
     var v = document.createElement("span");
     v.textContent = value;
-    styleEl(v, { color: accent || "#eafff3", fontWeight: "700" });
+    // Truncate rather than overflow: a long group name must not push its own
+    // value out past the edge of the panel.
+    styleEl(v, {
+      color: accent || "#ffffff", fontWeight: "700",
+      minWidth: "0", overflow: "hidden",
+      textOverflow: "ellipsis", whiteSpace: "nowrap", textAlign: "right"
+    });
 
     line.appendChild(l);
     line.appendChild(v);
