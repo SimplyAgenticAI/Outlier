@@ -44,15 +44,24 @@
       <span class="dot-sep">·</span>
       <a class="source" href="{{ url_for('group_detail', source_id=post.source_id) }}">{{ post.source_name }}</a>
       <span class="dot-sep">·</span>
-      <span class="type-chip">{{ post.post_type }}</span>
       {% if post.item_type == 'comment' %}
-      <span class="comment-chip" title="A comment, scored against other comments">comment</span>
+      {# post_type is stored as "comment" for comments, so rendering both
+         chips printed "comment · comment" on every one of them. #}
+      <span class="comment-chip" title="A comment, scored against other comments in this source">comment</span>
+      {% else %}
+      <span class="type-chip">{{ post.post_type }}</span>
       {% endif %}
       {% if post.is_demo %}
       <span class="demo-chip" title="Generated sample content — not a real Facebook post">sample</span>
       {% endif %}
-      {% if post.still_climbing %}
-      <span class="climbing-chip" title="Less than 48h old — still accumulating engagement">still climbing</span>
+      {% if post.age_label %}
+      {# The age, not a verdict on it. "Still climbing" asserted the post was
+         gaining engagement, which nothing here measures — only when it was
+         posted is actually known. #}
+      <span class="age-chip{{ ' is-recent' if post.is_recent }}"
+            title="{{ 'Under 48h old, so its numbers are still filling in' if post.is_recent else '' }}">
+        {{ post.age_label }}
+      </span>
       {% endif %}
     </div>
 

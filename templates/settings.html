@@ -116,21 +116,27 @@
         </td>
         <td>{{ source.post_count }}</td>
         <td>
-          {% if source.is_demo %}
+          {# Same measured_pct the groups page shows. This column used to read
+             a separately-computed engagement_pct and could disagree with it. #}
+          {% if source.is_demo or not source.stats %}
             <span class="muted">—</span>
-          {% elif source.engagement_pct >= 60 %}
-            <span class="ok-tone">{{ source.engagement_pct }}%</span>
+          {% elif source.stats.measured_pct >= 60 %}
+            <span class="ok-tone">{{ source.stats.measured_pct }}%</span>
           {% else %}
-            <span class="warn-tone">{{ source.engagement_pct }}%</span>
+            <span class="warn-tone">{{ source.stats.measured_pct }}%</span>
           {% endif %}
         </td>
         <td>
-          {% if source.stats and source.stats.has_baseline %}
+          {% if not source.stats %}
+            <span class="muted">no posts</span>
+          {% elif not source.stats.blocker %}
             <span class="ok-tone">ready</span>
-          {% elif source.stats and source.stats.low_baseline %}
-            <span class="warn-tone" title="Median engagement too low to compare against — re-capture this group">baseline too low</span>
+          {% elif source.stats.blocker == 'unreadable' %}
+            <span class="warn-tone" title="Engagement counts could not be read from most of these — re-scan">counts unreadable</span>
+          {% elif source.stats.blocker == 'low-baseline' %}
+            <span class="warn-tone" title="Median engagement too near zero to divide by">baseline too low</span>
           {% else %}
-            <span class="muted">needs {{ 8 - source.stats.post_count if source.stats and source.stats.post_count < 8 else 0 }} more posts</span>
+            <span class="muted">needs {{ min_sample - source.stats.measured_count }} more</span>
           {% endif %}
         </td>
         <td class="row-actions">

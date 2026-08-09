@@ -40,9 +40,14 @@ MIN_BASELINE_COMMENT = 3
 # is already the top of the feed; the exact figure adds nothing.
 MAX_MULTIPLE = 99.9
 
-# Posts younger than this are still accumulating engagement. They're scored but
-# flagged, so a 2-hour-old post doesn't get written off as underperforming.
-STILL_CLIMBING_HOURS = 48
+# Below this age a post has not finished collecting engagement, so a low score
+# says more about the clock than the post. Flagged, not hidden.
+#
+# Note what this is NOT: nothing here can tell whether a post has stopped
+# gaining engagement. All that is known is when it was posted. The UI says
+# "posted 5h ago" — a fact — rather than "still climbing", which was a claim
+# about a trend nobody measured.
+RECENT_HOURS = 48
 
 
 def weighted_engagement(post):
@@ -175,7 +180,7 @@ def score_posts(posts):
                 robust_z = None
 
             age_hours = _hours_since(post["posted_at"])
-            still_climbing = age_hours is not None and age_hours < STILL_CLIMBING_HOURS
+            is_recent = age_hours is not None and age_hours < RECENT_HOURS
 
             record = dict(post)
             record.update(
@@ -190,7 +195,8 @@ def score_posts(posts):
                     "robust_z": round(robust_z, 2) if robust_z is not None else None,
                     "has_baseline": scoreable,
                     "low_baseline": low_baseline,
-                    "still_climbing": still_climbing,
+                    "is_recent": is_recent,
+                    "age_label": age_label(age_hours),
                     # Lets the UI separate "this post got nothing" from "we
                     # could not read what it got".
                     "engagement_known": known,
@@ -223,6 +229,24 @@ RANK_BASIS_LABELS = {
     "recency": "No engagement on this post — ordered by when it was captured",
     "unread": "Engagement couldn't be read from this post — re-capture the group",
 }
+
+
+def age_label(age_hours):
+    """A post's age as a plain fact. None when no timestamp was captured."""
+    if age_hours is None:
+        return None
+    if age_hours < 1:
+        return "posted under an hour ago"
+    if age_hours < 24:
+        return "posted %dh ago" % int(age_hours)
+    days = int(age_hours // 24)
+    if days < 7:
+        return "posted %d day%s ago" % (days, "" if days == 1 else "s")
+    weeks = days // 7
+    if weeks < 5:
+        return "posted %d week%s ago" % (weeks, "" if weeks == 1 else "s")
+    months = days // 30
+    return "posted %d month%s ago" % (months, "" if months == 1 else "s")
 
 
 def _rank_basis(scoreable, known, engagement):
@@ -335,6 +359,21 @@ def source_stats(items):
         # to 40 measured posts that all did badly.
         "measured_count": len(measured),
         "unread_count": len(posts) - len(measured),
+        # The single definition of "how much of this source could be read".
+        # It used to be computed one way here and another way in SQL for the
+        # groups list, so the same group reported two different figures
+        # depending on which page you were looking at.
+        "measured_pct": (round(len(measured) / len(posts) * 100) if posts else 0),
+        # What is actually stopping this source from scoring, or None. Every
+        # page renders this rather than re-deriving it from the parts and
+        # drifting out of agreement.
+        "blocker": (
+            None if scoreable
+            else "no-posts" if not posts
+            else "unreadable" if len(measured) < MIN_SAMPLE and len(posts) >= MIN_SAMPLE
+            else "too-few" if len(measured) < MIN_SAMPLE
+            else "low-baseline"
+        ),
         # Only posts that actually carry a baseline. Reading the max across
         # every post reported a multiple for groups where nothing was scored.
         "top_multiple": max(

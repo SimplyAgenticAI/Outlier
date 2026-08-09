@@ -37,6 +37,22 @@
       <img src="{{ post.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
     </a>
     {% endif %}
+    {% if post.item_type == 'comment' %}
+    {# What this replied to. A comment opened on its own said nothing about
+       why it did well — the post above it is the whole context. #}
+    <div class="reply-context">
+      {% if parent %}
+        <span class="reply-lab">Replying to</span>
+        <a class="reply-link" href="{{ url_for('post_detail', post_id=parent.id) }}">
+          {{ (parent.body or 'the post')[:120] }}{% if (parent.body or '')|length > 120 %}…{% endif %}
+        </a>
+      {% else %}
+        <span class="reply-lab">A comment. The post it replied to wasn't captured
+        — scroll that group again with the post on screen to pick it up.</span>
+      {% endif %}
+    </div>
+    {% endif %}
+
     <p class="detail-body{{ ' is-empty' if not post.body }}">
       {%- if post.body -%}{{ post.body }}
       {%- elif post.image_url or post.has_video -%}No caption — {{ 'video' if post.has_video else 'image' }} post
@@ -58,6 +74,28 @@
         <span class="d-lab">group median</span>
       </div>
     </div>
+
+    {% if replies %}
+    <div class="replies">
+      <h3 class="replies-head">
+        {{ replies|length }} captured comment{{ '' if replies|length == 1 else 's' }}
+        on this post
+      </h3>
+      <ul class="reply-list">
+        {% for reply in replies[:8] %}
+        <li>
+          <a href="{{ url_for('post_detail', post_id=reply.id) }}">
+            <span class="reply-count">
+              {%- if reply.engagement_known -%}{{ "{:,}".format(reply.total_engagement) }}
+              {%- else -%}&mdash;{%- endif -%}
+            </span>
+            <span class="reply-body">{{ (reply.body or 'No text captured')[:140] }}</span>
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
 
     {% if post.permalink %}
     <a class="btn btn-ghost" href="{{ post.permalink }}" target="_blank" rel="noopener noreferrer">

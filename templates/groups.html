@@ -21,9 +21,6 @@
       <span class="kind-chip">{{ source.kind }}</span>
       {% if source.is_demo %}
         <span class="demo-chip" title="Generated sample content">sample</span>
-      {% elif source.engagement_pct < 60 and source.post_count %}
-        <span class="demo-chip"
-              title="Most posts captured without engagement counts — re-scan with the current extension">{{ source.engagement_pct }}% read</span>
       {% endif %}
     </div>
 
@@ -31,62 +28,41 @@
       {{ source.name }}
     </a>
 
+    {# One layout for every source, always the same four figures in the same
+       places. The previous version branched into four different bodies with
+       four different sentences, so the same group described itself
+       differently here and on its own page. A card that changes shape is a
+       card you have to re-read every time. #}
     {% if source.stats %}
-      {% if source.stats.has_baseline %}
-      <div class="source-stats">
-        <div>
-          <span class="s-val" data-countup="{{ source.stats.post_count }}">{{ source.stats.post_count }}</span>
-          <span class="s-lab">posts</span>
-        </div>
-        <div>
-          <span class="s-val accent" data-countup="{{ source.stats.outlier_count }}">{{ source.stats.outlier_count }}</span>
-          <span class="s-lab">outliers</span>
-        </div>
-        <div>
-          {% if source.stats.top_multiple is not none %}
-          <span class="s-val" data-countup="{{ source.stats.top_multiple }}">{{ source.stats.top_multiple }}</span><span class="s-unit">×</span>
-          {% else %}
-          <span class="s-val stat-none">—</span>
-          {% endif %}
-          <span class="s-lab">best</span>
-        </div>
-        {% if source.stats.comment_count %}
-        <div>
-          <span class="s-val">{{ source.stats.comment_count }}</span>
-          <span class="s-lab">comments</span>
-        </div>
-        {% endif %}
+    <div class="source-stats">
+      <div>
+        <span class="s-val" data-countup="{{ source.stats.post_count }}">{{ source.stats.post_count }}</span>
+        <span class="s-lab">posts</span>
       </div>
-      {% elif source.stats.unread_count and source.stats.measured_count < 8 %}
-      {# The real blocker, stated plainly. This used to render
-         "needs {{ 8 - post_count }} more", which went negative the moment a
-         group had 40 captured posts and only 3 readable ones. #}
-      <p class="needs-data">
-        <b class="warn-tone">Not scored.</b>
-        {{ source.stats.post_count }} posts captured, but engagement could only
-        be read from {{ source.stats.measured_count }} of them — a baseline needs
-        8. Re-scan this group; if it stays low, press <b>Diagnose</b> in the
-        Tallgrass panel.
-      </p>
-      {% elif source.stats.low_baseline %}
-      <p class="needs-data">
-        <b class="warn-tone">Not scored.</b>
-        Median engagement across the {{ source.stats.measured_count }} readable
-        posts is {{ source.stats.raw_baseline | round | int }} — too low to compare
-        against without manufacturing outliers out of near-zero.
-      </p>
-      {% else %}
-      <p class="needs-data">
-        {{ source.stats.measured_count }} readable
-        post{{ '' if source.stats.measured_count == 1 else 's' }} — needs
-        {{ 8 - source.stats.measured_count }} more for a baseline.
-        {%- if source.stats.unread_count %}
-        ({{ source.stats.unread_count }} captured without engagement counts.)
-        {%- endif %}
-      </p>
-      {% endif %}
+      <div>
+        <span class="s-val{{ ' warn-tone' if source.stats.measured_pct < 60 }}"
+              data-countup="{{ source.stats.measured_pct }}">{{ source.stats.measured_pct }}</span><span class="s-unit">%</span>
+        <span class="s-lab" title="Posts whose engagement counts could be read">readable</span>
+      </div>
+      <div>
+        {% if source.stats.top_multiple is not none %}
+        <span class="s-val" data-countup="{{ source.stats.top_multiple }}">{{ source.stats.top_multiple }}</span><span class="s-unit">×</span>
+        {% else %}
+        <span class="s-val stat-none">—</span>
+        {% endif %}
+        <span class="s-lab">best</span>
+      </div>
+      <div>
+        <span class="s-val accent" data-countup="{{ source.stats.outlier_count }}">{{ source.stats.outlier_count }}</span>
+        <span class="s-lab">outliers</span>
+      </div>
+    </div>
+
+    {% if source.stats.blocker %}
+    <p class="needs-data">{% include "_blocker.html" %}</p>
+    {% endif %}
     {% else %}
-      <p class="needs-data">No posts captured yet.</p>
+    <p class="needs-data">No posts captured yet.</p>
     {% endif %}
 
     {% if source.last_capture %}

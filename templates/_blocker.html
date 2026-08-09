@@ -1,0 +1,23 @@
+{# Why a source has no score, in one sentence, from one computed value.
+   Included by both the groups list and the group page so they cannot drift
+   apart — they previously disagreed, and the group page still told people
+   with 40 captured posts that they needed 8. #}
+{% set s = stats if stats is defined and stats else source.stats %}
+{% if s.blocker == 'unreadable' %}
+  <b class="warn-tone">Not scored.</b>
+  {{ s.post_count }} posts captured, but engagement could be read from only
+  {{ s.measured_count }} — a baseline needs {{ min_sample }}. Re-scan with the
+  current extension.
+{% elif s.blocker == 'too-few' %}
+  <b>Not scored yet.</b>
+  {{ s.measured_count }} readable post{{ '' if s.measured_count == 1 else 's' }} —
+  {{ min_sample - s.measured_count }} more and this source gets a baseline.
+  {%- if s.unread_count %} ({{ s.unread_count }} captured without counts.){% endif %}
+{% elif s.blocker == 'low-baseline' %}
+  <b class="warn-tone">Not scored.</b>
+  The median across {{ s.measured_count }} readable posts is
+  {{ s.raw_baseline | round | int }} — too near zero to divide by without
+  turning ordinary posts into fake breakouts.
+{% elif s.blocker == 'no-posts' %}
+  No posts captured yet.
+{% endif %}

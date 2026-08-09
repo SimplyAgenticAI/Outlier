@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "3.3"
+APP_VERSION = "3.4"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -237,9 +237,7 @@ def _sources_with_stats():
             """
             SELECT s.*,
                    COUNT(p.id) AS post_count,
-                   SUM(CASE WHEN p.is_demo = 1 THEN 1 ELSE 0 END) AS demo_count,
-                   SUM(CASE WHEN p.likes > 0 OR p.comments > 0 OR p.shares > 0
-                            THEN 1 ELSE 0 END) AS engaged_count
+                   SUM(CASE WHEN p.is_demo = 1 THEN 1 ELSE 0 END) AS demo_count
             FROM sources s LEFT JOIN posts p ON p.source_id = s.id
             WHERE s.user_id = ?
             GROUP BY s.id ORDER BY s.last_capture DESC
@@ -250,12 +248,6 @@ def _sources_with_stats():
         source["is_demo"] = bool(source["demo_count"])
         posts = _fetch_posts(source_id=source["id"])
         source["stats"] = outliers.source_stats(posts) if posts else None
-        # Zero-engagement posts can't be scored, so a source full of them is
-        # broken data rather than a quiet group. Surface the ratio.
-        source["engagement_pct"] = (
-            round(source["engaged_count"] / source["post_count"] * 100)
-            if source["post_count"] else 0
-        )
 
     # Real captures first, newest first. Sample data is a demonstration and
     # should never sit above the group the user just scanned.
@@ -494,6 +486,23 @@ def post_detail(post_id):
     if not post:
         return render_template("404.html", version=APP_VERSION), 404
 
+    # A comment on its own is close to meaningless — what it replied to is
+    # the point. Comments were opening a page that showed the reply and
+    # nothing else, with no way to reach the post it belonged to.
+    parent = None
+    replies = []
+    if (post.get("item_type") or "post") == "comment":
+        if post.get("parent_fb_id"):
+            parent = next((s for s in scored
+                           if s["fb_post_id"] == post["parent_fb_id"]), None)
+    else:
+        replies = sorted(
+            (s for s in scored
+             if (s.get("item_type") or "post") == "comment"
+             and s.get("parent_fb_id") == post["fb_post_id"]),
+            key=lambda s: s["weighted_engagement"], reverse=True,
+        )
+
     with db.get_db() as conn:
         remix_rows = [dict(r) for r in conn.execute(
             "SELECT * FROM remixes WHERE post_id = ? AND user_id = ? "
@@ -509,6 +518,8 @@ def post_detail(post_id):
     return render_template(
         "post_detail.html",
         post=post,
+        parent=parent,
+        replies=replies,
         remixes=remix_rows,
         angles=remix.ANGLES,
         remix_ready=remix.is_configured(),
@@ -585,6 +596,10 @@ def inject_globals():
         "app_short_name": APP_SHORT_NAME,
         "app_parent": APP_PARENT,
         "app_tagline": APP_TAGLINE,
+        # The scoring thresholds, so no template hardcodes "8" and quietly
+        # disagrees with the engine when it changes.
+        "min_sample": outliers.MIN_SAMPLE,
+        "min_baseline": outliers.MIN_BASELINE,
     }
 
 

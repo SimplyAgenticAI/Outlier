@@ -34,8 +34,13 @@ is reported as a multiple ("7.4x"). Engagement is weighted before comparison: \
 shares count 5x, comments 3x, reactions 1x, because shares put a post in \
 front of a new audience. Median and MAD are used rather than mean and standard \
 deviation because engagement is heavily right-skewed. A source needs at least \
-8 posts before it gets a baseline at all, and posts under 48 hours old are \
-flagged "still climbing" because they are still accumulating.
+8 posts WITH READABLE ENGAGEMENT COUNTS before it gets a baseline at all — \
+posts whose counts could not be extracted are excluded from the median rather \
+than counted as zero. Each post carries how long ago it was posted; anything \
+under 48 hours old has not finished collecting engagement, so treat a low \
+score on a fresh post as incomplete rather than as a failure. You cannot tell \
+whether a post is currently gaining or losing engagement, only when it was \
+posted, so never describe a post as trending, climbing or slowing down.
 
 Tiers: breakout is 5x or more, strong is 3-5x, above baseline is 1.5-3x, \
 typical is around the median, underperformed is below half.
@@ -180,7 +185,7 @@ def build_context():
                 "reactions": p["likes"],
                 "comments": p["comments"],
                 "shares": p["shares"],
-                "still_climbing": p["still_climbing"],
+                "posted": p["age_label"],
                 "body": (p["body"] or "")[:MAX_BODY_CHARS],
             }
             for p in top

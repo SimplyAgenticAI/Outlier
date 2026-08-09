@@ -10,9 +10,11 @@
     <p class="sub">
       <span class="kind-chip">{{ source.kind }}</span>
       {% if source.member_count %}{{ "{:,}".format(source.member_count) }} members{% endif %}
-      {% if stats and stats.has_baseline %}
+      {%- if stats %}
+        · {{ stats.post_count }} posts
+        · <span class="{{ 'warn-tone' if stats.measured_pct < 60 }}">{{ stats.measured_pct }}% readable</span>
         {%- if stats.baseline is not none %} · median post scores <b>{{ stats.baseline | round | int }}</b>{% endif -%}
-      {% endif %}
+      {% endif -%}
     </p>
   </div>
   <div class="filters">
@@ -22,11 +24,12 @@
   </div>
 </section>
 
-{% if stats and not stats.has_baseline %}
-<div class="glass notice">
-  Only {{ stats.post_count }} posts captured. Tallgrass scores need at least 8 posts
-  in a source before the median means anything — keep scrolling this group to fill it in.
-</div>
+{% if stats and stats.blocker %}
+{# Same sentence as the groups list, from the same computed value. This panel
+   used to say "only N posts captured, needs at least 8" regardless — so a
+   group with 40 captured posts was told it needed 8, while the card on the
+   previous page said something else entirely. #}
+<div class="glass notice">{% include "_blocker.html" %}</div>
 {% endif %}
 
 {% if posts %}
