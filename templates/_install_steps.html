@@ -28,6 +28,12 @@
       <a class="btn btn-primary big-dl" href="{{ url_for('download_extension') }}">
         Download extension (v{{ extension_version }})
       </a>
+      <p class="fine" style="margin-top:9px">
+        This download is yours specifically — it carries your account key, so
+        the extension works the moment Chrome loads it. Don't pass this file
+        on; use the sharing link below, which contains no credentials.
+        Downloading again issues a fresh key and disconnects earlier copies.
+      </p>
     </div>
   </div>
 
@@ -95,32 +101,19 @@
     <div class="istep-head">
       <span class="step-n">6</span>
       <div>
-        <b>Connect it to your account</b>
-        <p>One click — this page hands the extension its address and a key.
-           Nothing to type.</p>
+        <b>Open Facebook and press Start</b>
+        <p>That's it — the download above already carries this dashboard's
+           address and your account key, so there is nothing to connect.
+           Works on groups, pages, profiles and your feed.</p>
       </div>
     </div>
     <div class="istep-body">
       <div id="connect-block">
         <p class="fine" id="connect-copy">Checking for the extension…</p>
-        <button class="btn btn-primary" id="connect-btn" style="display:none">
-          Connect this extension
+        <button class="btn btn-ghost" id="connect-btn" style="display:none">
+          Re-issue the key
         </button>
         <div class="msg-line" id="connect-msg"></div>
-      </div>
-      <p class="alt-route">
-        Reload this page after loading the extension — the button only appears
-        once Chrome has injected it here.
-      </p>
-    </div>
-  </div>
-
-  <div class="istep">
-    <div class="istep-head">
-      <span class="step-n">7</span>
-      <div>
-        <b>Open a Facebook group and press Start</b>
-        <p>A panel appears bottom-right showing what it's reading.</p>
       </div>
     </div>
   </div>
@@ -132,6 +125,17 @@
   then click the reload arrow on the extension card at
   <code>chrome://extensions</code>. You don't need to remove and re-add it.
 </div>
+
+<details class="share-details">
+  <summary>Sharing it with someone else</summary>
+  <p class="fine">
+    This build carries no account key, so whoever installs it connects with
+    their own. Safe to pass on; the one above is not.
+  </p>
+  <a class="btn btn-ghost" href="{{ url_for('download_extension', share=1) }}">
+    Download a shareable copy
+  </a>
+</details>
 
 {% else %}
 
@@ -214,29 +218,18 @@
     <div class="istep-head">
       <span class="step-n">5</span>
       <div>
-        <b>Connect it to your account</b>
-        <p>One click — this page hands the extension its address and a key.
-           Reload this page first if the button doesn't appear.</p>
+        <b>Open Facebook and press Start</b>
+        <p>A panel appears bottom-right showing what it's reading. Loading this
+           page while signed in is all the connecting it needs.</p>
       </div>
     </div>
     <div class="istep-body">
       <div id="connect-block">
         <p class="fine" id="connect-copy">Checking for the extension…</p>
-        <button class="btn btn-primary" id="connect-btn" style="display:none">
-          Connect this extension
+        <button class="btn btn-ghost" id="connect-btn" style="display:none">
+          Re-issue the key
         </button>
         <div class="msg-line" id="connect-msg"></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="istep">
-    <div class="istep-head">
-      <span class="step-n">6</span>
-      <div>
-        <b>Open a Facebook group and press Start</b>
-        <p>A panel appears bottom-right showing what it's reading. That's the
-           last time you'll do any of this.</p>
       </div>
     </div>
   </div>
@@ -254,9 +247,12 @@
   <summary>Sharing it with someone else</summary>
   <p class="fine">
     A zip is right for handing the extension to another person, since they
-    won't have this project folder. It won't auto-update for them.
+    won't have this project folder. It won't auto-update for them, and this
+    build carries no account key — they connect with their own.
   </p>
-  <a class="btn btn-ghost" href="{{ url_for('download_extension') }}">Download .zip</a>
+  <a class="btn btn-ghost" href="{{ url_for('download_extension', share=1) }}">
+    Download a shareable .zip
+  </a>
 </details>
 
 {% endif %}

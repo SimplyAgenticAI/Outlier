@@ -1646,27 +1646,6 @@
     hud.__renderPause = renderPause;
     renderPause();
 
-    var diag = document.createElement("button");
-    diag.textContent = "Diagnose";
-    diag.title = "Copy a report of what the extractor sees on this page";
-    styleEl(diag, {
-      flex: "1", padding: "0.65em", borderRadius: "8px",
-      border: "1px solid rgba(217,180,95,0.35)", cursor: "pointer",
-      background: "transparent", color: "#d9b45f", fontSize: "0.9em"
-    });
-    diag.addEventListener("click", function () {
-      var report = diagnose();
-      navigator.clipboard.writeText(report).then(function () {
-        STATS.lastError = "Diagnostic copied — paste it to get the extractors tuned.";
-        renderHud();
-      }).catch(function () {
-        // Clipboard can be blocked; the console is always available.
-        console.log(report);
-        STATS.lastError = "Clipboard blocked — the report is in the console (F12).";
-        renderHud();
-      });
-    });
-
     dash.addEventListener("click", function () {
       chrome.storage.local.get(["endpoint"], function (state) {
         // No endpoint means no dashboard to open. Guessing localhost sends
@@ -1681,7 +1660,6 @@
     });
 
     rowBtns.appendChild(manual);
-    rowBtns.appendChild(diag);
 
     var rowBtns2 = document.createElement("div");
     styleEl(rowBtns2, { display: "flex", gap: "0.5em", marginTop: "0.5em", flexShrink: "0" });
@@ -1909,8 +1887,27 @@
     if (STATS.articles > 0 && STATS.candidates === 0) {
       hudBody.appendChild(row("⚠ selectors", "drifted", "#d9b45f"));
     }
+
+    // The diagnostic used to be a permanent button, which put a debugging
+    // tool in the product's main UI for the 99% of the time nothing is wrong.
+    // It appears only when a scan has actually failed to read engagement,
+    // where copying a report is a thing worth doing.
     if (STATS.sent >= 10 && coverage < 30) {
-      hudBody.appendChild(row("⚠ engagement", "not reading", "#d9b45f"));
+      var warn = row("⚠ engagement", "not reading — click to copy report", "#d9b45f");
+      warn.style.cursor = "pointer";
+      warn.title = "Copies a redacted report of what the extractor saw";
+      warn.addEventListener("click", function () {
+        var report = diagnose();
+        navigator.clipboard.writeText(report).then(function () {
+          STATS.lastError = "Report copied.";
+          renderHud();
+        }).catch(function () {
+          console.log(report);          // clipboard can be blocked
+          STATS.lastError = "Clipboard blocked — the report is in the console (F12).";
+          renderHud();
+        });
+      });
+      hudBody.appendChild(warn);
     }
 
     // A finished scan should hand you the next action, not just stop.

@@ -16,6 +16,15 @@
  */
 const DEFAULT_ENDPOINT = "http://localhost:5050"; /*@@TALLGRASS_HOME@@*/
 
+/* The account key, stamped in alongside the origin.
+ *
+ * You were signed in when you downloaded this, so the server minted a key and
+ * baked it in. There is nothing to copy and nothing to paste — the extension
+ * works the moment Chrome loads it. Left empty in the repo copy and in the
+ * shareable zip, which deliberately carries no credentials.
+ */
+const DEFAULT_API_KEY = ""; /*@@TALLGRASS_KEY@@*/
+
 function toOrigin(url) {
   try {
     return new URL(url).origin;
@@ -154,9 +163,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
   // each time is how a configured dashboard kept reverting to localhost.
   if (details.reason !== "install") return;
 
-  const stored = await chrome.storage.local.get(["enabled", "endpoint"]);
+  const stored = await chrome.storage.local.get(["enabled", "endpoint", "apiKey"]);
   const seed = { enabled: stored.enabled !== false };
   if (!stored.endpoint) seed.endpoint = DEFAULT_ENDPOINT;
+  if (!stored.apiKey && DEFAULT_API_KEY) seed.apiKey = DEFAULT_API_KEY;
   await chrome.storage.local.set(seed);
 });
 

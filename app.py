@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "3.2"
+APP_VERSION = "3.3"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -1189,6 +1189,7 @@ def api_export(fmt):
 
 
 @app.route("/extension/outlier-extension.zip")
+@auth.login_required
 def download_extension():
     """Zip the extension folder on the fly so the install button works."""
     import zipfile
@@ -1204,6 +1205,17 @@ def download_extension():
     # server already knows.
     home = request.url_root.rstrip("/")
 
+    # And the account key with it. The person downloading this is signed in —
+    # the server can mint a key and bake it in, so the extension works the
+    # moment Chrome loads it. Asking them to visit the Account page, copy a
+    # key and paste it into a popup was a step that existed only because the
+    # zip was built without knowing who asked for it.
+    #
+    # ?share=1 builds the same zip with no credentials, for handing to someone
+    # else. Never stamp a key into that one.
+    share = request.args.get("share") == "1"
+    api_key = "" if share else auth.rotate_api_key(auth.current_user()["id"])
+
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
         for root, _dirs, files in os.walk(ext_dir):
@@ -1214,19 +1226,29 @@ def download_extension():
                 if arcname.replace("\\", "/") == "background.js":
                     with open(path, "r", encoding="utf-8") as handle:
                         source = handle.read()
-                    stamped, count = re.subn(
+
+                    stamped, home_hits = re.subn(
                         r'const DEFAULT_ENDPOINT = "[^"]*"; /\*@@TALLGRASS_HOME@@\*/',
                         'const DEFAULT_ENDPOINT = "%s"; /*@@TALLGRASS_HOME@@*/'
                         % home.replace("\\", ""),
                         source,
                         count=1,
                     )
-                    # A silent miss would ship the localhost default to every
-                    # hosted user, which is the exact bug this replaces.
-                    if not count:
+                    stamped, key_hits = re.subn(
+                        r'const DEFAULT_API_KEY = "[^"]*"; /\*@@TALLGRASS_KEY@@\*/',
+                        'const DEFAULT_API_KEY = "%s"; /*@@TALLGRASS_KEY@@*/'
+                        % api_key.replace("\\", ""),
+                        stamped,
+                        count=1,
+                    )
+                    # A silent miss would ship the localhost default and an
+                    # unkeyed extension to every user — the exact two steps
+                    # this removes.
+                    if not (home_hits and key_hits):
                         app.logger.error(
-                            "extension zip: DEFAULT_ENDPOINT marker not found; "
-                            "shipping unstamped background.js"
+                            "extension zip: stamp markers not found "
+                            "(home=%s key=%s); shipping unconfigured background.js",
+                            home_hits, key_hits,
                         )
                     archive.writestr(arcname, stamped)
                     continue
