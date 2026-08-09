@@ -905,6 +905,7 @@
       var engagementRead = !!(engagement.likes || engagement.comments ||
                               engagement.shares || engagement.video_plays);
       if (engagementRead) STATS.withEngagement++;
+      maybeAutoReport();
       if (media.image_url || media.has_video) STATS.withMedia++;
 
       // Words rendered into the graphic rather than typed. Facebook runs OCR
@@ -1356,6 +1357,29 @@
    * kept reading as zero and each fix was a guess. One click, one file in
    * Downloads, nothing sent anywhere.
    */
+  /* Write the report once, on its own, when extraction has clearly failed.
+   *
+   * Asking the user to press a button and send a file has failed repeatedly —
+   * reasonably, since it is the developer's problem, not theirs. So the
+   * extension decides for itself: if a scan has looked at a real number of
+   * posts and read engagement from none of them, something is wrong with the
+   * extractors and the evidence is written to Downloads automatically.
+   *
+   * Once per page load, and never when things are working.
+   */
+  var autoReportDone = false;
+
+  function maybeAutoReport() {
+    if (autoReportDone) return;
+    if (STATS.candidates < 5) return;          // too early to conclude
+    if (STATS.withEngagement > 0) return;      // it is working
+
+    autoReportDone = true;
+    logLine("No engagement read from " + STATS.candidates +
+            " posts — saving a report to Downloads.");
+    savePageReport();
+  }
+
   function savePageReport() {
     var lines = [];
     var source = detectSource();
@@ -1390,6 +1414,26 @@
                     ? "" : "   <- NOTHING READ"));
       lines.push("dir=auto   : " +
         article.querySelectorAll('div[dir="auto"], span[dir="auto"]').length);
+
+      /* Exactly what the count extractors are looking at.
+       *
+       * This is the data that has been missing all along: every short string
+       * above the action bar, which is where Facebook puts the reaction
+       * summary. If the count is in here and was not read, the patterns are
+       * wrong; if it is not in here, the bar or the ownership test is wrong.
+       */
+      var shorts = [];
+      var nodes = article.querySelectorAll('span, div[dir="auto"], div[role="button"]');
+      for (var s = 0; s < nodes.length && shorts.length < 30; s++) {
+        var node = nodes[s];
+        if (node.closest('div[role="article"]') !== article) continue;
+        if (node.children && node.children.length) continue;
+        var txt = (node.innerText || "").trim();
+        if (!txt || txt.length > 40) continue;
+        shorts.push((isBelowBar(node, bar) ? "[below] " : "") + txt);
+      }
+      lines.push("short text above/below the bar:");
+      lines.push("  " + JSON.stringify(shorts));
       lines.push("aria-labels: " + JSON.stringify(
         Array.prototype.slice.call(article.querySelectorAll("[aria-label]"))
           .map(function (el) { return el.getAttribute("aria-label"); })
