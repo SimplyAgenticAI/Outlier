@@ -373,7 +373,22 @@
   }
 
   function captionPass(article, authorName, bar) {
-    var blocks = article.querySelectorAll('div[dir="auto"], span[dir="auto"]');
+    var found = pickLongestText(
+      article, authorName, bar, 'div[dir="auto"], span[dir="auto"]');
+    if (found.text) return found;
+
+    /* dir="auto" is a convention, not a guarantee.
+     *
+     * Facebook does not put it on every caption, and when it is missing the
+     * strict selector matched nothing — so a post with plenty of visible
+     * text was recorded as empty and thrown away. Fall back to any leaf-ish
+     * block: a div or span that holds text rather than more elements.
+     */
+    return pickLongestText(article, authorName, bar, "div, span, p");
+  }
+
+  function pickLongestText(article, authorName, bar, selector) {
+    var blocks = article.querySelectorAll(selector);
     var best = "";
     var bestEl = null;
 
@@ -392,6 +407,10 @@
       // A block whose text is entirely a link is navigation, not copy.
       var link = el.querySelector('a[role="link"]');
       if (link && (link.innerText || "").trim().length >= text.length - 2) continue;
+
+      // In the loose pass this would otherwise pick the article's own
+      // wrapper, whose text is the whole post plus its chrome.
+      if (el.children && el.children.length > 6) continue;
 
       best = text;
       bestEl = el;
@@ -887,7 +906,19 @@
       if (!hasText && !hasMedia && !engagement.read) {
         STATS.skippedEmpty++;
         if (!STATS.firstSkip) {
-          STATS.firstSkip = "empty: no caption, no image, no counts";
+          /* What was in there, in one line.
+           *
+           * "empty" alone gave no way to tell an article with no text from
+           * one whose text the selectors could not see — completely
+           * different problems. This reports both the shape and the actual
+           * visible text, so the next fix is aimed rather than guessed.
+           */
+          var raw = (article.innerText || "").replace(/\s+/g, " ").trim();
+          STATS.firstSkip = "empty · dirAuto=" +
+            article.querySelectorAll('div[dir="auto"], span[dir="auto"]').length +
+            " spans=" + article.querySelectorAll("span").length +
+            " bar=" + (bar ? "y" : "n") +
+            " text=\"" + raw.slice(0, 60) + "\"";
         }
         return;
       }
@@ -1250,8 +1281,11 @@
       if (idleScrolls >= 12) {
         return stopAutoScroll("Reached the end — " + capturedCount + " posts");
       }
-      window.scrollBy(0, Math.round(window.innerHeight * 0.85));
-    }, 1200);
+      // Two thirds of a screen, not most of one: Facebook renders only a
+      // handful of posts at a time, and overshooting scrolled straight past
+      // material that had not been rendered yet.
+      window.scrollBy(0, Math.round(window.innerHeight * 0.65));
+    }, 2000);
   }
 
   function stopAutoScroll(reason) {

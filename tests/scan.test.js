@@ -161,6 +161,37 @@ check("the failure is recorded, not swallowed", api10.stats().errors, 1);
 check("and the message is kept for the panel",
       /boom from Facebook markup/.test(api10.stats().lastError || ""));
 
+console.log("a caption with no dir=auto attribute");
+// Reported from a live scan: "3 items, 1 reply, 2 empty". The posts had
+// plenty of visible text; the selector just could not see it, because
+// dir="auto" is a convention Facebook does not always follow.
+var plain = buildPage([]);
+var art2 = plain.doc.el("div");
+art2.setAttribute("role", "article");
+var h = plain.doc.el("a");
+h.setAttribute("role", "link");
+h.textContent = "Marcus Webb";
+art2.appendChild(h);
+var caption = plain.doc.el("div");          // deliberately NO dir attribute
+caption.textContent = "Five things I learned scaling a team from three to thirty.";
+art2.appendChild(caption);
+var counts2 = plain.doc.el("div");
+counts2.setAttribute("aria-label", "214 reactions");
+art2.appendChild(counts2);
+var bar2 = plain.doc.el("div");
+bar2.setAttribute("role", "button");
+bar2.setAttribute("aria-label", "Like");
+bar2.textContent = "Like Comment Share";
+art2.appendChild(bar2);
+plain.root.appendChild(art2);
+
+var api11 = runScan(plain, "/groups/growth");
+api11.scanPosts();
+check("the post is captured", api11.queue().length, 1);
+check("and its caption came through",
+      /Five things I learned/.test((api11.queue()[0] || {}).body || ""));
+check("along with its engagement", (api11.queue()[0] || {}).likes, 214);
+
 console.log("comments are counted, never captured");
 var wc = buildPage([
   { body: "A real post with a decent amount of caption text on it.", likes: 400 }
