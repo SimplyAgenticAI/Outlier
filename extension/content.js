@@ -1004,8 +1004,28 @@
     });
 
     var title = document.createElement("span");
-    title.textContent = "Tallgrass";
-    styleEl(title, { fontWeight: "700", fontSize: "1.2em", letterSpacing: "-0.2px" });
+    styleEl(title, { display: "inline-flex", alignItems: "baseline", gap: "0.45em" });
+
+    var titleMain = document.createElement("span");
+    titleMain.textContent = "Tallgrass";
+    styleEl(titleMain, { fontWeight: "700", fontSize: "1.2em", letterSpacing: "-0.2px" });
+    title.appendChild(titleMain);
+
+    /* The running version, in the panel.
+     *
+     * A hosted install does NOT self-update: reloading at chrome://extensions
+     * re-reads whatever is in the folder, so unless a fresh zip was unzipped
+     * over it the browser keeps running the old build. Days were spent
+     * shipping fixes with no way to tell whether the fix was even loaded.
+     */
+    var titleVer = document.createElement("span");
+    try {
+      titleVer.textContent = "v" + chrome.runtime.getManifest().version;
+    } catch (e) {
+      titleVer.textContent = "v?";
+    }
+    styleEl(titleVer, { fontWeight: "600", fontSize: "0.78em", color: "#6ee7b7" });
+    title.appendChild(titleVer);
 
     var close = document.createElement("span");
     close.textContent = "×";
