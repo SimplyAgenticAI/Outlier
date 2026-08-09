@@ -142,6 +142,25 @@ var api9 = runScan(withReply, "/groups/growth");
 api9.scanPosts();
 check("the reply is not queued", api9.queue().length, 1);
 
+console.log("one article that throws must not kill the sweep");
+// scanPosts runs from setInterval, so an exception anywhere in it aborted
+// the whole pass and every pass after -- 0 captured, and nothing shown,
+// because the reporting code never ran either.
+var poisoned = buildPage([
+  { body: "A perfectly good post before the bad one, with text.", likes: 40 },
+  { body: "The article that explodes when touched at all.", likes: 60 },
+  { body: "A perfectly good post after the bad one, with text.", likes: 90 }
+]);
+var bad = poisoned.root.children[1];
+bad.querySelectorAll = function () { throw new Error("boom from Facebook markup"); };
+
+var api10 = runScan(poisoned, "/groups/growth");
+api10.scanPosts();
+check("the healthy posts either side are still captured", api10.queue().length, 2);
+check("the failure is recorded, not swallowed", api10.stats().errors, 1);
+check("and the message is kept for the panel",
+      /boom from Facebook markup/.test(api10.stats().lastError || ""));
+
 console.log("comments are counted, never captured");
 var wc = buildPage([
   { body: "A real post with a decent amount of caption text on it.", likes: 400 }

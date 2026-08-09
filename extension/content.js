@@ -65,6 +65,7 @@
       skippedEmpty: 0,
       unattributed: 0,
       firstSkip: null,    // why the first skipped item was skipped
+      errors: 0,
       captured: 0,
       withEngagement: 0,
       withMedia: 0,
@@ -777,6 +778,21 @@
   }
 
   function scanPosts() {
+    try {
+      return scanPostsInner();
+    } catch (err) {
+      // Even the setup can throw — detectSource, feedArticles, a selector
+      // Chrome rejects. Silently, from inside setInterval.
+      STATS.errors++;
+      STATS.lastError = "scan failed: " +
+        (err && err.message ? err.message : String(err)).slice(0, 80);
+      console.error("[Tallgrass] scan failed:", err);
+      try { renderHud(); } catch (e) { /* nothing left to do */ }
+      return 0;
+    }
+  }
+
+  function scanPostsInner() {
     if (!enabled) return 0;
 
     var source = detectSource();
@@ -798,25 +814,50 @@
     STATS.skippedEmpty = 0;
     STATS.unattributed = 0;
     STATS.firstSkip = null;
+    STATS.errors = 0;
 
     for (var i = 0; i < articles.length; i++) {
-      var article = articles[i];
+      try {
+        captureArticle(articles[i], source);
+      } catch (err) {
+        /* One article must never take the sweep down with it.
+         *
+         * scanPosts runs from setInterval, so an exception anywhere in it
+         * aborted the whole pass and every pass after — the counter sat at
+         * zero and the panel showed nothing, because the code that would
+         * have reported the problem never ran either. Now the failure is
+         * per-article and it is visible.
+         */
+        STATS.errors++;
+        if (!STATS.lastError) {
+          STATS.lastError = (err && err.message ? err.message : String(err)).slice(0, 90);
+        }
+        console.error("[Tallgrass] article failed:", err);
+      }
+    }
 
+    STATS.queued = QUEUE.length;
+    renderHud();
+    return STATS.captured;
+  }
+
+  function captureArticle(article, source) {
+    {
       // One element, one post. No hash, so nothing can collide.
-      if (article[MARK]) continue;
+      if (article[MARK]) return;
 
       var commentReason = commentVerdict(article);
       if (commentReason) {
         STATS.skippedComment++;
         if (!STATS.firstSkip) STATS.firstSkip = "reply: " + commentReason;
-        continue;
+        return;
       }
 
       var postSource = sourceForArticle(article, source);
       if (!postSource) {
         STATS.unattributed++;
         if (!STATS.firstSkip) STATS.firstSkip = "no source could be identified";
-        continue;
+        return;
       }
 
       var bar = findActionBar(article);
@@ -848,7 +889,7 @@
         if (!STATS.firstSkip) {
           STATS.firstSkip = "empty: no caption, no image, no counts";
         }
-        continue;
+        return;
       }
 
       var permalink = extractPermalink(article);
@@ -895,10 +936,6 @@
         }
       });
     }
-
-    STATS.queued = QUEUE.length;
-    renderHud();
-    return STATS.captured;
   }
 
   /* ---------------------------------------------------------------- send -- */
@@ -1149,8 +1186,18 @@
       hudBody.appendChild(row("First skipped because", STATS.firstSkip, "#e07a5f"));
     }
 
+    if (STATS.errors) {
+      hudBody.appendChild(row("⚠ errors this sweep", String(STATS.errors), "#e07a5f"));
+    }
     if (STATS.lastError) {
-      hudBody.appendChild(row("⚠", STATS.lastError.slice(0, 40), "#e07a5f"));
+      var errLine = document.createElement("div");
+      errLine.textContent = STATS.lastError;
+      styleEl(errLine, {
+        marginTop: "0.5em", padding: "0.5em 0.6em", borderRadius: "7px",
+        background: "rgba(224,122,95,0.14)", color: "#ffb59d",
+        fontSize: "0.92em", wordBreak: "break-word"
+      });
+      hudBody.appendChild(errLine);
     }
     if (STATS.done && !autoScrolling) {
       hudBody.appendChild(row("Done", STATS.done, "#6ee7b7"));
