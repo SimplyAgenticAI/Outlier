@@ -120,6 +120,36 @@ var sGot = sApi.queue()[0] || {};
 check("a number inside a caption is not read as a count",
       (sGot.likes || 0) < 11000000);
 
+console.log("media and the engagement-read flag reach the payload");
+// Both were lost in the V1.7 revert while the dashboard carried on
+// rendering thumbnails and a "readable %" that nothing fed.
+var withPic = buildPage([
+  { body: "A post that carries a photograph alongside its caption.",
+    likes: 150,
+    image: "https://scontent.example/photo.jpg",
+    alt: "May be an image of text that says 'SALE ENDS FRIDAY'" }
+]);
+
+var picApi = runScan(withPic, "/groups/growth");
+picApi.scanPosts();
+var pic = picApi.queue()[0] || {};
+check("the post is captured", !!pic.fb_post_id);
+check("the image URL is sent", pic.image_url, "https://scontent.example/photo.jpg");
+check("engagement_read is set when counts were found", pic.engagement_read, 1);
+check("its reaction count survived", pic.likes, 150);
+
+console.log("the action bar is never mistaken for the caption");
+// The loose caption pass (added because dir="auto" is not guaranteed) is not
+// bounded by the bar the way the strict pass is, so it took the bar's own
+// text: caption-less posts came back with a body of "Like Comment Share",
+// and every one of them then hashed to the same id.
+var noCaption = buildPage([{ body: "", likes: 64 }]);
+var ncApi = runScan(noCaption, "/groups/growth");
+ncApi.scanPosts();
+var ncBodies = ncApi.queue().map(function (p) { return p.body || ""; });
+check("no post is given the action bar as its caption",
+      ncBodies.every(function (b) { return !/Like\s+Comment\s+Share/i.test(b); }));
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

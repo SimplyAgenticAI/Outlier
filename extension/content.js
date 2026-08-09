@@ -68,7 +68,8 @@
       queued: 0,
       sent: 0,
       added: 0,
-      withEngagement: 0,   // how many carried a real reaction count
+      withEngagement: 0,
+      withMedia: 0,        // how many carried an image or video
       lastError: null,
       done: null,          // why the scan finished, once it has
       log: []
@@ -284,16 +285,47 @@
    * Share bar while comments sit below it.
    */
 
+  /* The Like/Comment/Share bar. Everything below it belongs to the replies.
+   *
+   * Two passes, and the order matters. A real button whose visible text is
+   * exactly "Like" is unambiguous; an aria-label beginning "Send this to
+   * friends" is not — Facebook uses that wording on share controls that can
+   * sit ABOVE the reaction summary. Matching it first made that control the
+   * "bar", so the reaction count counted as below it and was thrown away,
+   * and the post landed in the dashboard marked "not read".
+   */
   function findActionBar(article) {
     var candidates = article.querySelectorAll('[role="button"], [aria-label]');
-    for (var i = 0; i < candidates.length; i++) {
-      var el = candidates[i];
-      var label = (el.getAttribute("aria-label") || "").trim();
+    var i, el;
+
+    // Pass 1: an actual Like/Comment/Share button.
+    for (i = 0; i < candidates.length; i++) {
+      el = candidates[i];
       var text = (el.textContent || "").trim();
       if (/^(like|comment|share)$/i.test(text)) return el;
-      if (/^(like|comment|share|leave a comment|send this to friends)/i.test(label)) return el;
+      var label = (el.getAttribute("aria-label") || "").trim();
+      if (/^(like|comment|share)$/i.test(label)) return el;
     }
-    return null;
+
+    // Pass 2: the looser wordings, and the LAST one rather than the first —
+    // the action bar sits below the post's content, so when in doubt the
+    // later candidate keeps more of the post above the cutoff.
+    var fallback = null;
+    for (i = 0; i < candidates.length; i++) {
+      el = candidates[i];
+      var lbl = (el.getAttribute("aria-label") || "").trim();
+      if (/^(like|comment|share|leave a comment|send this to friends)/i.test(lbl)) {
+        fallback = el;
+      }
+    }
+    return fallback;
+  }
+
+  // Elements owned by THIS article, not by a reply nested inside it.
+  // querySelector searches all descendants, and a post contains its own
+  // comments — so an unscoped lookup finds the comments' media and buttons.
+  function owned(article, el) {
+    return el.closest('div[role="article"]') === article;
   }
 
   // True when `el` sits after the action bar — i.e. in the comments.
@@ -393,6 +425,23 @@
     return classify(article).isPost;
   }
 
+  /* Text made up entirely of Facebook's own controls.
+   *
+   * CHROME_RE only matches a control on its own; a run of them
+   * ("Like Comment Share", "See more · Reply") slips through, and the loose
+   * caption pass will take it as the post's body when there is no caption.
+   */
+  var CHROME_WORDS = /^(like|comment|comments|share|shares|reply|replies|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|·|\||\d+|\d+[hdwmy])$/i;
+
+  function isOnlyChrome(text) {
+    var parts = String(text).split(/[\s·|]+/).filter(Boolean);
+    if (!parts.length || parts.length > 8) return false;
+    for (var i = 0; i < parts.length; i++) {
+      if (!CHROME_WORDS.test(parts[i])) return false;
+    }
+    return true;
+  }
+
   function extractBody(article, authorName, bar) {
     // The caption is the longest text block ABOVE the action bar. Without the
     // cutoff a long comment beats a short caption — which is how "that's
@@ -421,9 +470,15 @@
       var el = blocks[i];
       if (isBelowBar(el, bar)) continue;          // comments live below it
 
+      // The action bar is not "above" itself, so the loose pass happily took
+      // its own text — a caption-less post came back with a body of
+      // "Like Comment Share", and every such post then hashed to the same id.
+      if (bar && (el === bar || (bar.contains && bar.contains(el)))) continue;
+
       var text = el.innerText ? el.innerText.trim() : "";
       if (!text || text.length <= best.length) continue;
       if (CHROME_RE.test(text)) continue;
+      if (isOnlyChrome(text)) continue;
 
       // The header block is just the author's name, sometimes with a timestamp.
       if (authorName && text.replace(/\s+/g, " ") === authorName) continue;
@@ -573,6 +628,100 @@
     }
 
     return result;
+  }
+
+  /* Visual content — restored after the V1.7 revert dropped it.
+   *
+   * What a post looked like is half of why it worked, and the dashboard has
+   * rendered thumbnails all along while the extension stopped sending any.
+   * Purely additive: this only fills extra fields on the payload and cannot
+   * affect whether a post is captured.
+   */
+/* Words rendered into the graphic rather than typed.
+   *
+   * Facebook runs OCR for screen readers and publishes it in the image's
+   * alt: "May be an image of text that says 'SALE ENDS FRIDAY'". A quote
+   * card carries its whole message there, and discarding it meant capturing
+   * the post as a caption-less shell.
+   */
+  var ALT_PREAMBLE_RE = /^(may be an image of|may be a graphic of|may be an? |image may contain:?|no photo description available)/i;
+
+  function textFromAlt(alt) {
+    var raw = String(alt || "").trim();
+    if (!raw) return "";
+    if (/^no photo description available/i.test(raw)) return "";
+    if (/profile picture|avatar/i.test(raw)) return "";
+
+    // "...and text that says 'WORDS'" — everything before the lead-in is
+    // scene description, everything after is the transcription.
+    var says = raw.match(/text that says[:\s]*([\s\S]+)/i);
+    if (says) {
+      var transcribed = says[1].trim().replace(/^["'‘’“”]+|["'‘’“”.]+$/g, "").trim();
+      return transcribed.length >= 12 ? transcribed.slice(0, 5000) : "";
+    }
+
+    var quoted = raw.match(/["'‘’“”]([^"'‘’“”]{4,})["'‘’“”]/g);
+    if (quoted && quoted.length) {
+      var joined = quoted.map(function (chunk) {
+        return chunk.replace(/^["'‘’“”]|["'‘’“”]$/g, "").trim();
+      }).join(" ");
+      if (joined.length >= 12) return joined.slice(0, 5000);
+    }
+
+    // What remains is either a generated scene description or one a person
+    // wrote. Length is the only signal separating them.
+    if (ALT_PREAMBLE_RE.test(raw)) return "";
+    return raw.length >= 40 ? raw.slice(0, 5000) : "";
+  }
+
+  /* -------------------------------------------------------------- media -- */
+
+  var MIN_MEDIA_PX = 130;
+
+  function extractMedia(article, bar) {
+    var images = article.querySelectorAll("img");
+    var found = [];
+
+    for (var i = 0; i < images.length; i++) {
+      var img = images[i];
+      if (isBelowBar(img, bar)) continue;
+      if (!owned(article, img)) continue;
+
+      var src = img.currentSrc || img.src || "";
+      if (!src || src.indexOf("data:") === 0) continue;
+      if (!/scontent|fbcdn/i.test(src)) continue;
+
+      // Avatars come from the same CDN; size is what separates them.
+      var width = img.naturalWidth || img.width || 0;
+      var height = img.naturalHeight || img.height || 0;
+      if (width && width < MIN_MEDIA_PX) continue;
+      if (height && height < MIN_MEDIA_PX) continue;
+
+      var alt = img.getAttribute("alt") || "";
+      if (/profile picture|avatar/i.test(alt)) continue;
+
+      found.push({ src: src, alt: alt, area: (width || 0) * (height || 0) });
+    }
+
+    // Largest first: on an album the biggest render is the one on display.
+    found.sort(function (a, b) { return b.area - a.area; });
+
+    var video = article.querySelector("video");
+    var hasVideo = !!(video && !isBelowBar(video, bar)) ||
+                   !!article.querySelector('a[href*="/reel/"], a[href*="/videos/"]');
+
+    // Any image's alt may carry the transcription, not only the largest.
+    var altText = "";
+    for (var k = 0; k < found.length && !altText; k++) {
+      altText = textFromAlt(found[k].alt);
+    }
+
+    return {
+      image_url: found.length ? found[0].src : null,
+      image_count: found.length,
+      has_video: hasVideo,
+      image_text: altText
+    };
   }
 
   function extractPostType(article) {
@@ -732,8 +881,23 @@
       found++;
 
       var engagement = extractEngagement(article, bar);
-      if (engagement.likes || engagement.comments || engagement.shares) {
-        STATS.withEngagement++;
+      var media = extractMedia(article, bar);
+
+      // Whether anything was actually read, as opposed to defaulting to zero.
+      // Without it "0 reactions" claims the post got none, when the truth is
+      // that nothing could be found — completely different facts, and the
+      // dashboard's "readable %" depends on the distinction.
+      var engagementRead = !!(engagement.likes || engagement.comments ||
+                              engagement.shares || engagement.video_plays);
+      if (engagementRead) STATS.withEngagement++;
+      if (media.image_url || media.has_video) STATS.withMedia++;
+
+      // Words rendered into the graphic rather than typed. Facebook runs OCR
+      // for screen readers and publishes it in the image's alt.
+      var bodyFromImage = false;
+      if ((!body || body.length < 12) && media.image_text) {
+        body = media.image_text;
+        bodyFromImage = true;
       }
       logLine((isPost ? "" : "↳ ") + engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
@@ -752,7 +916,12 @@
         shares: engagement.shares,
         video_plays: engagement.video_plays,
         item_type: isPost ? "post" : "comment",
-        parent_fb_id: isPost ? null : parentPostId(article, source)
+        parent_fb_id: isPost ? null : parentPostId(article, source),
+        image_url: media.image_url,
+        image_count: media.image_count,
+        has_video: media.has_video,
+        body_from_image: bodyFromImage ? 1 : 0,
+        engagement_read: engagementRead ? 1 : 0
       });
     }
   }

@@ -121,6 +121,19 @@ function buildPage(specs) {
       art.appendChild(more);
     }
 
+    // Post media sits above the action bar, and must be CREATED before it
+    // too — document order in this stub is creation order, which is what
+    // isBelowBar compares.
+    if (spec.image) {
+      var img = D.el("img");
+      img.setAttribute("src", spec.image);
+      img.src = spec.image;                     // the property, as a real img has
+      if (spec.alt) { img.setAttribute("alt", spec.alt); }
+      img.naturalWidth = 800;
+      img.naturalHeight = 600;
+      art.appendChild(img);
+    }
+
     var counts = D.el("div");
     counts.setAttribute("aria-label", spec.likes + " reactions");
     art.appendChild(counts);
