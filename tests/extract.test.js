@@ -72,6 +72,54 @@ check("its reaction count is read", first.likes, 312);
 check("its caption is stored",
       /ordinary post with a decent amount/.test(first.body || ""));
 
+console.log("a reaction summary with no wording");
+// Facebook often renders the summary as a bare number beside the emoji
+// icons. Every worded pattern misses it, so posts landed marked "not read".
+var bare = buildPage([]);
+var art = bare.doc.el("div");
+art.setAttribute("role", "article");
+var head = bare.doc.el("a");
+head.setAttribute("role", "link");
+head.textContent = "Dana Fletcher";
+art.appendChild(head);
+var cap = bare.doc.el("div");
+cap.setAttribute("dir", "auto");
+cap.textContent = "A post whose reaction count carries no label at all.";
+art.appendChild(cap);
+var count = bare.doc.el("span");        // just the number, no wording
+count.textContent = "487";
+art.appendChild(count);
+var bar = bare.doc.el("div");
+bar.setAttribute("role", "button");
+bar.setAttribute("aria-label", "Like");
+bar.textContent = "Like Comment Share";
+art.appendChild(bar);
+bare.root.appendChild(art);
+
+var bareApi = runScan(bare, "/groups/growth");
+bareApi.scanPosts();
+var got = bareApi.queue()[0] || {};
+check("the post is captured", !!got.fb_post_id);
+check("the bare count is read as reactions", got.likes, 487);
+
+// And the guard: a number inside a sentence is not a count.
+var sentence = buildPage([
+  { body: "We processed 11,000,000 tokens in the benchmark run this week.",
+    likes: 0 }
+]);
+// strip the labelled count so only the caption remains
+var sArt = sentence.root.children[0];
+sArt.children.forEach(function (c) {
+  if ((c.getAttribute("aria-label") || "").indexOf("reactions") !== -1) {
+    c.setAttribute("aria-label", "");
+  }
+});
+var sApi = runScan(sentence, "/groups/growth");
+sApi.scanPosts();
+var sGot = sApi.queue()[0] || {};
+check("a number inside a caption is not read as a count",
+      (sGot.likes || 0) < 11000000);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

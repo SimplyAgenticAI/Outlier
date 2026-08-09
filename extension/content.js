@@ -445,6 +445,59 @@
     return best.slice(0, 5000);
   }
 
+  /* Is this token a count rather than a timestamp or a year?
+   *
+   * parseCount turns "5h" into 5 and "2024" into 2024, so a post's age would
+   * otherwise be stored as its reaction count. h/d/w/y are unambiguously
+   * time; lowercase m is minutes, uppercase M is millions, and Facebook is
+   * consistent about the case.
+   */
+  function looksLikeACount(token) {
+    var text = String(token || "").trim();
+    if (!text) return false;
+    if (/^\d+\s*[hdwy]$/i.test(text)) return false;
+    if (/^\d+\s*m$/.test(text)) return false;
+    if (/^(19|20)\d{2}$/.test(text.replace(/,/g, ""))) return false;
+    if (/^\d{1,2}:\d/.test(text)) return false;
+    if (/^\d{1,2}\/\d/.test(text)) return false;
+    return /^\d[\d.,]*\s*[KMB]?$/.test(text);
+  }
+
+  /* The reaction summary with no wording attached.
+   *
+   * Every pattern above needs a word — "reactions", "likes", "reacted".
+   * Facebook frequently renders the summary as a bare number beside the
+   * emoji icons, so on those layouts nothing matched and every post landed
+   * in the dashboard marked "not read".
+   *
+   * Only elements whose ENTIRE text is a count are considered, which is what
+   * keeps a number inside the caption out: a caption is never exactly "312".
+   * Runs only when the worded patterns found nothing, so it can add reads
+   * and never remove them.
+   */
+  function bareCountAboveBar(article, bar) {
+    var nodes = article.querySelectorAll(
+      'span, div[dir="auto"], span[dir="auto"], div[role="button"]');
+    var best = 0;
+
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (el.closest('div[role="article"]') !== article) continue;
+      if (isBelowBar(el, bar)) continue;
+      if (el.children && el.children.length) continue;   // a leaf, not a box
+
+      var text = (el.innerText || "").trim();
+      if (!text || text.length > 12) continue;
+      if (!looksLikeACount(text)) continue;
+
+      // The reaction total is the largest bare number above the bar; comment
+      // and share tallies carry their own words and are matched separately.
+      var n = parseCount(text);
+      if (n > best) best = n;
+    }
+    return best;
+  }
+
   function extractEngagement(article, bar) {
     var result = { likes: 0, comments: 0, shares: 0, video_plays: 0 };
 
@@ -505,6 +558,8 @@
       /([\d][\d.,]*\s*[KMB]?)\s+shares?/i,
       /shares?:?\s*([\d][\d.,]*\s*[KMB]?)/i
     ]);
+
+    if (!result.likes) result.likes = bareCountAboveBar(article, bar);
 
     result.video_plays = firstMatch([
       /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
@@ -1050,6 +1105,18 @@
     rowBtns.appendChild(manual);
     rowBtns.appendChild(dash);
 
+    var report = document.createElement("button");
+    report.textContent = "Save what it sees (for support)";
+    report.title = "Writes a report to Downloads. Nothing is sent anywhere.";
+    styleEl(report, {
+      width: "100%", marginTop: "0.5em", padding: "0.6em", borderRadius: "8px",
+      border: "1px solid rgba(217,180,95,0.4)", cursor: "pointer",
+      background: "rgba(217,180,95,0.1)", color: "#e8c66f",
+      fontSize: "0.88em", flexShrink: "0"
+    });
+    report.addEventListener("click", savePageReport);
+    content.appendChild(report);
+
     // Stats and log share one scrollable region; the buttons are pinned below
     // it. Previously the stats block could not shrink, so as rows were added
     // it pushed the controls past the bottom edge of the panel.
@@ -1106,6 +1173,79 @@
     line.appendChild(l);
     line.appendChild(v);
     return line;
+  }
+
+
+  /* Write what the scanner is looking at to a file.
+   *
+   * Every extractor here has been tuned against a reconstruction of
+   * Facebook's markup rather than the page itself, because the page is only
+   * reachable from the browser that is signed in. That is why engagement
+   * kept reading as zero and each fix was a guess. One click, one file in
+   * Downloads, nothing sent anywhere.
+   */
+  function savePageReport() {
+    var lines = [];
+    var source = detectSource();
+    var version = "?";
+    try { version = chrome.runtime.getManifest().version; } catch (e) {}
+
+    lines.push("TALLGRASS PAGE REPORT");
+    lines.push("version : " + version);
+    lines.push("url     : " + location.pathname);
+    lines.push("source  : " + (source ? source.kind + " / " + source.name : "none"));
+    lines.push("articles: " + document.querySelectorAll('div[role="article"]').length);
+    lines.push("");
+
+    var articles = feedArticles();
+    var limit = Math.min(articles.length, 3);
+    for (var i = 0; i < limit; i++) {
+      var article = articles[i];
+      var bar = findActionBar(article);
+      var author = extractAuthor(article, bar);
+      var body = extractBody(article, author.name, bar);
+      var engagement = extractEngagement(article, bar);
+
+      lines.push("======== ARTICLE " + (i + 1) + " ========");
+      lines.push("verdict    : " + JSON.stringify(classify(article)));
+      lines.push("action bar : " + (bar ? JSON.stringify(
+        (bar.getAttribute("aria-label") || bar.textContent || "").slice(0, 40)) : "NOT FOUND"));
+      lines.push("author     : " + (author.name || "NOT READ"));
+      lines.push("caption    : " + (body ? body.length + " chars" : "NOT READ"));
+      lines.push("engagement : " + engagement.likes + "r " + engagement.comments +
+                 "c " + engagement.shares + "s" +
+                 (engagement.likes || engagement.comments || engagement.shares
+                    ? "" : "   <- NOTHING READ"));
+      lines.push("dir=auto   : " +
+        article.querySelectorAll('div[dir="auto"], span[dir="auto"]').length);
+      lines.push("aria-labels: " + JSON.stringify(
+        Array.prototype.slice.call(article.querySelectorAll("[aria-label]"))
+          .map(function (el) { return el.getAttribute("aria-label"); })
+          .filter(function (l) { return l && l.length < 70; })
+          .slice(0, 20)));
+      lines.push("");
+      lines.push("--- visible text ---");
+      lines.push((article.innerText || "").slice(0, 700));
+      lines.push("");
+      lines.push("--- markup ---");
+      lines.push((article.outerHTML || "").slice(0, 50000));
+      lines.push("");
+    }
+
+    var text = lines.join(String.fromCharCode(10));
+    try {
+      var link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      link.download = "tallgrass-page-report.txt";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      logLine("Saved tallgrass-page-report.txt to Downloads");
+    } catch (e) {
+      console.log(text);
+      STATS.lastError = "Could not save the file — the report is in the console (F12).";
+    }
+    renderHud();
   }
 
   function renderHud() {
