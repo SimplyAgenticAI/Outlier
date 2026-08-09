@@ -44,7 +44,46 @@ async function getEndpoint() {
 // The key is a bearer token: it is the only credential the extension holds.
 async function getApiKey() {
   const stored = await chrome.storage.local.get(["apiKey"]);
-  return (stored.apiKey || "").trim();
+  const existing = (stored.apiKey || "").trim();
+  if (existing) return existing;
+
+  // Nothing stored — ask the dashboard for one. See fetchKeyFromDashboard.
+  return await fetchKeyFromDashboard();
+}
+
+/* Get a key without the user doing anything.
+ *
+ * They are already signed in to the dashboard in this browser, and this
+ * extension holds a host permission for that origin — so it can make the
+ * request itself, with the session cookie, and store the result. There is
+ * nothing to copy, nothing to paste, and no "no account key set" to hit.
+ *
+ * The custom header is what stops a web page doing the same: a page cannot
+ * send it cross-origin without a CORS preflight, and the route sends no
+ * Access-Control-Allow-Origin, so the browser refuses the response. An
+ * extension with host permissions is exempt from CORS, which is the
+ * asymmetry this relies on.
+ */
+async function fetchKeyFromDashboard() {
+  const endpoint = await getEndpoint();
+  if (!endpoint) return "";
+
+  try {
+    const response = await fetch(`${endpoint}/api/extension/key`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "X-Tallgrass-Extension": "1" }
+    });
+    if (!response.ok) return "";          // not signed in, or not our server
+
+    const data = await response.json();
+    if (!data || !data.api_key) return "";
+
+    await chrome.storage.local.set({ apiKey: data.api_key });
+    return data.api_key;
+  } catch (error) {
+    return "";                            // offline, or no permission yet
+  }
 }
 
 async function bumpCounter(newCount) {
@@ -84,7 +123,7 @@ async function handleCapture(message) {
     if (!apiKey) {
       return {
         ok: false,
-        error: "No account key set — paste it from the dashboard's Account page"
+        error: "Sign in at " + endpoint + " in this browser — the key is then automatic."
       };
     }
 
@@ -103,10 +142,17 @@ async function handleCapture(message) {
        * until it is used. Captures piled up locally and never landed, with
        * nothing on either side saying why.
        */
+      // Throw the dead key away and immediately ask for a live one. A
+      // revoked key is indistinguishable from a good one until it is used,
+      // so without this the extension would keep sending with it forever.
       await chrome.storage.local.remove(["apiKey"]);
+      const fresh = await fetchKeyFromDashboard();
+      if (fresh) {
+        return { ok: false, error: "Key refreshed — retrying", retry: true };
+      }
       return {
         ok: false,
-        error: "Key was rejected and has been cleared — open your dashboard once to reconnect."
+        error: "Sign in at " + endpoint + " in this browser to reconnect."
       };
     }
     if (response.status === 402) {

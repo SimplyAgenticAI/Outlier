@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "5.2"
+APP_VERSION = "5.3"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -641,7 +641,10 @@ def inject_globals():
 
 # Endpoints that legitimately have no session cookie to protect: the extension
 # authenticates with an API key, and Stripe signs its webhooks.
-CSRF_EXEMPT = {"/api/capture", "/api/ping", "/api/stripe/webhook"}
+# Endpoints that legitimately have no CSRF token: the extension authenticates
+# with an API key or its own header, and Stripe signs its webhooks.
+CSRF_EXEMPT = {"/api/capture", "/api/ping", "/api/stripe/webhook",
+               "/api/extension/key"}
 
 
 @app.before_request
@@ -853,6 +856,42 @@ def api_connect_extension():
     """
     new_key = auth.rotate_api_key(auth.current_user()["id"])
     return jsonify({"ok": True, "api_key": new_key, "endpoint": request.url_root.rstrip("/")})
+
+
+@app.route("/api/extension/key", methods=["POST"])
+@auth.login_required
+def api_extension_key():
+    """Hand the extension a key using the session it already has.
+
+    Nobody should ever type or paste a key. The extension runs in the same
+    browser that is signed in here, and it holds a host permission for this
+    origin — so it can ask for a key itself, with the session cookie, and get
+    one without the user doing anything at all.
+
+    Two things keep this from being a hole a web page could use:
+
+      * the custom header. A page cannot send it cross-origin without a CORS
+        preflight, and this route sends no Access-Control-Allow-Origin, so
+        the browser refuses the response. The extension is exempt from CORS
+        for origins in its host_permissions, which is exactly the asymmetry
+        wanted here.
+      * the session cookie is SameSite=Lax, so a cross-site POST from another
+        page carries no session at all and lands on the login redirect.
+
+    It rotates, because keys are stored hashed and cannot be read back. The
+    extension only calls this when it has no working key, so a rotation
+    happens when one is actually needed rather than on every download — which
+    is the bug that silently revoked fourteen keys in a row.
+    """
+    if request.headers.get("X-Tallgrass-Extension") != "1":
+        return jsonify({"ok": False, "error": "Not an extension request"}), 403
+
+    new_key = auth.rotate_api_key(auth.current_user()["id"])
+    return jsonify({
+        "ok": True,
+        "api_key": new_key,
+        "endpoint": request.url_root.rstrip("/"),
+    })
 
 
 @app.route("/api/account/rotate-key", methods=["POST"])

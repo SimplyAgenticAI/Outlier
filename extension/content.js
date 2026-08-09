@@ -1288,17 +1288,6 @@
     rowBtns.appendChild(manual);
     rowBtns.appendChild(dash);
 
-    var report = document.createElement("button");
-    report.textContent = "Save what it sees (for support)";
-    report.title = "Writes a report to Downloads. Nothing is sent anywhere.";
-    styleEl(report, {
-      width: "100%", marginTop: "0.5em", padding: "0.6em", borderRadius: "8px",
-      border: "1px solid rgba(217,180,95,0.4)", cursor: "pointer",
-      background: "rgba(217,180,95,0.1)", color: "#e8c66f",
-      fontSize: "0.88em", flexShrink: "0"
-    });
-    report.addEventListener("click", savePageReport);
-    content.appendChild(report);
 
     // Stats and log share one scrollable region; the buttons are pinned below
     // it. Previously the stats block could not shrink, so as rows were added
@@ -1448,12 +1437,6 @@
     var where = source ? (source.kind === "group" ? "in this group"
                                                  : "on this profile") : "on page";
     hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
-    if (STATS.commentsSkipped) {
-      // Named so the number is explained rather than mysterious: Facebook
-      // previews only a couple of replies per post and picks them itself, so
-      // any ranking built from them would rank Facebook's choices.
-      hudBody.appendChild(row("Comments skipped", String(STATS.commentsSkipped), "#7fa693"));
-    }
     hudBody.appendChild(row(
       "Captured this group",
       SEEN.size + " / " + maxPosts,
@@ -1623,6 +1606,10 @@
     extractTimestamp: extractTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
+    // Not in the UI — a developer tool belongs in the console, not in the
+    // product. Run __outlier.savePageReport() if the extractors need
+    // debugging against a real page.
+    savePageReport: savePageReport,
     // A function, not the object: STATS is reassigned when the source
     // changes, so a captured reference goes stale and reads as all zeros.
     stats: function () { return STATS; },
