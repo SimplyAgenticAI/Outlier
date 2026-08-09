@@ -1017,7 +1017,7 @@
 
   /* ----------------------------------------------------------------- HUD -- */
 
-  var hud, hudBody, hudLog, hudBtn;
+  var hud, hudBody, hudLog, hudBtn, saveBtn;
 
   function styleEl(el, styles) {
     // Assigned directly rather than through a <style> tag: Facebook's CSP
@@ -1131,6 +1131,23 @@
       else startAutoScroll();
     });
 
+    /* Save the raw markup of what the scanner is looking at.
+     *
+     * Facebook's HTML differs by account, locale and A/B bucket, and it
+     * cannot be reached from anywhere except this browser. Without it every
+     * fix to the extractors is a guess — which is exactly how this went for
+     * days. The file lands in Downloads; nothing is transmitted anywhere.
+     */
+    saveBtn = document.createElement("button");
+    saveBtn.textContent = "Save what it sees (for support)";
+    styleEl(saveBtn, {
+      width: "100%", marginTop: "0.5em", padding: "0.65em", borderRadius: "8px",
+      border: "1px solid rgba(217,180,95,0.45)", cursor: "pointer",
+      background: "rgba(217,180,95,0.12)", color: "#e8c66f",
+      fontSize: "0.92em", flexShrink: "0", display: "none"
+    });
+    saveBtn.addEventListener("click", savePageReport);
+
     var manual = document.createElement("button");
     manual.textContent = "Scan what's on screen";
     styleEl(manual, {
@@ -1145,6 +1162,7 @@
     content.appendChild(hudLog);
     content.appendChild(hudBtn);
     content.appendChild(manual);
+    content.appendChild(saveBtn);
 
     hud.appendChild(header);
     hud.appendChild(content);
@@ -1209,12 +1227,12 @@
 
     // Nothing captured is never left unexplained: each cause has a different
     // fix, and they used to be indistinguishable from one another.
-    // Last pass only, so the numbers describe one screen and add up.
-    hudBody.appendChild(row("Last sweep",
-      STATS.articles + " items · " + STATS.skippedComment + " replies · " +
-      STATS.skippedEmpty + " empty · " + STATS.unattributed + " no source"));
-    if (capturedCount === 0 && STATS.articles > 0 && STATS.firstSkip) {
-      hudBody.appendChild(row("First skipped because", STATS.firstSkip, "#e07a5f"));
+    // Only shown when something is wrong. A working scan has no reason to
+    // display counters about what it discarded.
+    if (capturedCount === 0 && STATS.articles > 0) {
+      hudBody.appendChild(row("On screen",
+        STATS.articles + " items · " + STATS.skippedComment + " replies · " +
+        STATS.skippedEmpty + " unreadable"));
     }
 
     if (STATS.errors) {
@@ -1236,10 +1254,100 @@
 
     hudLog.textContent = STATS.log.length ? STATS.log.join("\n")
                                           : "Nothing captured yet.\nPress Start.";
+    // Offered only when a scan has run and found nothing.
+    if (saveBtn) {
+      saveBtn.style.display =
+        (capturedCount === 0 && STATS.articles > 0) ? "" : "none";
+    }
+
     hudBtn.textContent = autoScrolling ? "Stop" : "Start auto-scroll";
     hudBtn.style.background = autoScrolling
       ? "rgba(224,122,95,0.92)" : "linear-gradient(135deg, #34d399, #10b981)";
     hudBtn.style.color = autoScrolling ? "#fff" : "#04150c";
+  }
+
+
+  /* Write the raw markup of the first few articles to a file.
+   *
+   * This exists because the extractors have been tuned against a
+   * reconstruction of Facebook's HTML rather than the real thing, and the
+   * real thing is only reachable from this browser. One click, one file in
+   * Downloads, nothing sent over the network.
+   */
+  function savePageReport() {
+    var lines = [];
+    var source = detectSource();
+
+    lines.push("TALLGRASS PAGE REPORT");
+    lines.push("version : " + (function () {
+      try { return chrome.runtime.getManifest().version; } catch (e) { return "?"; }
+    })());
+    lines.push("url     : " + location.pathname);
+    lines.push("source  : " + (source ? source.kind + " / " + source.name : "none"));
+    lines.push("captured: " + capturedCount);
+    lines.push("");
+
+    var main = document.querySelector('div[role="main"]');
+    lines.push("role=main present   : " + (main ? "yes" : "NO"));
+    lines.push("articles in main    : " +
+      (main ? main.querySelectorAll('div[role="article"]').length : 0));
+    lines.push("articles in document: " +
+      document.querySelectorAll('div[role="article"]').length);
+    lines.push("role=feed present   : " +
+      (document.querySelector('[role="feed"]') ? "yes" : "no"));
+    lines.push("");
+
+    var articles = feedArticles();
+    var limit = Math.min(articles.length, 3);
+    for (var i = 0; i < limit; i++) {
+      var article = articles[i];
+      var bar = findActionBar(article);
+      var author = extractAuthor(article, bar);
+      var caption = extractBody(article, author.name, bar);
+      var engagement = extractEngagement(article, bar, caption.el);
+      var media = extractMedia(article, bar);
+
+      lines.push("======== ARTICLE " + (i + 1) + " ========");
+      lines.push("verdict     : " + (commentVerdict(article) || "post"));
+      lines.push("action bar  : " + (bar ? "found" : "NOT FOUND"));
+      lines.push("author      : " + (author.name || "NOT READ"));
+      lines.push("caption     : " + (caption.text ? caption.text.length + " chars" : "NOT READ"));
+      lines.push("engagement  : " + engagement.likes + "r " + engagement.comments +
+                 "c " + engagement.shares + "s" + (engagement.read ? "" : "  <- NOTHING READ"));
+      lines.push("media       : " + (media.image_url ? media.image_count + " image(s)" : "none"));
+      lines.push("dir=auto    : " +
+        article.querySelectorAll('div[dir="auto"], span[dir="auto"]').length);
+      lines.push("spans       : " + article.querySelectorAll("span").length);
+      lines.push("aria-labels : " + JSON.stringify(
+        Array.prototype.slice.call(article.querySelectorAll("[aria-label]"))
+          .map(function (el) { return el.getAttribute("aria-label"); })
+          .filter(function (l) { return l && l.length < 70; })
+          .slice(0, 18)));
+      lines.push("");
+      lines.push("--- visible text ---");
+      lines.push((article.innerText || "").slice(0, 800));
+      lines.push("");
+      lines.push("--- markup ---");
+      lines.push((article.outerHTML || "").slice(0, 60000));
+      lines.push("");
+    }
+
+    var text = lines.join(String.fromCharCode(10));
+    try {
+      var blob = new Blob([text], { type: "text/plain" });
+      var link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = "tallgrass-page-report.txt";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      STATS.lastError = null;
+      logLine("Saved tallgrass-page-report.txt to Downloads");
+    } catch (e) {
+      console.log(text);            // the console always works
+      STATS.lastError = "Could not save the file — the report is in the console (F12).";
+    }
+    renderHud();
   }
 
   /* --------------------------------------------------------- auto-scroll -- */
