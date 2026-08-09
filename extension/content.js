@@ -62,7 +62,7 @@
       articles: 0,     // role="article" nodes on the page
       candidates: 0,   // top-level ones (comments excluded)
       skipped: 0,      // rejected as shells / author-name-only
-      commentsFound: 0,  // captured as comments, scored separately
+      commentsSkipped: 0,  // replies seen and deliberately not captured
       usingFallback: false,
       fallbackNoted: false,
       queued: 0,
@@ -336,26 +336,6 @@
 
   // Which post a comment belongs to. Nested comments have the post as an
   // ancestor; siblings are matched to the nearest preceding post instead.
-  function parentPostId(article, source) {
-    var owner = article.parentElement &&
-                article.parentElement.closest('div[role="article"]');
-    if (owner && looksLikePost(owner)) {
-      var link = extractPermalink(owner);
-      var id = extractPostId(owner, link, extractBody(owner, "", findActionBar(owner)), "");
-      return id ? source.fb_id + "-" + id : null;
-    }
-
-    var all = Array.prototype.slice.call(document.querySelectorAll('div[role="article"]'));
-    var index = all.indexOf(article);
-    for (var i = index - 1; i >= 0; i--) {
-      if (looksLikePost(all[i])) {
-        var pl = extractPermalink(all[i]);
-        var pid = extractPostId(all[i], pl, extractBody(all[i], "", findActionBar(all[i])), "");
-        return pid ? source.fb_id + "-" + pid : null;
-      }
-    }
-    return null;
-  }
 
   // Elements belonging to THIS article, excluding anything owned by a nested
   // article. querySelector searches all descendants, and a post contains its
@@ -387,9 +367,28 @@
       return { isPost: false, confident: true, why: "aria-label says comment" };
     }
 
-    // Nested inside another article: a comment, or a shared-post preview.
+    /* Nested inside another article — but that is not proof on its own.
+     *
+     * Facebook wraps feed items, and a shared post renders the original
+     * inside the sharer's article, so treating nesting as conclusive
+     * discarded real posts. Now that only confident comments are skipped
+     * entirely, a false "confident comment" costs the post itself.
+     *
+     * A post carries a Share control; a reply carries Reply and never Share.
+     * Require that before calling it settled.
+     */
     if (article.parentElement && article.parentElement.closest('div[role="article"]')) {
-      return { isPost: false, confident: true, why: "nested in another article" };
+      var hasShare = ownQuery(article,
+        '[aria-label*="Share" i], [aria-label*="Send this to friends" i]');
+      var hasReply = ownQuery(article, '[aria-label*="Reply" i]');
+      if (!hasShare && hasReply) {
+        return { isPost: false, confident: true, why: "nested, Reply, no Share" };
+      }
+      if (!hasShare) {
+        // Nested and unrecognisable: not captured as a comment, not
+        // discarded either — let the scoring below decide.
+        score -= 1; reasons.push("nested");
+      }
     }
 
     // Feed items carry positional metadata; comments do not.
@@ -856,13 +855,29 @@
     return found;
 
     function captureOne(article, articleIndex, source) {
-      // Comments carry role="article" as well, and are not reliably nested
-      // inside the post — so this has to be a positive test for post-ness,
-      // not merely a nesting check. Comments are still captured, just tagged
-      // and scored against other comments rather than against posts.
-      var isPost = verdicts[articleIndex].isPost;
-      if (isPost) STATS.candidates++;
-      else STATS.commentsFound++;
+      var verdict = verdicts[articleIndex];
+
+      /* Comments are counted and skipped, never captured.
+       *
+       * Facebook previews one or two replies under a post, chosen by "Most
+       * relevant" — its own algorithm, not an engagement ranking. Ranking
+       * two samples drawn from a hundred and ninety five by someone else is
+       * not a ranking, so they are of no use here.
+       *
+       * The test is "am I SURE this is a comment", not "am I sure this is a
+       * post". classify needs a score of 2 to call something a post, and an
+       * article with no recognisable signals scores 0 — requiring positive
+       * proof of post-ness is what once discarded everything and captured
+       * nothing at all. Skipping only CONFIDENT comments (nested in another
+       * article, an aria-label saying so, or a clearly negative score) keeps
+       * the ambiguous ones, which is the safe direction to be wrong in.
+       */
+      if (verdict.confident && !verdict.isPost) {
+        STATS.commentsSkipped++;
+        return;
+      }
+
+      STATS.candidates++;
 
       var bar = findActionBar(article);
       var author = extractAuthor(article, bar);
@@ -899,7 +914,7 @@
         body = media.image_text;
         bodyFromImage = true;
       }
-      logLine((isPost ? "" : "↳ ") + engagement.likes + "r " +
+      logLine(engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
 
@@ -907,7 +922,7 @@
         fb_post_id: source.fb_id + "-" + postId,
         body: body,
         permalink: permalink,
-        post_type: isPost ? extractPostType(article) : "comment",
+        post_type: extractPostType(article),
         posted_at: extractTimestamp(article),
         author_name: author.name,
         author_url: author.url,
@@ -915,8 +930,7 @@
         comments: engagement.comments,
         shares: engagement.shares,
         video_plays: engagement.video_plays,
-        item_type: isPost ? "post" : "comment",
-        parent_fb_id: isPost ? null : parentPostId(article, source),
+        item_type: "post",
         image_url: media.image_url,
         image_count: media.image_count,
         has_video: media.has_video,
@@ -1434,8 +1448,11 @@
     var where = source ? (source.kind === "group" ? "in this group"
                                                  : "on this profile") : "on page";
     hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
-    if (STATS.commentsFound) {
-      hudBody.appendChild(row("Comments captured", String(STATS.commentsFound)));
+    if (STATS.commentsSkipped) {
+      // Named so the number is explained rather than mysterious: Facebook
+      // previews only a couple of replies per post and picks them itself, so
+      // any ranking built from them would rank Facebook's choices.
+      hudBody.appendChild(row("Comments skipped", String(STATS.commentsSkipped), "#7fa693"));
     }
     hudBody.appendChild(row(
       "Captured this group",

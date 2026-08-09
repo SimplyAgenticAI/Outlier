@@ -74,10 +74,19 @@
 
   {% if stats.no_engagement_count and stats.no_engagement_count > stats.post_count // 2 %}
   <div class="glass notice reveal">
-    <b>{{ stats.no_engagement_count }} of {{ stats.post_count }} captured posts have no engagement recorded.</b>
-    Nothing can be scored without it, which is why groups show as “not scored”.
-    Open a group on Facebook and press <b>Diagnose</b> in the Tallgrass panel —
-    that reports what the extractor is seeing and is what gets it fixed.
+    <b>{{ stats.no_engagement_count }} of {{ stats.post_count }} captured posts have no
+    engagement recorded</b>, so they show as “not read” and nothing can be scored
+    from them.
+    <p class="fine" style="margin:9px 0 0">
+      Almost always this means they were captured by an older build of the
+      extension. Counts are read once, when a post is captured — an existing
+      row does not heal itself. Update the extension, wipe what is here, and
+      scan the group again.
+    </p>
+    <div class="demo-actions" style="margin-top:11px">
+      <a class="btn btn-ghost" href="{{ url_for('capture') }}">Update the extension</a>
+      <a class="btn btn-ghost" href="{{ url_for('settings') }}">Wipe and start clean</a>
+    </div>
   </div>
   {% endif %}
 

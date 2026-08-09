@@ -147,8 +147,11 @@ api9.scanPosts();
 // KNOWN TRADE-OFF: V1.7 captures replies as well, tagged item_type
 // "comment". They are stored but ranked nowhere — the dashboard has no
 // comments feed — so they are inert rather than misleading.
-check("the reply is captured but tagged as a comment",
-      api9.queue().filter(function (p) { return p.item_type === "comment"; }).length, 1);
+// Comments are excluded outright now: Facebook previews one or two replies
+// per post and chooses them itself, so no honest ranking can come from them.
+check("the reply is not captured at all", api9.queue().length, 1);
+check("and everything captured is a post",
+      api9.queue().every(function (p) { return p.item_type === "post"; }));
 
 console.log("one article that throws must not kill the sweep");
 // scanPosts runs from setInterval, so an exception anywhere in it aborted
