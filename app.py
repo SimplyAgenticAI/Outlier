@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "3.4"
+APP_VERSION = "3.5"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -157,6 +157,11 @@ def _global_stats(scored):
     }
 
 
+# How many cards one page of the feed holds. Rendering everything is fine for
+# a few hundred posts and painful at ten thousand.
+PAGE_SIZE = 60
+
+
 # ---------------------------------------------------------------- pages
 
 
@@ -197,9 +202,24 @@ def feed():
 
     scored_visible = sum(1 for s in visible if s["has_baseline"])
 
+    # Paged, not truncated. The feed used to render visible[:60] and say
+    # nothing about it, so 86 captured posts showed 60 cards and the page
+    # looked like that was all of them.
+    total_visible = len(visible)
+    page = max(1, request.args.get("page", type=int) or 1)
+    page_count = max(1, -(-total_visible // PAGE_SIZE))
+    page = min(page, page_count)
+    start = (page - 1) * PAGE_SIZE
+    page_items = visible[start:start + PAGE_SIZE]
+
+    # Counted over what is actually on this page, so the divider's number and
+    # the cards under it agree.
+    scored_here = sum(1 for s in page_items if s["has_baseline"])
+    unscored_here = len(page_items) - scored_here
+
     return render_template(
         "feed.html",
-        posts=visible[:60],
+        posts=page_items,
         stats=_global_stats(scored),
         tier_filter=tier_filter,
         tier_labels=outliers.TIER_LABELS,
@@ -214,8 +234,16 @@ def feed():
         unscored_count=sum(1 for s in scored if not s["has_baseline"]),
         # How much of what's on screen is actually scored, so the page can say
         # which ranking is in force instead of implying every row is a multiple.
-        scored_visible=scored_visible,
-        unscored_visible=len(visible) - scored_visible,
+        scored_visible=scored_here,
+        unscored_visible=unscored_here,
+        total_scored=scored_visible,
+        total_unscored=total_visible - scored_visible,
+        page=page,
+        page_count=page_count,
+        page_size=PAGE_SIZE,
+        total_visible=total_visible,
+        range_start=start + 1 if page_items else 0,
+        range_end=start + len(page_items),
         rank_basis_labels=outliers.RANK_BASIS_LABELS,
         version=APP_VERSION,
         active="feed",
@@ -463,13 +491,25 @@ def group_detail(source_id):
     if not source:
         return render_template("404.html", version=APP_VERSION), 404
 
+    # Same split as the feed. This page listed posts and comments in one
+    # stream under a heading that counted only the posts, so a 25-post group
+    # rendered 31 cards.
+    kind = request.args.get("kind", "post")
+    if kind not in ("post", "comment"):
+        kind = "post"
+
     posts = _fetch_posts(source_id=source_id)
     scored = outliers.score_posts(posts)
+    visible = [s for s in scored if (s.get("item_type") or "post") == kind]
+    comment_count = sum(1 for s in scored
+                        if (s.get("item_type") or "post") == "comment")
 
     return render_template(
         "group_detail.html",
         source=dict(source),
-        posts=scored,
+        posts=visible,
+        kind=kind,
+        comment_count=comment_count,
         stats=outliers.source_stats(posts) if posts else None,
         tier_labels=outliers.TIER_LABELS,
         version=APP_VERSION,
@@ -600,6 +640,11 @@ def inject_globals():
         # disagrees with the engine when it changes.
         "min_sample": outliers.MIN_SAMPLE,
         "min_baseline": outliers.MIN_BASELINE,
+        # The free plan's actual limits. Three pages described it as "one
+        # group" long after the source limit was removed, and the pricing
+        # page contradicted itself inside a single screen — its header said
+        # one group while its own feature list said unlimited.
+        "free_limits": billing.FREE_LIMITS,
     }
 
 

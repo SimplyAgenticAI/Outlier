@@ -150,13 +150,33 @@
         {# The break between "measured against a baseline" and "just sorted by
            engagement" is a real change in what the ordering means. #}
         <div class="list-divider">
-          <span>Not scored yet — {{ unscored_visible }} posts, ranked by raw engagement</span>
+          <span>
+            Not scored yet — {{ unscored_visible }} below, ranked by raw engagement
+            {%- if total_unscored > unscored_visible %} ({{ total_unscored }} in total){% endif %}
+          </span>
         </div>
         {% endif %}
       {% endif %}
       {% include "_post_card.html" %}
     {% endfor %}
   </section>
+
+  {# What you are looking at, and how to reach the rest. The list was silently
+     capped at 60 with no indication, so a feed of 86 posts looked like 60. #}
+  {% if page_count > 1 %}
+  <nav class="pager">
+    <a class="btn btn-ghost{{ ' is-off' if page <= 1 }}"
+       href="{{ url_for('feed', tier=tier_filter, kind=kind, page=page-1,
+                        samples='1' if show_samples else None) }}">← Newer</a>
+    <span class="pager-count">
+      Showing <b>{{ range_start }}–{{ range_end }}</b> of {{ total_visible }}
+      · page {{ page }} of {{ page_count }}
+    </span>
+    <a class="btn btn-ghost{{ ' is-off' if page >= page_count }}"
+       href="{{ url_for('feed', tier=tier_filter, kind=kind, page=page+1,
+                        samples='1' if show_samples else None) }}">Older →</a>
+  </nav>
+  {% endif %}
   {% else %}
   <div class="glass empty-panel">
     {# Unscored posts are shown now, so an empty list means the *filter* is

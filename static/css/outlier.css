@@ -277,6 +277,13 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 .post-body.is-empty { color: var(--text-muted); font-style: italic; }
 .stats-unread { color: var(--gold); font-size: 12.5px; }
 
+.pager {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px; margin-top: 26px; flex-wrap: wrap;
+}
+.pager-count { color: var(--text-muted); font-size: 13px; }
+.pager .is-off { opacity: 0.35; pointer-events: none; }
+
 /* A comment and the post it replied to, linked in both directions. */
 .reply-context {
   margin: 0 0 14px; padding: 10px 13px; border-radius: 10px;

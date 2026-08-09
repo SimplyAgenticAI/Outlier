@@ -66,13 +66,24 @@
     {% endif %}
 
     <div class="detail-stats">
+      {% if post.engagement_known %}
       <div><span class="d-val">{{ "{:,}".format(post.likes) }}</span><span class="d-lab">reactions</span></div>
+      {% if post.item_type != 'comment' %}
+      {# A comment has no share count and its reply count is not captured, so
+         printing "0 comments / 0 shares" stated two measurements that were
+         never taken. #}
       <div><span class="d-val">{{ "{:,}".format(post.comments) }}</span><span class="d-lab">comments</span></div>
       <div><span class="d-val">{{ "{:,}".format(post.shares) }}</span><span class="d-lab">shares</span></div>
+      {% endif %}
+      {% if post.baseline is not none %}
       <div>
-        <span class="d-val">{{ post.baseline | round | int if post.baseline is not none else '—' }}</span>
-        <span class="d-lab">group median</span>
+        <span class="d-val">{{ post.baseline | round | int }}</span>
+        <span class="d-lab">{{ 'comment median here' if post.item_type == 'comment' else 'group median' }}</span>
       </div>
+      {% endif %}
+      {% else %}
+      <div class="stats-unread">Engagement couldn't be read from this post</div>
+      {% endif %}
     </div>
 
     {% if replies %}

@@ -48,8 +48,9 @@
     </p>
     {% elif account.plan == 'free' %}
     <p class="fine">
-      Free covers one group and 1,000 posts — enough to see whether the
-      scoring tells you something useful. Pro removes both limits.
+      Free covers unlimited groups and {{ "{:,}".format(free_limits.posts) }}
+      captured posts — enough to see whether the scoring tells you something
+      useful. Pro removes the post limit.
     </p>
     <a class="btn btn-primary" href="{{ url_for('pricing') }}">See plans</a>
     {% else %}
