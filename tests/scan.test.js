@@ -55,16 +55,26 @@ function makeDoc() {
         return acc.concat([c], c.descendants());
       }, []);
     };
-    // Enough selector support for the shapes content.js actually uses.
+    // Selector support matching what content.js actually uses, including
+    // the substring form ([aria-label*="Messenger" i]) -- without it this
+    // harness silently passes selectors it cannot evaluate.
     e.matchesSel = function (sel) {
       return String(sel).split(",").some(function (part) {
-        var m = part.trim().match(/^([a-zA-Z]+)?(?:\[([^\]=]+)(?:="([^"]*)")?\])?$/);
+        part = part.trim();
+        var m = part.match(
+          /^([a-zA-Z]+)?(?:\[([^\]~^$*|=]+)(?:([~^$*|]?=)"([^"]*)")?(\s+i)?\])?$/
+        );
         if (!m || (!m[1] && !m[2])) { return false; }
         if (m[1] && e.tagName !== m[1].toUpperCase()) { return false; }
         if (m[2]) {
-          var v = e.getAttribute(m[2]);
+          var v = e.getAttribute(m[2].trim());
           if (v === null) { return false; }
-          if (m[3] !== undefined && v !== m[3]) { return false; }
+          if (m[4] !== undefined) {
+            var want = m[4], have = v;
+            if (m[5]) { want = want.toLowerCase(); have = have.toLowerCase(); }
+            if (m[3] === "*=") { return have.indexOf(want) !== -1; }
+            return have === want;
+          }
         }
         return true;
       });
@@ -259,6 +269,37 @@ var api5 = runScan(buildPage([
 ]), "/groups/growth");
 api5.scanPosts();
 check("captured rather than silently dropped", api5.queue().length, 1);
+
+console.log("many posts, one author, no captions");
+// The stall: hashing author+body collapsed every caption-less post by the
+// same person onto one id, so 200 posts deduped to the number of authors.
+var sameAuthor = [];
+for (var n = 0; n < 12; n++) {
+  sameAuthor.push({ body: "", author: "Group Admin", likes: 30 + n * 5 });
+}
+var api6 = runScan(buildPage(sameAuthor), "/groups/growth");
+api6.scanPosts();
+check("each post kept its own identity", api6.queue().length, 12);
+
+console.log("an open Messenger chat is not a feed");
+var chatPage = buildPage([
+  { body: "A genuine feed post with a decent amount of caption text.", likes: 88 }
+]);
+var chat = chatPage.doc.el("div");
+chat.setAttribute("aria-label", "Messenger");
+var bubble = chatPage.doc.el("div");
+bubble.setAttribute("role", "article");
+var bubbleText = chatPage.doc.el("div");
+bubbleText.setAttribute("dir", "auto");
+bubbleText.textContent = "hey are we still on for tomorrow afternoon or not";
+bubble.appendChild(bubbleText);
+chat.appendChild(bubble);
+chatPage.root.appendChild(chat);
+
+var api7 = runScan(chatPage, "/groups/growth");
+api7.scanPosts();
+check("the chat message was not captured", api7.queue().length, 1);
+check("and the post still was", api7.queue()[0].body.indexOf("genuine feed post") !== -1);
 
 console.log("comments are counted, never captured");
 var wc = buildPage([

@@ -323,16 +323,37 @@
     return Math.abs(hash).toString(36);
   }
 
-  function extractPostId(article, permalink, body, author) {
+  function extractPostId(article, permalink, body, author, extra) {
+    extra = extra || {};
     if (permalink) {
       var idMatch = permalink.match(/(?:posts|permalink|videos|reel)\/(\d+)/);
       if (idMatch) return idMatch[1];
       return permalink;
     }
-    // Group feeds frequently render without a permalink until hover, so fall
-    // back to hashing author+body — stable enough to dedupe across scrolls.
-    if (!body && !author) return null;
-    return "h" + hashString(author + "|" + body.slice(0, 200));
+    /* No permalink — Facebook often only exposes one on hover.
+     *
+     * The fallback used to hash author + body. When the body came back empty
+     * (a photo post, a caption the extractor missed, a layout change) every
+     * post by the same author collapsed onto ONE id, so a group of two
+     * hundred posts deduped down to the handful of distinct authors on
+     * screen. That is why a long scan sat at 3 captured.
+     *
+     * Hashing more signal fixes it: the timestamp and the reaction count
+     * differ between two posts by the same author almost without exception.
+     * And if there is genuinely nothing distinctive, return null rather than
+     * a colliding id — an uncounted post is recoverable on the next scan; a
+     * post that silently swallows two hundred others is not.
+     */
+    var parts = [
+      author || "",
+      (body || "").slice(0, 200),
+      extra.posted || "",
+      extra.image || "",
+      extra.counts || ""
+    ];
+    var distinct = parts.filter(function (x) { return x; }).length;
+    if (distinct < 2) return null;
+    return "h" + hashString(parts.join("|"));
   }
 
   // Names that are chrome, not people.
@@ -450,139 +471,6 @@
     return !!(bar.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
   }
 
-  /* ------------------------------------------------------ post extraction */
-
-  function extractPermalink(article) {
-    var links = article.querySelectorAll(
-      'a[href*="/posts/"], a[href*="permalink"], a[href*="story_fbid"], ' +
-      'a[href*="/videos/"], a[href*="/reel/"]'
-    );
-    for (var i = 0; i < links.length; i++) {
-      if (links[i].href && links[i].href.indexOf("facebook.com") !== -1) {
-        return links[i].href.split("?")[0];
-      }
-    }
-    return null;
-  }
-
-  function hashString(str) {
-    var hash = 0;
-    for (var i = 0; i < str.length; i++) {
-      hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
-    }
-    return Math.abs(hash).toString(36);
-  }
-
-  function extractPostId(article, permalink, body, author) {
-    if (permalink) {
-      var idMatch = permalink.match(/(?:posts|permalink|videos|reel)\/(\d+)/);
-      if (idMatch) return idMatch[1];
-      return permalink;
-    }
-    // Group feeds frequently render without a permalink until hover, so fall
-    // back to hashing author+body — stable enough to dedupe across scrolls.
-    if (!body && !author) return null;
-    return "h" + hashString(author + "|" + body.slice(0, 200));
-  }
-
-  // Names that are chrome, not people.
-  var NOT_A_NAME = /^(like|comment|share|reply|see more|follow|join|group|admin|moderator|top contributor|author|·|\d+[hdwmy]|anonymous participant)$/i;
-
-  function extractAuthor(article, bar) {
-    // Strict first: the author link lives in the post header, above the action
-    // bar. Casting wider than that picks up commenters, tagged users and link
-    // previews — which is how posts ended up attributed to a commenter.
-    var strict = authorPass(article, bar);
-    if (strict) return strict;
-
-    // Nothing above the bar. Same failure as extractBody: when findActionBar
-    // latches onto something near the top of the article, every candidate
-    // counts as "below" it and the post is attributed to nobody. A name
-    // picked from the whole article is occasionally the wrong person; the
-    // literal string "Unknown" printed where a name goes is always wrong.
-    var relaxed = authorPass(article, null);
-    if (relaxed) return relaxed;
-
-    // Genuinely could not read it. null rather than "Unknown" — the UI needs
-    // to be able to tell "no author captured" from a person with that name,
-    // and "Unknown" reads as a real byline on the card.
-    return { name: null, url: null };
-  }
-
-  function authorPass(article, bar) {
-    var candidates = article.querySelectorAll(
-      'h2 a[role="link"], h3 a[role="link"], h4 a[role="link"], ' +
-      'h2 a, h3 a, h4 a, strong a, a[role="link"] strong, ' +
-      'span a[role="link"], a[role="link"]'
-    );
-
-    for (var i = 0; i < candidates.length; i++) {
-      var el = candidates[i];
-      if (isBelowBar(el, bar)) continue;
-      if (el.closest('div[role="article"]') !== article) continue;
-
-      var text = (el.textContent || "").trim().replace(/\s+/g, " ");
-      var anchor = el.tagName === "A" ? el : el.closest("a");
-      var href = (anchor && anchor.href) || "";
-
-      if (!text || text.length < 2 || text.length > 80) continue;
-      if (NOT_A_NAME.test(text)) continue;
-      if (text.charAt(0) === "#") continue;
-      // A link into the group itself is the group name, not a person.
-      if (href.indexOf("/groups/") !== -1 && href.indexOf("/user/") === -1) continue;
-      // Reject anything that is plainly a timestamp or a bare number.
-      if (/^\d[\d.,:\s]*$/.test(text)) continue;
-
-      return { name: text, url: href ? href.split("?")[0] : null };
-    }
-
-    // Fallback: a profile URL in the header still identifies the author even
-    // when the visible name is rendered in a way the selectors miss.
-    var profile = article.querySelector(
-      'a[href*="/user/"], a[href*="profile.php"], a[href*="facebook.com/"][role="link"]'
-    );
-    if (profile && !isBelowBar(profile, bar)) {
-      var slug = (profile.href || "").split("?")[0].replace(/\/$/, "").split("/").pop();
-      if (slug && !/^\d+$/.test(slug) && slug !== "groups") {
-        return { name: slug.replace(/[._-]/g, " "), url: profile.href.split("?")[0] };
-      }
-    }
-
-    return null;   // caller decides what an unreadable author means
-  }
-
-  var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
-
-  /* The post/comment boundary.
-   *
-   * Facebook gives comments role="article" too, and does not reliably nest
-   * them inside the post's own article — so "exclude nested articles" let
-   * every comment through as a post. Worse, a comment is often longer than
-   * the caption, so picking the longest text block returned the comment even
-   * for posts that were correctly identified.
-   *
-   * Two structural facts fix both: a post offers Share (a comment offers
-   * Reply), and everything belonging to the post sits ABOVE the Like/Comment/
-   * Share bar while comments sit below it.
-   */
-
-  function findActionBar(article) {
-    var candidates = article.querySelectorAll('[role="button"], [aria-label]');
-    for (var i = 0; i < candidates.length; i++) {
-      var el = candidates[i];
-      var label = (el.getAttribute("aria-label") || "").trim();
-      var text = (el.textContent || "").trim();
-      if (/^(like|comment|share)$/i.test(text)) return el;
-      if (/^(like|comment|share|leave a comment|send this to friends)/i.test(label)) return el;
-    }
-    return null;
-  }
-
-  // True when `el` sits after the action bar — i.e. in the comments.
-  function isBelowBar(el, bar) {
-    if (!bar || !el) return false;
-    return !!(bar.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
-  }
 
   // Elements belonging to THIS article, excluding anything owned by a nested
   // article. querySelector searches all descendants, and a post contains its
@@ -1106,6 +994,31 @@
 
   /* ------------------------------------------------------ scan */
 
+  /* Articles that are actually feed posts.
+   *
+   * document.querySelectorAll('div[role="article"]') matches an open
+   * Messenger conversation too — chat bubbles carry the same role — so a chat
+   * left open in the corner was captured and counted as a post. It also
+   * matches dialogs, notification flyouts and the composer.
+   *
+   * Posts live inside the page's main region; every one of those lives
+   * outside it. Scoping to role="main" removes the whole class.
+   */
+  var CHAT_CONTAINER =
+    '[aria-label*="Messenger" i], [aria-label*="Chat" i], [role="dialog"], ' +
+    '[role="complementary"], [role="banner"], [role="navigation"]';
+
+  function feedArticles() {
+    var main = document.querySelector('div[role="main"]') || document.body;
+    var found = main.querySelectorAll('div[role="article"]');
+    var out = [];
+    for (var i = 0; i < found.length; i++) {
+      if (found[i].closest(CHAT_CONTAINER)) continue;
+      out.push(found[i]);
+    }
+    return out;
+  }
+
   function scanPosts() {
     if (!enabled) return 0;
 
@@ -1122,7 +1035,7 @@
       stopAutoScroll("Moved to a new group — counters reset");
     }
 
-    var articles = document.querySelectorAll('div[role="article"]');
+    var articles = feedArticles();
     STATS.articles = articles.length;
 
     // Classify everything first. If not a single article scores as a post
@@ -1211,8 +1124,19 @@
 
       var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
+      var captionEl = lastBodyEl;
       var permalink = extractPermalink(article);
-      var postId = extractPostId(article, permalink, body, author.name || "");
+
+      // Read before the id, because the id needs them to tell two posts by
+      // the same author apart.
+      var engagement = extractEngagement(article, bar, captionEl);
+      var media = extractMedia(article, bar);
+
+      var postId = extractPostId(article, permalink, body, author.name || "", {
+        posted: extractTimestamp(article) || "",
+        image: media.image_url || "",
+        counts: [engagement.likes, engagement.comments, engagement.shares].join(",")
+      });
 
       // Everything past this point counts only ONCE per item. Counting before
       // the dedup check meant the passive re-scan — which fires roughly every
@@ -1237,9 +1161,6 @@
       // rendered into the graphic, and short reactions ("This 👏"). Those are
       // frequently a group's best performers, so dropping them didn't just
       // lose rows — it biased the baseline the survivors are scored against.
-      var engagement = extractEngagement(article, bar, lastBodyEl);
-      var media = extractMedia(article, bar);
-
       var bodyFromImage = false;
       if ((!body || body.length < 12) && media.image_text) {
         body = media.image_text;      // Facebook's own OCR, see textFromAlt
@@ -1444,7 +1365,7 @@
    */
   function diagnose() {
     var source = detectSource();
-    var articles = document.querySelectorAll('div[role="article"]');
+    var articles = feedArticles();
     var lines = [];
 
     lines.push("TALLGRASS DIAGNOSTIC");
