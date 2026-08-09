@@ -13,7 +13,7 @@
   if (window.__outlierLoaded) return;   // survive SPA re-injection
   window.__outlierLoaded = true;
 
-  var SEEN = new Set();
+  var SEEN = new Map();   // post key -> length of the body we stored
   var QUEUE = [];
   var enabled = true;
   var autoScrolling = false;
@@ -51,7 +51,8 @@
       skipped: 0,          // rejected as shells — no text, no media, no counts
       mediaOnly: 0,        // kept on the strength of an image/video alone
       textFromImage: 0,    // caption read out of the graphic's alt text
-      expanded: 0,         // "See more" clicks — captured on the next pass
+      expanded: 0,         // "See more" controls clicked
+      refilled: 0,         // posts re-sent once their caption expanded
       unattributed: 0,     // feed posts whose origin could not be identified
       usingFallback: false,
       fallbackNoted: false,
@@ -75,7 +76,7 @@
     if (id === currentSourceId) return false;
 
     currentSourceId = id;
-    SEEN = new Set();
+    SEEN = new Map();
     QUEUE = [];
     STATS = blankStats();
     if (source) logLine("— " + source.name.slice(0, 30) + " —");
@@ -594,12 +595,14 @@
     // Facebook labels comment containers explicitly. Strongest signal there is.
     var ownLabel = article.getAttribute("aria-label") || "";
     if (/^comment by/i.test(ownLabel) || /^reply by/i.test(ownLabel)) {
-      return { isPost: false, confident: true, why: "aria-label says comment" };
+      return { isPost: false, confident: true, certainlyComment: true,
+               why: "aria-label says comment" };
     }
 
     // Nested inside another article: a comment, or a shared-post preview.
     if (article.parentElement && article.parentElement.closest('div[role="article"]')) {
-      return { isPost: false, confident: true, why: "nested in another article" };
+      return { isPost: false, confident: true, certainlyComment: true,
+               why: "nested in another article" };
     }
 
     // Feed items carry positional metadata; comments do not.
@@ -627,6 +630,9 @@
     return {
       isPost: score >= 2,
       confident: score >= 3 || score <= -1,
+      // Only the checks above that return early, plus a clearly negative
+      // score, prove something is a comment. Everything else is a guess.
+      certainlyComment: score <= -1,
       why: reasons.join("+") || "no signals"
     };
   }
@@ -1115,24 +1121,31 @@
     articles.forEach(function (article, articleIndex) {
       // Comments carry role="article" too, so this is a positive test for
       // post-ness rather than a nesting check.
-      var isPost = verdicts[articleIndex].isPost;
+      var verdict = verdicts[articleIndex];
 
       // Per-scan gauges: what is on screen right now. Reset every pass.
-      if (isPost) STATS.candidates++;
-      else STATS.commentsOnPage++;
+      if (verdict.certainlyComment) STATS.commentsOnPage++;
+      else STATS.candidates++;
 
       /* Comments are counted, not captured.
        *
        * Facebook renders one or two preview replies under a post, picked by
        * "Most relevant" — an algorithmic choice, not an engagement ranking.
-       * Scoring those meant ranking two comments out of a hundred and ninety
-       * five, chosen by someone else's algorithm, and calling the winner a
-       * top comment. The sample is neither complete nor random, so no honest
-       * ranking can be built from it. Reading every comment would mean
-       * expanding each thread repeatedly on every post, which is slow,
-       * fragile, and not what this tool is for.
+       * Ranking two samples out of a hundred and ninety five, drawn by
+       * somebody else's algorithm, is not a ranking.
+       *
+       * But the test is "am I SURE this is a comment", not "am I sure this
+       * is a post". classify() needs a score of 2 to call something a post,
+       * and an article with no recognisable signals scores 0 — so while
+       * comments were still being captured, an unclassifiable post was at
+       * least saved as a comment. Once capture was removed it was discarded
+       * instead, and a page whose markup does not expose the signals
+       * captured nothing at all.
+       *
+       * A comment wrongly stored as a post is a visible, fixable wart. A post
+       * silently dropped is invisible. So: capture unless certain.
        */
-      if (!isPost) return;
+      if (verdicts[articleIndex].certainlyComment) return;
 
       // On a feed, each post belongs to a different group or page, so the
       // source is resolved per article rather than per scan.
@@ -1141,14 +1154,22 @@
 
       var bar = findActionBar(article);
 
-      // A clamped caption is a fragment, and a fragment stored as the post is
-      // worse than waiting one pass for the real thing. Expand, then let the
-      // next sweep (~800ms) capture it in full.
+      /* Expand a clamped caption, but NEVER let that block the capture.
+       *
+       * The previous version clicked See more and returned, expecting the
+       * next sweep to capture the post in full. If the click does not
+       * dismiss the control — a detached node, a changed target, a post
+       * where the control persists — the post is skipped on that pass and
+       * on every pass after it, and the counter sits at zero forever. It
+       * did.
+       *
+       * So: click it, capture what is there now, and let a later pass
+       * replace the body once it grows. A fragment on screen for a second
+       * is a far smaller failure than a post that is never captured.
+       */
       var seeMore = findSeeMore(article, bar);
       if (seeMore) {
-        try { seeMore.click(); } catch (e) { /* detached node */ }
-        STATS.expanded++;
-        return;
+        try { seeMore.click(); STATS.expanded++; } catch (e) { /* detached */ }
       }
 
       var author = extractAuthor(article, bar);
@@ -1160,7 +1181,18 @@
       // the dedup check meant the passive re-scan — which fires roughly every
       // 800ms because Facebook mutates constantly — re-counted the same
       // comments on every pass. Sitting still on one screen climbed past 300.
-      if (!postId || SEEN.has(postSource.fb_id + "|" + postId)) return;
+      if (!postId) return;
+      var seenKey = postSource.fb_id + "|" + postId;
+      var seenLength = SEEN.get(seenKey);
+
+      // Already captured, and nothing new to say about it.
+      //
+      // The exception is a caption that has since expanded: See more may have
+      // opened after this post was first read, and the fuller text should
+      // replace the fragment. The dashboard upserts on fb_post_id, so
+      // re-queueing updates the row rather than duplicating it.
+      var isUpdate = seenLength !== undefined;
+      if (isUpdate && !(body && body.length > seenLength + 80)) return;
 
       // Engagement and media are read BEFORE the keep/skip decision, because
       // they are part of that decision. Requiring a caption discarded whole
@@ -1189,8 +1221,9 @@
       // A genuine shell has none of the three. Anything else is a real item.
       if (!hasText && !hasMedia && !hasEngagement) { STATS.skipped++; return; }
 
-      SEEN.add(postSource.fb_id + "|" + postId);
-      found++;
+      SEEN.set(seenKey, body ? body.length : 0);
+      if (!isUpdate) found++;
+      else STATS.refilled++;
 
       if (hasEngagement) STATS.withEngagement++;
       if (hasMedia) STATS.withMedia++;
@@ -1972,6 +2005,9 @@
     if (STATS.expanded) {
       hudBody.appendChild(row("Expanded (See more)", String(STATS.expanded), "#6ee7b7"));
     }
+    if (STATS.refilled) {
+      hudBody.appendChild(row("Re-sent in full", String(STATS.refilled), "#6ee7b7"));
+    }
     hudBody.appendChild(row(
       "Captured this group",
       SEEN.size + " / " + maxPosts,
@@ -2012,8 +2048,31 @@
     }
     if (STATS.queued) hudBody.appendChild(row("Queued", String(STATS.queued)));
 
-    if (STATS.articles > 0 && STATS.candidates === 0) {
-      hudBody.appendChild(row("⚠ selectors", "drifted", "#d9b45f"));
+    /* Zero captured is never left unexplained.
+     *
+     * The panel could sit on 0 with every other row looking healthy, and
+     * there was no way to tell whether nothing matched, everything was
+     * classed as a comment, everything was rejected as empty, or the batch
+     * was failing to send. Each of those has a different fix.
+     */
+    if (STATS.sent === 0 && STATS.articles > 0) {
+      var why;
+      if (STATS.candidates === 0 && STATS.commentsOnPage > 0) {
+        why = "everything on screen reads as a comment";
+      } else if (STATS.candidates === 0) {
+        why = "no posts matched — selectors drifted";
+      } else if (STATS.unattributed > 0 && STATS.unattributed >= STATS.candidates) {
+        why = "posts found, but none could be traced to a source";
+      } else if (STATS.skipped >= STATS.candidates) {
+        why = "posts found, but all were empty";
+      } else if (STATS.queued > 0) {
+        why = "captured, waiting to send";
+      } else if (STATS.lastError) {
+        why = "sending failed — see below";
+      } else {
+        why = "posts found but not queued";
+      }
+      hudBody.appendChild(row("⚠ nothing captured", why, "#e07a5f"));
     }
 
     // The diagnostic used to be a permanent button, which put a debugging

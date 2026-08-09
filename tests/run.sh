@@ -12,6 +12,8 @@ for p in pathlib.Path('templates').glob('*.html'):
     env.parse(p.read_text(encoding='utf-8'), filename=p.name)
 print('templates ok')"
 python -c "import json;json.load(open('extension/manifest.json',encoding='utf-8'));print('manifest ok')"
+echo "--- scan captures posts ---"
+node tests/scan.test.js
 echo "--- engagement extraction ---"
 node tests/engagement.test.js
 echo "--- see more expansion ---"
