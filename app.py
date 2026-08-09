@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "3.7"
+APP_VERSION = "3.8"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -84,7 +84,7 @@ def _fetch_posts(source_id=None, limit=None, user_id=None):
 
     sql = """
         SELECT p.*, s.name AS source_name, s.kind AS source_kind,
-               s.fb_id AS source_fb_id, a.name AS author_name,
+               s.fb_id AS source_fb_id, s.url AS source_url, a.name AS author_name,
                (SELECT COUNT(*) FROM saved
                  WHERE saved.post_id = p.id AND saved.user_id = p.user_id) AS is_saved
         FROM posts p

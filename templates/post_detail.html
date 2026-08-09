@@ -32,7 +32,7 @@
     </div>
 
     {% if post.image_url %}
-    <a class="detail-media" href="{{ post.permalink or '#' }}"
+    <a class="detail-media" href="{{ post.permalink or post.source_url or '#' }}"
        target="_blank" rel="noopener noreferrer">
       <img src="{{ post.image_url }}" alt="" loading="lazy" referrerpolicy="no-referrer">
     </a>
@@ -111,10 +111,21 @@
     </div>
     {% endif %}
 
+    {# A post with no captured permalink still belongs to a source, and the
+       source has a URL. Offering nothing meant the only way back to Facebook
+       was to search for the post by hand. #}
     {% if post.permalink %}
     <a class="btn btn-ghost" href="{{ post.permalink }}" target="_blank" rel="noopener noreferrer">
       Open on Facebook
     </a>
+    {% elif post.source_url %}
+    <a class="btn btn-ghost" href="{{ post.source_url }}" target="_blank" rel="noopener noreferrer">
+      Open {{ post.source_name }} on Facebook
+    </a>
+    <p class="fine">
+      Facebook only exposes a post's own link on hover, so this one wasn't
+      captured — this opens the {{ post.source_kind or 'source' }} instead.
+    </p>
     {% endif %}
   </div>
 

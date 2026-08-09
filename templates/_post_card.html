@@ -138,6 +138,16 @@
         <path d="M6 3h12a1 1 0 0 1 1 1v17l-7-4-7 4V4a1 1 0 0 1 1-1z"/>
       </svg>
     </button>
+    {% if post.permalink %}
+    <a class="icon-btn" href="{{ post.permalink }}" target="_blank"
+       rel="noopener noreferrer" title="Open this post on Facebook">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"
+              fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </a>
+    {% endif %}
     <a class="icon-btn" href="{{ url_for('post_detail', post_id=post.id) }}" title="Open and remix">
       <svg viewBox="0 0 24 24" aria-hidden="true">
         <path d="M4 12h12M12 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.2"

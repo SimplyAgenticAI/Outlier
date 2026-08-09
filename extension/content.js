@@ -353,6 +353,22 @@
     var relaxed = authorPass(article, null);
     if (relaxed) return relaxed;
 
+    // Last resort: the header's own heading text. Facebook does not always
+    // wrap the author's name in a link — on some layouts it is a plain
+    // strong/heading — and "Author not captured" on every single card was
+    // the visible result of giving up here.
+    var headings = article.querySelectorAll('h2, h3, h4, strong');
+    for (var h = 0; h < headings.length; h++) {
+      var node = headings[h];
+      if (isBelowBar(node, bar)) continue;
+      if (node.closest('div[role="article"]') !== article) continue;
+      var name = (node.textContent || "").trim().replace(/\s+/g, " ");
+      if (!name || name.length < 2 || name.length > 80) continue;
+      if (NOT_A_NAME.test(name) || CHROME_RE.test(name)) continue;
+      if (/^\d[\d.,]*\s*[KMB]?$/.test(name)) continue;
+      return { name: name, url: null };
+    }
+
     // Genuinely could not read it. null rather than "Unknown" — the UI needs
     // to be able to tell "no author captured" from a person with that name,
     // and "Unknown" reads as a real byline on the card.
@@ -649,6 +665,7 @@
     // views".
     var strict = bodyPass(article, authorName, bar);
     if (strict) return strict;
+    var strictEl = lastBodyEl;
 
     // Nothing above the bar. Either the post genuinely has no caption, or
     // findActionBar latched onto something near the top of the article and
@@ -659,7 +676,9 @@
     // Retrying without the cutoff risks picking up a comment, which is the
     // lesser failure: a post saved with the wrong caption is visible and
     // fixable, a post never saved at all is invisible.
-    return bodyPass(article, authorName, null);
+    var relaxed = bodyPass(article, authorName, null);
+    if (!lastBodyEl) lastBodyEl = strictEl;
+    return relaxed;
   }
 
   /* "See more".
@@ -686,9 +705,14 @@
     return null;
   }
 
+  // The element the caption came from, set by the last extractBody call.
+  // Engagement extraction excludes it — that is the whole fabrication guard.
+  var lastBodyEl = null;
+
   function bodyPass(article, authorName, bar) {
     var blocks = article.querySelectorAll('div[dir="auto"], span[dir="auto"]');
     var best = "";
+    var bestEl = null;
 
     for (var i = 0; i < blocks.length; i++) {
       var el = blocks[i];
@@ -710,7 +734,9 @@
       if (el.closest('div[role="article"]') !== article) continue;
 
       best = text;
+      bestEl = el;
     }
+    lastBodyEl = bestEl;
     return best.slice(0, 5000);
   }
 
@@ -799,77 +825,89 @@
   var ENGAGEMENT_WORDS_G =
     /\b(reactions?|reacted|likes?|loves?|cares?|haha|wow|sad|angry|comments?|shares?|shared|views?|plays?|others?)\b/gi;
 
-  /* Is this element's whole text a summary row, rather than prose that
-   * happens to contain an engagement word?
+  /* Text that may contain an engagement count.
    *
-   * "I bought 500 shares of the company last year" contains "shares" and a
-   * number, and an engagement-word test alone admits it — the caption then
-   * supplies a share count nobody measured. Strip the counts, the engagement
-   * words and the punctuation; a real summary row has almost nothing left,
-   * while a sentence still has its sentence.
+   * The fabrication guard is structural and precise: exclude the caption,
+   * and only the caption. An earlier attempt restricted this to aria-labels
+   * carrying an engagement word, which killed the 11,000,000-reaction bug but
+   * also read nothing at all on pages that do not expose those labels — the
+   * dashboard then filled with "engagement couldn't be read".
+   *
+   * Everything above the action bar that is NOT the post's own copy is fair
+   * game: that region is where Facebook puts the reaction summary, in text,
+   * in aria-labels, or split across both.
    */
-  function isSummaryText(text) {
-    if (!/\d/.test(text)) return false;
-    if (text.length > 40) return false;
-    if (SUMMARY_ROW_RE.test(text)) return true;
-
-    var residue = text
-      .replace(/[\d.,]+\s*[KMB]?/gi, " ")
-      .replace(ENGAGEMENT_WORDS_G, " ")
-      .replace(/\b(and|all|see|who|to|this|the)\b/gi, " ")
-      .replace(/[^a-z]/gi, "");
-    return residue.length <= 3;
+  function isCaptionText(el, captionEl) {
+    if (!captionEl || !el) return false;
+    if (el === captionEl) return true;
+    // Descendants of the caption are caption too, as is the caption's own
+    // wrapper — a count is never nested inside the post's copy.
+    var node = el;
+    while (node) {
+      if (node === captionEl) return true;
+      node = node.parentElement;
+    }
+    return captionEl.contains ? captionEl.contains(el) : false;
   }
 
-  /* Every string in this article that is UI chrome describing engagement.
+  /* Every string in this article that might carry an engagement count.
    *
-   * Deliberately excludes the caption. See extractEngagement for why — the
-   * caption is where fabricated counts came from, and no amount of pattern
-   * tightening fixes a haystack that contains arbitrary prose.
+   * The guard is structural: exclude the caption, and only the caption.
+   *
+   * An earlier version admitted only aria-labels containing an engagement
+   * word. That killed the 11,000,000-reaction bug — a caption reading
+   * "processed 11,000,000 tokens" was being stored as the reaction count —
+   * but it also read nothing at all on layouts that do not expose those
+   * labels, which is why the dashboard filled up with "engagement couldn't
+   * be read" and every group showed 0% readable.
+   *
+   * Above the action bar and outside the post's own copy is where Facebook
+   * puts the reaction summary: sometimes as text, sometimes in an
+   * aria-label, sometimes split across both. All of it is fair game.
    */
-  function engagementChrome(article, bar) {
+  function engagementChrome(article, bar, captionEl) {
     var out = [];
+    var i, el, text;
 
     var labelled = article.querySelectorAll("[aria-label]");
-    for (var i = 0; i < labelled.length; i++) {
-      var el = labelled[i];
+    for (i = 0; i < labelled.length; i++) {
+      el = labelled[i];
       if (el.closest('div[role="article"]') !== article) continue;
-      if (isBelowBar(el, bar)) continue;          // per-comment counts
+      if (isBelowBar(el, bar)) continue;              // per-comment counts
       var label = el.getAttribute("aria-label") || "";
-      if (!label) continue;
-      // An aria-label with no engagement word is describing something else —
-      // an image, a link preview, a menu — and must not be searched for counts.
-      if (!ENGAGEMENT_WORD_RE.test(label)) continue;
-      // Facebook's generated image descriptions are prose and can contain both
+      if (!label || label.length > 120) continue;
+      // Facebook's generated image descriptions are prose and can carry both
       // a number and an engagement word ("...text that says 500 SHARES").
       if (ALT_PREAMBLE_RE.test(label)) continue;
+      if (!/\d/.test(label)) continue;
       out.push(label);
     }
 
-    // The summary row: walk back from the action bar, keeping only elements
-    // whose entire text is a count or a count plus an engagement word.
-    if (bar) {
-      var row = bar.parentElement;
-      for (var hop = 0; hop < 4 && row; hop++) {
-        var previous = row.previousElementSibling;
-        var seen = 0;
-        while (previous && seen < 6) {
-          var text = (previous.innerText || "").trim().replace(/\s+/g, " ");
-          // Row text is held to the stricter shape test: this is the branch a
-          // caption can actually reach, and an engagement-word check alone
-          // lets "500 shares of the company" through as a share count.
-          if (text && isSummaryText(text)) out.push(text);
-          previous = previous.previousElementSibling;
-          seen++;
-        }
-        row = row.parentElement;
-      }
+    var blocks = article.querySelectorAll(
+      'span, div[dir="auto"], span[dir="auto"], div[role="button"]'
+    );
+    for (i = 0; i < blocks.length; i++) {
+      el = blocks[i];
+      if (el.closest('div[role="article"]') !== article) continue;
+      if (isBelowBar(el, bar)) continue;
+      if (isCaptionText(el, captionEl)) continue;    // never the post's copy
+      if (el.children && el.children.length > 3) continue;   // a container
+      text = (el.innerText || "").trim().replace(/\s+/g, " ");
+      // Short and containing a digit. A caption is neither of those, and is
+      // excluded above in any case.
+      if (!text || text.length > 48 || !/\d/.test(text)) continue;
+      out.push(text);
     }
 
     return out;
   }
 
-  function extractEngagement(article, bar) {
+  function extractEngagement(article, bar, captionEl) {
+    // Passed explicitly by the scanner. Falling back to the module-level
+    // value works but depends on extractBody having run for THIS article
+    // first, which is exactly the kind of ordering assumption that breaks
+    // quietly later.
+    if (captionEl === undefined) captionEl = lastBodyEl;
     var result = { likes: 0, comments: 0, shares: 0, video_plays: 0, read: false };
 
     // The haystack is UI chrome ONLY — never the post's own copy.
@@ -885,7 +923,7 @@
     //      count there even when the visible element is just an icon.
     //   2. the summary row directly above the action bar, whose text is a
     //      bare count and nothing else.
-    var haystackParts = engagementChrome(article, bar);
+    var haystackParts = engagementChrome(article, bar, captionEl);
     var haystack = haystackParts.join("\n");
 
     function firstMatch(patterns) {
@@ -946,7 +984,6 @@
     if (!result.likes) {
       for (var h = 0; h < haystackParts.length; h++) {
         var part = haystackParts[h];
-        if (!SUMMARY_ROW_RE.test(part)) continue;      // bare counts only
         var first = part.split(/[\s·•|]+/)[0];
         if (!looksLikeACount(first)) continue;
         var candidate = parseCount(first);
@@ -1200,7 +1237,7 @@
       // rendered into the graphic, and short reactions ("This 👏"). Those are
       // frequently a group's best performers, so dropping them didn't just
       // lose rows — it biased the baseline the survivors are scored against.
-      var engagement = extractEngagement(article, bar);
+      var engagement = extractEngagement(article, bar, lastBodyEl);
       var media = extractMedia(article, bar);
 
       var bodyFromImage = false;
@@ -1423,7 +1460,7 @@
       var bar = findActionBar(article);
       var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
-      var engagement = extractEngagement(article, bar);
+      var engagement = extractEngagement(article, bar, lastBodyEl);
       var media = extractMedia(article, bar);
 
       lines.push("--- item " + (i + 1) + " ---");
@@ -1929,19 +1966,23 @@
     var line = document.createElement("div");
     styleEl(line, {
       display: "flex", justifyContent: "space-between",
-      padding: "0.22em 0", fontSize: "0.98em"
+      padding: "0.3em 0", fontSize: "1.02em"
     });
 
     var l = document.createElement("span");
     l.textContent = label;
-    styleEl(l, { color: "#567a67", flexShrink: "0", marginRight: "0.6em" });
+    // Was #567a67 — a thin, low-contrast grey that measured under 3:1 on
+    // this background and was genuinely hard to read.
+    styleEl(l, {
+      color: "#b8d4c6", fontWeight: "600", flexShrink: "0", marginRight: "0.6em"
+    });
 
     var v = document.createElement("span");
     v.textContent = value;
     // Truncate rather than overflow: a long group name must not push its own
     // value out of the panel.
     styleEl(v, {
-      color: accent || "#eafff3", fontWeight: "700",
+      color: accent || "#ffffff", fontWeight: "700",
       minWidth: "0", overflow: "hidden",
       textOverflow: "ellipsis", whiteSpace: "nowrap"
     });
@@ -2080,21 +2121,7 @@
     // It appears only when a scan has actually failed to read engagement,
     // where copying a report is a thing worth doing.
     if (STATS.sent >= 10 && coverage < 30) {
-      var warn = row("⚠ engagement", "not reading — click to copy report", "#d9b45f");
-      warn.style.cursor = "pointer";
-      warn.title = "Copies a redacted report of what the extractor saw";
-      warn.addEventListener("click", function () {
-        var report = diagnose();
-        navigator.clipboard.writeText(report).then(function () {
-          STATS.lastError = "Report copied.";
-          renderHud();
-        }).catch(function () {
-          console.log(report);          // clipboard can be blocked
-          STATS.lastError = "Clipboard blocked — the report is in the console (F12).";
-          renderHud();
-        });
-      });
-      hudBody.appendChild(warn);
+      hudBody.appendChild(row("⚠ engagement", "not reading on this page", "#d9b45f"));
     }
 
     // A finished scan should hand you the next action, not just stop.

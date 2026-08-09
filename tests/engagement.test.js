@@ -30,22 +30,37 @@ function buildArticle(spec) {
   var labelled = (spec.labels || []).map(function (l) {
     var e = el({ attrs: { "aria-label": l } }); e._article = article; return e;
   });
-  // Sibling chain above the action bar, closest last.
-  var chain = (spec.rows || []).map(function (t) {
-    var e = el({ innerText: t }); e._article = article; return e;
+
+  // Rows above the action bar, as real dir="auto" blocks -- what Facebook
+  // actually renders, and what engagementChrome now reads.
+  var rows = (spec.rows || []).map(function (text) {
+    var e = el({ innerText: text, attrs: { dir: "auto" }, tag: "DIV" });
+    e._article = article;
+    return e;
   });
-  for (var i = 1; i < chain.length; i++) chain[i].previousElementSibling = chain[i - 1];
+  for (var i = 1; i < rows.length; i++) rows[i].previousElementSibling = rows[i - 1];
+
+  // The caption is whichever row the body extractor would have picked: the
+  // longest one. Passed to extractEngagement so it can be excluded.
+  var caption = null;
+  rows.forEach(function (r) {
+    if (!caption || r.innerText.length > caption.innerText.length) caption = r;
+  });
+  if (spec.captionIndex !== undefined) caption = rows[spec.captionIndex];
+  if (spec.noCaption) caption = null;
+
   var barParent = el({ innerText: "" });
-  barParent.previousElementSibling = chain.length ? chain[chain.length - 1] : null;
-  barParent.parentElement = null;
+  barParent.previousElementSibling = rows.length ? rows[rows.length - 1] : null;
   var bar = el({ innerText: "Like Comment Share" });
   bar.parentElement = barParent;
   bar._article = article;
 
   article.querySelectorAll = function (sel) {
-    return sel === "[aria-label]" ? labelled : [];
+    if (sel === "[aria-label]") return labelled;
+    if (/span|dir="auto"|role="button"/.test(sel)) return rows;
+    return [];
   };
-  return { article: article, bar: bar };
+  return { article: article, bar: bar, caption: caption };
 }
 
 var cases = [
@@ -69,9 +84,10 @@ var cases = [
     rows: ["Some caption text that is quite long and mentions 900 things", "1.2K"],
     expect: { likes: 1200 } },
 
-  { name: "summary row with a separator",
+  { name: "summary row with a separator, on a caption-less image post",
     labels: [],
     rows: ["458 · 32"],
+    noCaption: true,
     expect: { likes: 458 } },
 
   { name: "timestamp above the bar is not a count",
@@ -113,12 +129,22 @@ var cases = [
     labels: [String(99000000) + " reactions"],
     rows: [],
     expect: { likes: 0, read: false } },
+
+  { name: "a SHORT caption with a number is not a count",
+    labels: [],
+    rows: ["Only 3 spots left!"],
+    expect: { likes: 0, read: false } },
+
+  { name: "summary row wins even when a caption sits beside it",
+    labels: [],
+    rows: ["Here is a reasonably long caption about our new product launch", "412"],
+    expect: { likes: 412 } },
 ];
 
 var failures = 0;
 cases.forEach(function (c) {
   var built = buildArticle(c);
-  var got = extractEngagement(built.article, built.bar);
+  var got = extractEngagement(built.article, built.bar, built.caption);
   var bad = Object.keys(c.expect).filter(function (k) { return got[k] !== c.expect[k]; });
   if (bad.length) {
     failures++;
