@@ -92,6 +92,56 @@ api7.scanPosts();
 check("the chat message was not captured", api7.queue().length, 1);
 check("and the post still was", api7.queue()[0].body.indexOf("genuine feed post") !== -1);
 
+console.log("a post nested inside a wrapper article");
+// Facebook wraps feed items, and a shared post renders the original inside
+// the sharer's article. Treating "nested" as proof of comment-ness meant the
+// panel reported every item as a reply and captured nothing.
+var wrapped = buildPage([]);
+var outer = wrapped.doc.el("div");
+outer.setAttribute("role", "article");
+var inner = wrapped.doc.el("div");
+inner.setAttribute("role", "article");
+var innerHead = wrapped.doc.el("a");
+innerHead.setAttribute("role", "link");
+innerHead.textContent = "Someone Real";
+inner.appendChild(innerHead);
+var innerBody = wrapped.doc.el("div");
+innerBody.setAttribute("dir", "auto");
+innerBody.textContent = "A genuine post that happens to sit inside a wrapper.";
+inner.appendChild(innerBody);
+var innerShare = wrapped.doc.el("div");
+innerShare.setAttribute("aria-label", "Send this to friends or post it on your profile");
+inner.appendChild(innerShare);
+var innerCounts = wrapped.doc.el("div");
+innerCounts.setAttribute("aria-label", "77 reactions");
+inner.appendChild(innerCounts);
+outer.appendChild(inner);
+wrapped.root.appendChild(outer);
+
+var api8 = runScan(wrapped, "/groups/growth");
+api8.scanPosts();
+check("a nested post carrying Share is still captured", api8.queue().length > 0);
+
+console.log("a real reply is still skipped");
+var withReply = buildPage([
+  { body: "The post everyone is replying to, with plenty of text.", likes: 500 }
+]);
+var host = withReply.root.children[0];
+var rep = withReply.doc.el("div");
+rep.setAttribute("role", "article");
+var repBody = withReply.doc.el("div");
+repBody.setAttribute("dir", "auto");
+repBody.textContent = "A reply that Facebook chose to preview here";
+rep.appendChild(repBody);
+var repBtn = withReply.doc.el("div");
+repBtn.setAttribute("aria-label", "Reply");
+rep.appendChild(repBtn);
+host.appendChild(rep);
+
+var api9 = runScan(withReply, "/groups/growth");
+api9.scanPosts();
+check("the reply is not queued", api9.queue().length, 1);
+
 console.log("comments are counted, never captured");
 var wc = buildPage([
   { body: "A real post with a decent amount of caption text on it.", likes: 400 }

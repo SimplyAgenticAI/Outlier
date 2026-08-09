@@ -36,6 +36,7 @@
   var autoScrolling = false;
   var scrollTimer = null;
   var idleScrolls = 0;
+  var lastHeight = 0;   // document height, to tell 'no new posts' from 'nothing captured'
   var capturedCount = 0;
   var currentSourceId = null;
   var endpointLabel = null;
@@ -56,8 +57,14 @@
     return {
       articles: 0,        // article nodes inside the feed region
       skippedChat: 0,     // Messenger, dialogs, nav
-      skippedComment: 0,  // certainly a reply
-      skippedEmpty: 0,    // nothing at all could be read
+      // Per-pass, reset at the top of every scan. These were cumulative
+      // while `articles` was per-pass, so after a few sweeps the skip count
+      // exceeded the on-screen count automatically and the panel reported
+      // "all read as replies" whether or not that was true.
+      skippedComment: 0,
+      skippedEmpty: 0,
+      unattributed: 0,
+      firstSkip: null,    // why the first skipped item was skipped
       captured: 0,
       withEngagement: 0,
       withMedia: 0,
@@ -251,12 +258,45 @@
    * post dropped is invisible. An earlier scoring classifier needed positive
    * evidence of post-ness and discarded anything it could not recognise.
    */
-  function isDefinitelyAComment(article) {
+  function commentVerdict(article) {
     var label = article.getAttribute("aria-label") || "";
-    if (/^(comment|reply) by/i.test(label)) return true;
-    // Nested inside another article: a reply, or a shared-post preview.
-    return !!(article.parentElement &&
-              article.parentElement.closest('div[role="article"]'));
+    if (/^(comment|reply) by/i.test(label)) return "aria-label says so";
+
+    var nested = !!(article.parentElement &&
+                    article.parentElement.closest('div[role="article"]'));
+    if (!nested) return null;
+
+    /* Nested is NOT proof on its own.
+     *
+     * Facebook wraps feed items, and a shared post renders the original
+     * inside the sharer's article, so "nested" caught real posts too — and
+     * because it returned early, the panel reported every item as a reply
+     * and captured nothing.
+     *
+     * A post carries a Share control; a reply carries Reply and never Share.
+     * Require that positive evidence before discarding anything.
+     */
+    var hasShare = !!ownQuery(article,
+      '[aria-label*="Share" i], [aria-label*="Send this to friends" i]');
+    if (hasShare) return null;
+
+    var hasReply = !!ownQuery(article, '[aria-label*="Reply" i]');
+    if (hasReply) return "nested, has Reply, no Share";
+
+    return null;      // nested but unrecognisable — capture it
+  }
+
+  // The first descendant matching `selector` that belongs to THIS article.
+  function ownQuery(article, selector) {
+    var found = article.querySelectorAll(selector);
+    for (var i = 0; i < found.length; i++) {
+      if (owned(article, found[i])) return found[i];
+    }
+    return null;
+  }
+
+  function isDefinitelyAComment(article) {
+    return !!commentVerdict(article);
   }
 
   // Elements owned by THIS article, not by a reply nested inside it.
@@ -754,6 +794,10 @@
 
     var articles = feedArticles();
     STATS.articles = articles.length;
+    STATS.skippedComment = 0;
+    STATS.skippedEmpty = 0;
+    STATS.unattributed = 0;
+    STATS.firstSkip = null;
 
     for (var i = 0; i < articles.length; i++) {
       var article = articles[i];
@@ -761,10 +805,19 @@
       // One element, one post. No hash, so nothing can collide.
       if (article[MARK]) continue;
 
-      if (isDefinitelyAComment(article)) { STATS.skippedComment++; continue; }
+      var commentReason = commentVerdict(article);
+      if (commentReason) {
+        STATS.skippedComment++;
+        if (!STATS.firstSkip) STATS.firstSkip = "reply: " + commentReason;
+        continue;
+      }
 
       var postSource = sourceForArticle(article, source);
-      if (!postSource) continue;
+      if (!postSource) {
+        STATS.unattributed++;
+        if (!STATS.firstSkip) STATS.firstSkip = "no source could be identified";
+        continue;
+      }
 
       var bar = findActionBar(article);
 
@@ -792,6 +845,9 @@
       // performers, so it biased the baseline as well as losing rows.
       if (!hasText && !hasMedia && !engagement.read) {
         STATS.skippedEmpty++;
+        if (!STATS.firstSkip) {
+          STATS.firstSkip = "empty: no caption, no image, no counts";
+        }
         continue;
       }
 
@@ -1065,15 +1121,13 @@
 
     // Nothing captured is never left unexplained: each cause has a different
     // fix, and they used to be indistinguishable from one another.
-    if (STATS.captured === 0 && STATS.articles > 0) {
-      var why = STATS.skippedComment >= STATS.articles ? "all read as replies"
-              : STATS.skippedEmpty > 0 ? "nothing readable inside them"
-              : "found items but could not attribute them";
-      hudBody.appendChild(row("⚠ nothing captured", why, "#e07a5f"));
-    }
-    hudBody.appendChild(row("On screen",
+    // Last pass only, so the numbers describe one screen and add up.
+    hudBody.appendChild(row("Last sweep",
       STATS.articles + " items · " + STATS.skippedComment + " replies · " +
-      STATS.skippedEmpty + " empty"));
+      STATS.skippedEmpty + " empty · " + STATS.unattributed + " no source"));
+    if (capturedCount === 0 && STATS.articles > 0 && STATS.firstSkip) {
+      hudBody.appendChild(row("First skipped because", STATS.firstSkip, "#e07a5f"));
+    }
 
     if (STATS.lastError) {
       hudBody.appendChild(row("⚠", STATS.lastError.slice(0, 40), "#e07a5f"));
@@ -1095,6 +1149,7 @@
   function startAutoScroll() {
     autoScrolling = true;
     idleScrolls = 0;
+    lastHeight = 0;
     scanStartedAt = Date.now();
     STATS.done = null;
     renderHud();
@@ -1111,8 +1166,21 @@
         return stopAutoScroll("Time limit — " + capturedCount + " posts");
       }
 
-      idleScrolls = capturedCount > before ? 0 : idleScrolls + 1;
-      if (idleScrolls >= 8) {
+      /* "Idle" means the page stopped producing new material, not that this
+       * pass captured nothing.
+       *
+       * Keying it to captures meant a scan that was failing to capture
+       * declared itself finished after ten seconds and stopped — which
+       * looked like "it scans a few posts then stops". Watch the scroll
+       * position instead: while the document keeps growing there is more to
+       * see, whatever the capture rate.
+       */
+      var grew = capturedCount > before ||
+                 document.documentElement.scrollHeight > lastHeight;
+      lastHeight = document.documentElement.scrollHeight;
+      idleScrolls = grew ? 0 : idleScrolls + 1;
+
+      if (idleScrolls >= 12) {
         return stopAutoScroll("Reached the end — " + capturedCount + " posts");
       }
       window.scrollBy(0, Math.round(window.innerHeight * 0.85));
