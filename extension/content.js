@@ -899,6 +899,7 @@
         if (el.closest(NOT_FEED)) continue;
         if (isCommentArticle(el)) continue;
         if (isLoadingShell(el)) continue;
+        if (!looksLikeAPost(el)) continue;
         if (containedInAnother(el, found)) continue;
         out.push(el);
       } catch (err) {
@@ -953,6 +954,46 @@
       if (/\d/.test(labels[i].getAttribute("aria-label") || "")) return false;
     }
     return true;
+  }
+
+  /* Does this container actually hold a post?
+   *
+   * aria-posinset is Facebook's marker for an item in a list — and the feed
+   * is not the only list on the page. Sidebar suggestions, navigation and
+   * comment lists carry it too, so taking every one of them made the capture
+   * count climb steadily while the page sat still, filling the dashboard
+   * with things that were never posts.
+   *
+   * A post has an author, something to read or look at, and a control or
+   * count of its own. Requiring all three costs nothing real: anything
+   * missing them was not going to produce a usable row anyway.
+   */
+  function looksLikeAPost(el) {
+    var hasAuthor = !!el.querySelector('a[role="link"], h2 a, h3 a, h4 a, strong');
+    if (!hasAuthor) return false;
+
+    // Substance is text, media, OR a real engagement count. A photo post has
+    // no caption and a caption-less post may have neither text nor image,
+    // yet still be the best-performing thing in the group.
+    var hasSubstance = (el.innerText || "").trim().length >= 40 ||
+                       !!el.querySelector("img") ||
+                       !!el.querySelector('[aria-label*="reaction" i]');
+    if (!hasSubstance) return false;
+
+    // Something that only a post or its engagement would carry.
+    if (el.querySelector('[aria-label*="reaction" i], [aria-label*="Like" i], ' +
+                         '[aria-label*="Send this to friends" i], ' +
+                         'a[href*="/posts/"], a[href*="/permalink/"], ' +
+                         'a[href*="story_fbid"]')) {
+      return true;
+    }
+    // Or Share as bare text, which is how one real layout renders it.
+    var leaves = el.querySelectorAll("div, span");
+    for (var i = 0; i < leaves.length; i++) {
+      if (leaves[i].children && leaves[i].children.length) continue;
+      if (/^share$/i.test((leaves[i].innerText || "").trim())) return true;
+    }
+    return false;
   }
 
   function containedInAnother(el, all) {
@@ -1860,24 +1901,17 @@
       hudBody.appendChild(row("Elapsed", elapsed + " / " + maxMinutes + " min"));
     }
 
-    // Engagement coverage is the number that matters: posts land with zeroed
-    // counts when the reaction selectors drift, and outlier scoring is
-    // meaningless without them. Surfacing the ratio makes that visible
-    // immediately rather than after a hundred useless captures.
+    /* Deliberately no coverage percentage, no queue depth, no skip tally.
+     *
+     * They were instrumentation for my own debugging sitting in the middle
+     * of the product, and they answered questions the user never asked. What
+     * matters here is how many posts were captured and whether they reached
+     * the dashboard; the coverage figure lives on the Groups page, where it
+     * describes a source rather than a scan in progress.
+     */
     var coverage = STATS.sent ? Math.round(STATS.withEngagement / STATS.sent * 100) : 0;
-    hudBody.appendChild(row(
-      "With engagement", STATS.sent ? coverage + "%" : "—",
-      coverage >= 60 ? "#6ee7b7" : (STATS.sent ? "#d9b45f" : "#7fa693")
-    ));
-
-    if (STATS.skipped) hudBody.appendChild(row("Skipped (no text)", String(STATS.skipped)));
-    if (STATS.queued) hudBody.appendChild(row("Queued", String(STATS.queued)));
-
-    if (STATS.articles > 0 && STATS.candidates === 0) {
-      hudBody.appendChild(row("⚠ selectors", "drifted", "#d9b45f"));
-    }
     if (STATS.sent >= 10 && coverage < 30) {
-      hudBody.appendChild(row("⚠ engagement", "not reading", "#d9b45f"));
+      hudBody.appendChild(row("⚠ engagement", "not reading on this page", "#d9b45f"));
     }
 
     // A finished scan should hand you the next action, not just stop.
