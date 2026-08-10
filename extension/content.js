@@ -211,24 +211,57 @@
     );
 
     var fallback = null;
-    for (var i = 0; i < links.length; i++) {
-      var link = links[i];
-      var href = link.href || "";
-      if (href.indexOf("facebook.com") === -1) continue;
+    var i, link, href, cleaned;
+
+    for (i = 0; i < links.length; i++) {
+      link = links[i];
+      href = link.href || link.getAttribute("href") || "";
+      if (href.indexOf("/posts/") === -1 && href.indexOf("permalink") === -1 &&
+          href.indexOf("story_fbid") === -1 && href.indexOf("/videos/") === -1 &&
+          href.indexOf("/reel/") === -1) {
+        continue;
+      }
       if (!owned(article, link)) continue;          // a reply's own permalink
 
-      var cleaned = cleanPermalink(href);
+      cleaned = cleanPermalink(absolute(href));
       if (!cleaned) continue;
 
       // A link carrying comment_id points at a reply inside the post. It
-      // still identifies the post, so keep it only if nothing better turns up.
+      // still lands on the right post, so keep it if nothing better turns up.
       if (/[?&]comment_id=/.test(href)) {
         if (!fallback) fallback = cleaned;
         continue;
       }
       return cleaned;
     }
+
+    /* Still nothing, so drop the ownership test.
+     *
+     * A live page carried seven links to /posts/ while posts were landing in
+     * the dashboard with no link at all — the ownership walk was rejecting
+     * them, most likely because the container found by aria-posinset does
+     * not always enclose the header the timestamp lives in. A link to the
+     * wrong post is bad; no link at all was the actual complaint, and the
+     * only alternative on offer was opening the group.
+     */
+    for (i = 0; i < links.length; i++) {
+      href = links[i].href || links[i].getAttribute("href") || "";
+      if (!href) continue;
+      var owning = links[i].closest('div[role="article"]');
+      if (owning && isCommentArticle(owning)) continue;
+      cleaned = cleanPermalink(absolute(href));
+      if (cleaned) return cleaned;
+    }
     return fallback;
+  }
+
+  // Facebook renders these as root-relative hrefs, and a bare path is no use
+  // to the dashboard.
+  function absolute(href) {
+    if (!href) return "";
+    if (href.indexOf("http") === 0) return href;
+    if (href.charAt(0) === "/") return location.origin + href;
+    return href;
   }
 
   function cleanPermalink(href) {
@@ -637,6 +670,32 @@
    * Runs only when the worded patterns found nothing, so it can add reads
    * and never remove them.
    */
+  /* The row of bare counts under a post, in document order.
+   *
+   * Deliberately narrow. Only leaf nodes whose ENTIRE text is a plausible
+   * count, only within the post, and only when two or three of them sit
+   * together — a lone number is the reaction summary and is handled
+   * elsewhere, while four or more means this is not the counts row at all
+   * and guessing would be worse than leaving the numbers alone.
+   */
+  function countsRow(article, bar) {
+    var nodes = article.querySelectorAll('span, div[dir="auto"], div[role="button"], a');
+    var found = [];
+
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!belongsToPost(article, el)) continue;
+      if (el.children && el.children.length) continue;
+      var text = (el.innerText || "").trim();
+      if (!text || text.length > 12) continue;
+      if (!looksLikeACount(text)) continue;
+      var n = parseCount(text);
+      if (n) found.push(n);
+    }
+
+    return (found.length >= 2 && found.length <= 3) ? found : [];
+  }
+
   function bareCount(article, bar) {
     var nodes = article.querySelectorAll(
       'span, div[dir="auto"], span[dir="auto"], div[role="button"]');
@@ -750,6 +809,26 @@
       /([\d][\d.,]*\s*[KMB]?)\s+shares?/i,
       /shares?:?\s*([\d][\d.,]*\s*[KMB]?)/i
     ]);
+
+    /* The counts row: bare numbers beside icons.
+     *
+     * A screenshot of a real group settled this. The footer reads
+     * "👍 84   💬 169   ↗ 8" — three numbers with NO words anywhere near
+     * them. Every pattern above needs a unit ("169 comments"), and the text
+     * rule requires the node to be a chain of number-and-unit, so comments
+     * and shares could never match and sat at zero on every post while
+     * reactions came through from their own aria-label.
+     *
+     * Read positionally, because position is the only signal Facebook gives:
+     * reactions, then comments, then shares, in that order — which is how
+     * they are rendered and how a person reads them.
+     */
+    var row = countsRow(article, bar);
+    if (row.length) {
+      if (!result.likes && row.length >= 1) result.likes = row[0];
+      if (!result.comments && row.length >= 2) result.comments = row[1];
+      if (!result.shares && row.length >= 3) result.shares = row[2];
+    }
 
     if (!result.likes) result.likes = bareCount(article, bar);
 
@@ -906,7 +985,15 @@
    * not a feed are excluded — anything broader is a guess about Facebook's
    * layout, and guesses like that are what stopped this capturing at all.
    */
-  var NOT_FEED = '[aria-label*="Messenger" i], [role="dialog"]';
+  /* Not the feed: an open chat, a dialog, and the right-hand column.
+   *
+   * A screenshot of a real group showed "Recent media" in the sidebar with
+   * four images in it — captured as posts, because they are images with
+   * links inside a container that looked plausible. The sidebar is the
+   * page's complementary region, so naming it is enough.
+   */
+  var NOT_FEED = '[aria-label*="Messenger" i], [role="dialog"], ' +
+                 '[role="complementary"], [role="banner"], [role="navigation"]';
 
   // A reply, by Facebook's own label. This is the only completely reliable
   // signal on the page: comments carry aria-label="Comment by <name> <when>".
@@ -991,9 +1078,14 @@
 
   function keepRealPosts(found) {
     var out = [];
+    // When Facebook marks the feed, nothing outside it is a post. This is a
+    // stronger guarantee than any list of things to exclude.
+    var feed = document.querySelector('[role="feed"]');
+
     for (var i = 0; i < found.length; i++) {
       var el = found[i];
       try {
+        if (feed && !feed.contains(el)) continue;
         if (el.closest(NOT_FEED)) continue;
         if (isChatBubble(el)) continue;
         if (isCommentArticle(el)) continue;

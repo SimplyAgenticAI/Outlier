@@ -430,6 +430,75 @@ check("the reaction TOTAL is taken, not one type", got.likes, 265);
 check("comments read from the combined footer", got.comments, 54);
 check("shares read from the same node", got.shares, 22);
 
+console.log("the footer as a screenshot showed it: icons and bare numbers");
+/* From a photograph of /groups/vibecodinglife. The post by Uche Okere shows
+ *   [thumb] 84   [speech] 169   [arrow] 8
+ * — three bare numbers beside icons, with no words anywhere near them. Every
+ * pattern needs a unit ("169 comments"), so comments and shares could never
+ * match and sat at zero while reactions came through from an aria-label.
+ */
+var shot = buildPage([]);
+var S = shot.doc;
+
+var feed = S.el("div");
+feed.setAttribute("role", "feed");
+
+var shotPost = S.el("div");
+shotPost.setAttribute("aria-posinset", "2");
+var sWho = S.el("a");
+sWho.setAttribute("role", "link");
+sWho.textContent = "Uche Okere";
+shotPost.appendChild(sWho);
+var sWhen = S.el("a");
+sWhen.setAttribute("href", "/groups/vibecodinglife/posts/2101912077063985/");
+sWhen.textContent = "3d";
+shotPost.appendChild(sWhen);
+var sBody = S.el("div");
+sBody.setAttribute("dir", "auto");
+sBody.textContent = "How much revenue have you made from vibe coding?";
+shotPost.appendChild(sBody);
+var sLike = S.el("div");
+sLike.setAttribute("role", "button");
+sLike.setAttribute("aria-label", "Like");
+shotPost.appendChild(sLike);
+["84", "169", "8"].forEach(function (n) {
+  var cell = S.el("span");
+  cell.textContent = n;
+  shotPost.appendChild(cell);
+});
+feed.appendChild(shotPost);
+shot.root.appendChild(feed);
+
+// The right-hand column: "Recent media", four images, no post anywhere.
+var aside = S.el("div");
+aside.setAttribute("role", "complementary");
+for (var mi = 0; mi < 4; mi++) {
+  var tile = S.el("div");
+  var tImg = S.el("img");
+  tImg.setAttribute("src", "https://scontent.example/media" + mi + ".jpg");
+  tImg.src = "https://scontent.example/media" + mi + ".jpg";
+  tImg.naturalWidth = 400; tImg.naturalHeight = 400;
+  tile.appendChild(tImg);
+  var tLink = S.el("a");
+  tLink.setAttribute("href", "/groups/vibecodinglife/posts/999" + mi + "/");
+  tLink.textContent = "See all";
+  tile.appendChild(tLink);
+  aside.appendChild(tile);
+}
+shot.root.appendChild(aside);
+
+var shotApi = runScan(shot, "/groups/vibecodinglife");
+shotApi.scanPosts();
+var sq = shotApi.queue();
+check("only the feed post is captured", sq.length, 1);
+check("the sidebar media is not", sq.length === 1);
+var sp = sq[0] || {};
+check("reactions from the counts row", sp.likes, 84);
+check("comments from the counts row", sp.comments, 169);
+check("shares from the counts row", sp.shares, 8);
+check("and it links to the post, not the group",
+      /\/posts\/2101912077063985/.test(sp.permalink || ""));
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");
