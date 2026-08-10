@@ -335,6 +335,50 @@ limitApi.scanPosts();
 limitApi.scanPosts();      // the passive sweep used to sail straight past
 check("capture stops at the target", limitApi.queue().length, 5);
 
+console.log("comment and share tallies rendered as plain text");
+// Reactions came through because Facebook labels them; comments and shares
+// are plain text, and reading labels only left both at zero for every post.
+function withFooter(texts, label) {
+  var page = buildPage([]);
+  var art = page.doc.el("div");
+  art.setAttribute("aria-posinset", "1");
+  var a = page.doc.el("a");
+  a.setAttribute("role", "link");
+  a.textContent = "Dana Fletcher";
+  art.appendChild(a);
+  var body = page.doc.el("div");
+  body.setAttribute("dir", "auto");
+  body.textContent = "A post with its tallies written out underneath it.";
+  art.appendChild(body);
+  var like = page.doc.el("div");
+  like.setAttribute("role", "button");
+  like.setAttribute("aria-label", "Like");
+  art.appendChild(like);
+  if (label) {
+    var lab = page.doc.el("div");
+    lab.setAttribute("aria-label", label);
+    art.appendChild(lab);
+  }
+  texts.forEach(function (txt) {
+    var n = page.doc.el("span");
+    n.textContent = txt;
+    art.appendChild(n);
+  });
+  page.root.appendChild(art);
+  var api = runScan(page, "/groups/growth");
+  api.scanPosts();
+  return api.queue()[0] || {};
+}
+
+var footer = withFooter(["12 comments", "3 shares"], "486 reactions");
+check("reactions still read from the label", footer.likes, 486);
+check("comments read from plain text", footer.comments, 12);
+check("shares read from plain text", footer.shares, 3);
+
+var prose = withFooter(["We closed 12 deals this quarter and shared the news"], "486 reactions");
+check("a sentence mentioning a number is not a tally", prose.comments, 0);
+check("nor a share count", prose.shares, 0);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

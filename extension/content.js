@@ -191,17 +191,53 @@
 
   /* ------------------------------------------------------ post extraction */
 
+  /* The link back to this post on Facebook.
+   *
+   * Two things went wrong before. A preview comment carries its own
+   * permalink, so the comment's link could be taken as the post's; and every
+   * query parameter was thrown away, including comment_id — which is fine —
+   * but story_fbid lives in the query too, so those links were reduced to a
+   * bare path that goes nowhere useful. When nothing usable was found the
+   * dashboard fell back to opening the group, which is what "it just takes
+   * me to the group" was.
+   */
   function extractPermalink(article) {
     var links = article.querySelectorAll(
       'a[href*="/posts/"], a[href*="permalink"], a[href*="story_fbid"], ' +
       'a[href*="/videos/"], a[href*="/reel/"]'
     );
+
+    var fallback = null;
     for (var i = 0; i < links.length; i++) {
-      if (links[i].href && links[i].href.indexOf("facebook.com") !== -1) {
-        return links[i].href.split("?")[0];
+      var link = links[i];
+      var href = link.href || "";
+      if (href.indexOf("facebook.com") === -1) continue;
+      if (!owned(article, link)) continue;          // a reply's own permalink
+
+      var cleaned = cleanPermalink(href);
+      if (!cleaned) continue;
+
+      // A link carrying comment_id points at a reply inside the post. It
+      // still identifies the post, so keep it only if nothing better turns up.
+      if (/[?&]comment_id=/.test(href)) {
+        if (!fallback) fallback = cleaned;
+        continue;
       }
+      return cleaned;
     }
-    return null;
+    return fallback;
+  }
+
+  function cleanPermalink(href) {
+    var base = href.split("?")[0];
+    // story_fbid links carry the identity in the query, so the path alone is
+    // useless — keep the two parameters that actually locate the post.
+    var query = href.split("?")[1] || "";
+    var keep = [];
+    query.split("&").forEach(function (pair) {
+      if (/^(story_fbid|id)=/.test(pair)) keep.push(pair);
+    });
+    return keep.length ? base + "?" + keep.join("&") : base;
   }
 
   function hashString(str) {
@@ -1317,7 +1353,9 @@
        * nothing running, was this.
        */
       if (SEEN.size >= maxPosts) {
-        if (autoScrolling) stopAutoScroll("Target reached — " + SEEN.size + " posts");
+        if (autoScrolling) {
+          stopAutoScroll(null, "Target reached — " + SEEN.size + " posts");
+        }
         return;
       }
 
@@ -1689,7 +1727,12 @@
       flexShrink: "0"
     });
     hudBtn.addEventListener("click", function () {
-      if (autoScrolling) stopAutoScroll("Stopped");
+      if (autoScrolling) {
+        // Not an error. Passing it as `reason` set STATS.lastError, so
+        // pressing Stop raised a red failure block AND a done box — two
+        // alarming bars for the most ordinary action in the panel.
+        stopAutoScroll(null, "Stopped — " + SEEN.size + " posts captured");
+      }
       else startAutoScroll();
     });
 
@@ -2112,7 +2155,10 @@
 
   chrome.runtime.onMessage.addListener(function (message, _sender, sendResponse) {
     if (message.type === "OUTLIER_START") { startAutoScroll(); sendResponse({ ok: true }); }
-    if (message.type === "OUTLIER_STOP")  { stopAutoScroll("Stopped"); sendResponse({ ok: true }); }
+    if (message.type === "OUTLIER_STOP")  {
+      stopAutoScroll(null, "Stopped — " + SEEN.size + " posts captured");
+      sendResponse({ ok: true });
+    }
     if (message.type === "OUTLIER_SCAN")  { scanPosts(); flush(); sendResponse({ ok: true, stats: STATS }); }
     if (message.type === "OUTLIER_STATS") { sendResponse({ ok: true, stats: STATS, scrolling: autoScrolling }); }
   });
