@@ -379,6 +379,57 @@ var prose = withFooter(["We closed 12 deals this quarter and shared the news"], 
 check("a sentence mentioning a number is not a tally", prose.comments, 0);
 check("nor a share count", prose.shares, 0);
 
+console.log("the reported post: 265 reactions, 54 comments, 22 shares");
+/* Recorded as "142 reactions, 0 comments, 0 shares". Two faults:
+ *   - Facebook renders per-reaction-type counts beside the total, and the
+ *     first match won, so a part was taken for the whole.
+ *   - The footer is one node reading "54 comments · 22 shares", and the rule
+ *     required a node to be exactly one "N unit" segment, so both were zero.
+ */
+var reported = buildPage([]);
+var R = reported.doc;
+var rArt = R.el("div");
+rArt.setAttribute("aria-posinset", "1");
+
+var rWho = R.el("a");
+rWho.setAttribute("role", "link");
+rWho.textContent = "Ana Silva";
+rArt.appendChild(rWho);
+
+var rBody = R.el("div");
+rBody.setAttribute("dir", "auto");
+rBody.textContent = "The post whose numbers came through wrong in the dashboard.";
+rArt.appendChild(rBody);
+
+// Per-type counts sitting beside the total, exactly as Facebook renders them.
+["142 Likes", "78 Loves", "45 Cares"].forEach(function (label) {
+  var n = R.el("div");
+  n.setAttribute("aria-label", label);
+  rArt.appendChild(n);
+});
+var rTotal = R.el("div");
+rTotal.setAttribute("aria-label", "265 reactions; see who reacted to this");
+rArt.appendChild(rTotal);
+
+var rLike = R.el("div");
+rLike.setAttribute("role", "button");
+rLike.setAttribute("aria-label", "Like");
+rArt.appendChild(rLike);
+
+// The footer, as one node.
+var rFooter = R.el("span");
+rFooter.textContent = "54 comments · 22 shares";
+rArt.appendChild(rFooter);
+
+reported.root.appendChild(rArt);
+
+var rApi = runScan(reported, "/groups/growth");
+rApi.scanPosts();
+var got = rApi.queue()[0] || {};
+check("the reaction TOTAL is taken, not one type", got.likes, 265);
+check("comments read from the combined footer", got.comments, 54);
+check("shares read from the same node", got.shares, 22);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

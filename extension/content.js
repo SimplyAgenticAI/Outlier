@@ -70,6 +70,8 @@
       sent: 0,
       added: 0,
       withEngagement: 0,
+      withComments: 0,
+      withShares: 0,
       withMedia: 0,
       refreshed: 0,     // re-sent once their numbers had loaded        // how many carried an image or video
       lastError: null,
@@ -673,6 +675,10 @@
     return owned(article, el);
   }
 
+  // "54 comments", "54 comments · 22 shares", "1.2K views".
+  var UNIT_TALLY_RE =
+    /^\s*\d[\d.,]*\s*[KMB]?\s+(?:comments?|shares?|views?|plays?|reactions?)(?:\s*[·•|,]?\s*\d[\d.,]*\s*[KMB]?\s+(?:comments?|shares?|views?|plays?|reactions?))*\s*$/i;
+
   function extractEngagement(article, bar) {
     var result = { likes: 0, comments: 0, shares: 0, video_plays: 0 };
 
@@ -704,18 +710,30 @@
     }
     var haystack = labels.join("\n") + "\n" + visible;
 
-    function firstMatch(patterns) {
+    /* The LARGEST match, not the first.
+     *
+     * Facebook renders the per-reaction-type counts alongside the total —
+     * so many Likes, so many Loves — and taking whichever matched first
+     * picked up one of the parts. A post with 265 reactions was recorded as
+     * 142, which is a plausible-looking number and therefore worse than an
+     * obvious failure. The total can never be smaller than one of its parts,
+     * so the largest is the right one.
+     */
+    function bestMatch(patterns) {
+      var best = 0;
       for (var p = 0; p < patterns.length; p++) {
-        var m = haystack.match(patterns[p]);
-        if (m) {
+        var re = new RegExp(patterns[p].source, "gi");
+        var m;
+        while ((m = re.exec(haystack)) !== null) {
           var n = parseCount(m[1]);
-          if (n) return n;
+          if (n > best) best = n;
+          if (m.index === re.lastIndex) re.lastIndex++;   // zero-length guard
         }
       }
-      return 0;
+      return best;
     }
 
-    result.likes = firstMatch([
+    result.likes = bestMatch([
       /([\d][\d.,]*\s*[KMB]?)\s*(?:people\s+)?reacted/i,
       /(?:Like|reaction)s?:?\s*([\d][\d.,]*\s*[KMB]?)/i,
       /([\d][\d.,]*\s*[KMB]?)\s+reactions?/i,
@@ -723,19 +741,19 @@
       /([\d][\d.,]*\s*[KMB]?)\s+likes?\b/i
     ]);
 
-    result.comments = firstMatch([
+    result.comments = bestMatch([
       /([\d][\d.,]*\s*[KMB]?)\s+comments?/i,
       /comments?:?\s*([\d][\d.,]*\s*[KMB]?)/i
     ]);
 
-    result.shares = firstMatch([
+    result.shares = bestMatch([
       /([\d][\d.,]*\s*[KMB]?)\s+shares?/i,
       /shares?:?\s*([\d][\d.,]*\s*[KMB]?)/i
     ]);
 
     if (!result.likes) result.likes = bareCount(article, bar);
 
-    result.video_plays = firstMatch([
+    result.video_plays = bestMatch([
       /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
     ]);
 
@@ -1448,6 +1466,8 @@
         found++;
       }
       if (engagementRead) STATS.withEngagement++;
+      if (engagement.comments > 0) STATS.withComments++;
+      if (engagement.shares > 0) STATS.withShares++;
       if (hasMedia) STATS.withMedia++;
       maybeAutoReport();
       logLine(engagement.likes + "r " +
@@ -1922,7 +1942,17 @@
      */
     var foundNothing = sweeps >= 6 && capturedNothing();
     var readNothing = STATS.candidates >= 5 && STATS.withEngagement === 0;
-    if (!foundNothing && !readNothing) return;
+
+    /* Reactions arriving while comments and shares stay at zero is its own
+     * failure, and the report never fired for it — a post recorded as "142
+     * reactions, 0 comments, 0 shares" when it really had 265, 54 and 22
+     * looked healthy enough to the old test. Partial counts are wrong
+     * counts, and wrong counts feed the score.
+     */
+    var readPartially = STATS.withEngagement >= 5 &&
+                        STATS.withComments === 0 && STATS.withShares === 0;
+
+    if (!foundNothing && !readNothing && !readPartially) return;
 
     autoReportDone = true;
     logLine("Extraction is failing — saving a report to Downloads.");
@@ -2052,6 +2082,26 @@
         if (!txt || txt.length > 40) continue;
         shorts.push((isBelowBar(node, bar) ? "[below] " : "") + txt);
       }
+      /* Every string the count extractors evaluate, with a verdict.
+       *
+       * This is what settles a partial read: if "54 comments" is present and
+       * was rejected, the shape test is wrong; if it is absent, the footer is
+       * not being reached at all. Those need opposite fixes.
+       */
+      var considered = [];
+      var textNodes = article.querySelectorAll('span, div[dir="auto"], div[role="button"], a');
+      for (var c = 0; c < textNodes.length && considered.length < 40; c++) {
+        var cand = textNodes[c];
+        if (cand.children && cand.children.length) continue;
+        var ctext = (cand.innerText || "").trim().replace(/\s+/g, " ");
+        if (!ctext || ctext.length > 60 || !/\d/.test(ctext)) continue;
+        considered.push((UNIT_TALLY_RE.test(ctext) ? "USED  " : "reject") +
+                        " " + JSON.stringify(ctext));
+      }
+      lines.push("count candidates:");
+      lines.push("  " + considered.join(String.fromCharCode(10) + "  "));
+      lines.push("");
+
       lines.push("short text above/below the bar:");
       lines.push("  " + JSON.stringify(shorts));
       lines.push("aria-labels: " + JSON.stringify(
