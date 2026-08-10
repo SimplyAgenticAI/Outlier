@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tallgrass — by MacRandle Acres",
-  "version": "2.8.0",
+  "version": "2.8.1",
   "description": "Captures posts from the Facebook groups and profiles you're viewing and sends them to your Tallgrass dashboard, which ranks each post against the median for its own group.",
   "permissions": ["storage", "activeTab", "alarms"],
   "comment_hosts": "Chrome match patterns ignore port numbers, so the portless form covers 5050, 5000 and anything else Flask is started on. Pinning :5050 meant a dashboard on any other port silently had no connect script and no way to be reached.",

@@ -499,6 +499,59 @@ check("shares from the counts row", sp.shares, 8);
 check("and it links to the post, not the group",
       /\/posts\/2101912077063985/.test(sp.permalink || ""));
 
+console.log("2.5K reactions, 82 comments, 183 shares");
+/* Reported: comments and shares correct, reactions recorded as 1.7K — one
+ * reaction type rather than the total, which Facebook renders alongside it.
+ */
+function postWithCounts(numbers, perTypeLabel) {
+  var page = buildPage([]);
+  var P = page.doc;
+  var feedBox = P.el("div");
+  feedBox.setAttribute("role", "feed");
+  var art = P.el("div");
+  art.setAttribute("aria-posinset", "1");
+  var who = P.el("a");
+  who.setAttribute("role", "link");
+  who.textContent = "Priya Raman";
+  art.appendChild(who);
+  var body = P.el("div");
+  body.setAttribute("dir", "auto");
+  body.textContent = "The post whose reaction total came through as a part.";
+  art.appendChild(body);
+  var like = P.el("div");
+  like.setAttribute("role", "button");
+  like.setAttribute("aria-label", "Like");
+  art.appendChild(like);
+  if (perTypeLabel) {
+    // Facebook labels the per-type breakdown; the footer numbers are bare.
+    var typed = P.el("div");
+    typed.setAttribute("aria-label", perTypeLabel);
+    art.appendChild(typed);
+  }
+  numbers.forEach(function (n) {
+    var cell = P.el("span");
+    cell.textContent = n;
+    art.appendChild(cell);
+  });
+  feedBox.appendChild(art);
+  page.root.appendChild(feedBox);
+  var api = runScan(page, "/groups/growth");
+  api.scanPosts();
+  return api.queue()[0] || {};
+}
+
+// The total beside its parts, then the comment and share tallies.
+var big = postWithCounts(["2.5K", "82", "183"], "1.7K reactions");
+check("the reaction TOTAL wins over a per-type count", big.likes, 2500);
+check("comments still correct", big.comments, 82);
+check("shares still correct", big.shares, 183);
+
+// And the guard: comments larger than reactions must not be swapped in.
+var small = postWithCounts(["84", "169", "8"]);
+check("a larger comment count is not read as reactions", small.likes, 84);
+check("comments unchanged", small.comments, 169);
+check("shares unchanged", small.shares, 8);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

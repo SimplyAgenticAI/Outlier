@@ -693,7 +693,33 @@
       if (n) found.push(n);
     }
 
-    return (found.length >= 2 && found.length <= 3) ? found : [];
+    /* Two or three numbers is the footer. More than that means other counts
+     * are rendered as bare text somewhere in the post — a per-reaction-type
+     * breakdown, most often — and the footer is the LAST group of them,
+     * because it sits at the bottom of the post. Abandoning the row entirely
+     * when a fourth number appeared left comments and shares at zero on
+     * exactly the posts that had the most going on.
+     */
+    if (found.length < 2) return [];
+    if (found.length <= 3) return found;
+    return found.slice(found.length - 3);
+  }
+
+  // Every bare count inside the post, in document order.
+  function bareCounts(article, bar) {
+    var nodes = article.querySelectorAll('span, div[dir="auto"], div[role="button"], a');
+    var out = [];
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!belongsToPost(article, el)) continue;
+      if (el.children && el.children.length) continue;
+      var text = (el.innerText || "").trim();
+      if (!text || text.length > 12) continue;
+      if (!looksLikeACount(text)) continue;
+      var n = parseCount(text);
+      if (n) out.push(n);
+    }
+    return out;
   }
 
   function bareCount(article, bar) {
@@ -830,7 +856,26 @@
       if (!result.shares && row.length >= 3) result.shares = row[2];
     }
 
-    if (!result.likes) result.likes = bareCount(article, bar);
+    /* The reaction TOTAL, not one of its parts.
+     *
+     * A post with 2.5K reactions, 82 comments and 183 shares was recorded
+     * with the comments and shares right and the reactions at 1.7K —
+     * plainly one reaction type rather than the total, since Facebook shows
+     * the per-type counts alongside it.
+     *
+     * Every bare count in the post is considered, minus the two that have
+     * already been identified as the comment and share tallies, and the
+     * largest of what remains wins. Removing them first is what makes this
+     * safe: in the screenshot that settled the counts row, comments (169)
+     * were larger than reactions (84), so an unfiltered maximum would have
+     * reported the comment count as reactions.
+     */
+    var reactionCandidates = bareCounts(article, bar).filter(function (n) {
+      return n !== result.comments && n !== result.shares;
+    });
+    for (var r = 0; r < reactionCandidates.length; r++) {
+      if (reactionCandidates[r] > result.likes) result.likes = reactionCandidates[r];
+    }
 
     result.video_plays = bestMatch([
       /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
