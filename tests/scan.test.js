@@ -56,7 +56,18 @@ lateApi.scanPosts();
 lateApi.scanPosts();
 
 check("captured once on the first sweep", afterFirst, 2);
-check("and not again when the numbers arrive", lateApi.queue().length, 2);
+check("not re-captured as new posts", new Set(lateApi.queue().map(function (p) { return p.fb_post_id; })).size, 2);
+// Re-sent, not re-added: the second read carries the counts the first
+// missed, and the id is stable so the dashboard updates that row.
+// Re-sent, not re-added: the later read carries the counts the first missed,
+// and the id is stable so the dashboard UPDATES that row rather than adding
+// a second one. Both posts appear twice in the queue — once empty, once with
+// their numbers — and both entries carry the same id.
+var ids = lateApi.queue().map(function (p) { return p.fb_post_id; });
+check("the numbers are picked up on a later sweep",
+      lateApi.queue().some(function (p) { return p.likes > 0; }));
+check("under the same two ids, so rows update rather than multiply",
+      new Set(ids).size, 2);
 
 console.log("a scan of ordinary posts");
 var api = runScan(buildPage([

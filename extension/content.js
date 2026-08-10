@@ -70,7 +70,8 @@
       sent: 0,
       added: 0,
       withEngagement: 0,
-      withMedia: 0,        // how many carried an image or video
+      withMedia: 0,
+      refreshed: 0,     // re-sent once their numbers had loaded        // how many carried an image or video
       lastError: null,
       done: null,          // why the scan finished, once it has
       log: []
@@ -278,9 +279,21 @@
       extra.image || "",
       extra.counts || ""
     ];
-    var distinct = parts.filter(function (x) { return x; }).length;
-    if (!distinct) return null;
-    if (distinct < 2) parts.push("s" + (idSequence++));
+    /* What actually distinguishes one post from another.
+     *
+     * An author plus a timestamp is not enough: Facebook shows relative times
+     * ("2d"), so two caption-less posts by the same person on the same day
+     * hash identically and the second silently overwrites the first. Only a
+     * caption or an image is reliably unique, and without either the id gets
+     * a sequence number.
+     *
+     * The cost is a possible duplicate row across separate scans. That is
+     * visible and deletable; a collision silently swallows posts, which is
+     * how two hundred once became three.
+     */
+    var distinguishing = (body ? 1 : 0) + (extra.image ? 1 : 0);
+    if (!distinguishing && !author && !extra.posted) return null;
+    if (!distinguishing) parts.push("s" + (idSequence++));
     return "h" + hashString(parts.join("|"));
   }
 
@@ -1250,17 +1263,22 @@
     return found;
 
     function captureOne(article, articleIndex, source) {
-      /* One element is one post, and it is captured once.
+      /* One element is one post — but "captured" is not always "captured
+       * completely".
        *
-       * The id is a hash that includes the reaction counts, and Facebook
-       * fills those in progressively — so the same post hashed differently
-       * between sweeps and was captured again each time. Eight posts on
-       * screen became forty-six rows in the dashboard.
+       * Marking the element on the first read stopped eight posts becoming
+       * forty-six rows. It also froze whatever was on screen at that instant:
+       * a post read while Facebook was still filling in its reaction count
+       * was marked done and never looked at again, so it stayed at zero
+       * forever. Scrolling past quickly made that the common case.
        *
-       * Marking the element itself cannot drift: it is exactly as long-lived
-       * as the post it belongs to, and disappears when Facebook discards it.
+       * So a post that was captured WITHOUT its numbers is read again on
+       * later sweeps, and re-sent if the second look is better. The id no
+       * longer includes the counts, so the dashboard updates that row
+       * instead of adding another.
        */
-      if (article.__tallgrassCaptured) return;
+      var prior = article.__tallgrassCaptured;
+      if (prior && prior.complete) return;
 
       var verdict = verdicts[articleIndex];
 
@@ -1338,12 +1356,24 @@
         return;
       }
 
+      /* Deliberately no counts in the id.
+       *
+       * They were included to tell two caption-less posts by the same author
+       * apart — but Facebook fills counts in progressively, so the id changed
+       * as the numbers arrived and the same post could not be recognised
+       * across sweeps. The timestamp and the image do that job and hold
+       * still. A stable id is what lets a post be re-sent with better numbers
+       * and UPDATE its row rather than duplicate it.
+       */
       var postId = extractPostId(article, permalink, body, author.name, {
         posted: extractTimestamp(article) || "",
-        image: media.image_url || "",
-        counts: [engagement.likes, engagement.comments, engagement.shares].join(",")
+        image: media.image_url || ""
       });
-      if (!postId || SEEN.has(postId)) return;
+      // SEEN guards against capturing the same post twice from DIFFERENT
+      // elements. A re-read of an element already captured is a deliberate
+      // refresh, so it must not be blocked here.
+      if (!postId) return;
+      if (!prior && SEEN.has(postId)) return;
 
       /* The target is a target, not a suggestion.
        *
@@ -1377,9 +1407,46 @@
         }
       }
 
-      article.__tallgrassCaptured = true;
-      SEEN.add(postId);
-      found++;
+      /* Complete enough to stop looking.
+       *
+       * "Any count at all" was too lenient: Facebook often has the comment
+       * tally rendered before the reaction summary arrives, so a post was
+       * marked done while the number that matters most was still missing —
+       * and it stayed at zero reactions forever. Reactions are the last to
+       * appear and the heaviest in the score, so they are what settles it.
+       *
+       * Capped at three reads so a post that genuinely has no reactions is
+       * not re-examined on every sweep for the rest of the scan.
+       */
+      var reads = (prior ? prior.reads : 0) + 1;
+      var complete = (engagement.likes > 0 && (hasText || hasMedia)) || reads >= 3;
+
+      if (prior) {
+        // Already in the dashboard. Only worth re-sending if this read is
+        // genuinely better than the last one.
+        var better = (engagement.likes > (prior.likes || 0)) ||
+                     (engagementRead && !prior.engagementRead) ||
+                     (body && body.length > prior.bodyLength + 40);
+        article.__tallgrassCaptured = {
+          complete: complete,
+          reads: reads,
+          likes: Math.max(engagement.likes, prior.likes || 0),
+          engagementRead: engagementRead || prior.engagementRead,
+          bodyLength: Math.max(body ? body.length : 0, prior.bodyLength)
+        };
+        if (!better) return;
+        STATS.refreshed++;
+      } else {
+        article.__tallgrassCaptured = {
+          complete: complete,
+          reads: reads,
+          likes: engagement.likes,
+          engagementRead: engagementRead,
+          bodyLength: body ? body.length : 0
+        };
+        SEEN.add(postId);
+        found++;
+      }
       if (engagementRead) STATS.withEngagement++;
       if (hasMedia) STATS.withMedia++;
       maybeAutoReport();
@@ -2029,8 +2096,13 @@
     ));
     // Which dashboard this is feeding. Without it you can scan happily into
     // localhost while reading a hosted dashboard and never see your posts.
-    hudBody.appendChild(row("Sending to", endpointLabel || "…",
-                            endpointLabel ? "#7fa693" : null));
+    /* No "Sending to <address>" row.
+     *
+     * The dashboard's address is fixed and configures itself; showing it on
+     * every scan answered a question nobody was asking. If sending actually
+     * fails, the error block says so and names the address then — which is
+     * the only moment it is worth a line.
+     */
     // This is how many posts are rendered right now, which is a handful at
     // any moment — labelling it "posts in this group" read as a claim about
     // the group's size, and "2" was plainly wrong as one.
