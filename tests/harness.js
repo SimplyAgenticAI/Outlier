@@ -79,6 +79,11 @@ function makeDoc() {
       }
       return null;
     };
+    e.contains = function (other) {
+      var n = other;
+      while (n) { if (n === e) { return true; } n = n.parentElement; }
+      return false;
+    };
     e.compareDocumentPosition = function (other) {
       return all.indexOf(other) > all.indexOf(e) ? 4 : 0;   // FOLLOWING
     };

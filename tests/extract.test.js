@@ -179,6 +179,69 @@ check("still captured, on the strength of the image and its counts",
 check("with no invented caption", ph.body, "");
 check("and its reaction count intact", ph.likes, 310);
 
+console.log("the layout from a real group page report");
+/* Taken from tallgrass-page-report.txt, /groups/realestateconversation:
+ *   - every div[role="article"] on the page was a COMMENT
+ *     (aria-label="Comment by Kathy Opheim Johnson 4 days ago")
+ *   - the posts carried no role at all
+ *   - the reaction summary sat AFTER the Like button, labelled
+ *     "1 reaction; see who reacted to this"
+ * Both facts together meant nothing was ever captured.
+ */
+var real = buildPage([]);
+var D = real.doc;
+
+var postBox = D.el("div");                       // no role, like the real page
+var name = D.el("a");
+name.setAttribute("role", "link");
+name.textContent = "Marcus Webb";
+postBox.appendChild(name);
+
+var caption = D.el("div");
+caption.setAttribute("dir", "auto");
+caption.textContent = "Five things I learned scaling a brokerage this year.";
+postBox.appendChild(caption);
+
+var likeBtn = D.el("div");
+likeBtn.setAttribute("role", "button");
+likeBtn.setAttribute("aria-label", "Like");
+postBox.appendChild(likeBtn);
+
+var shareBtn = D.el("div");
+shareBtn.setAttribute("role", "button");
+shareBtn.setAttribute("aria-label", "Share");
+postBox.appendChild(shareBtn);
+
+// BELOW the action bar, exactly as the report showed.
+var reactions = D.el("div");
+reactions.setAttribute("aria-label", "214 reactions; see who reacted to this");
+postBox.appendChild(reactions);
+
+// A preview comment, which is what role="article" actually marks here.
+var reply = D.el("div");
+reply.setAttribute("role", "article");
+reply.setAttribute("aria-label", "Comment by Kathy Opheim Johnson 4 days ago");
+var replyText = D.el("div");
+replyText.setAttribute("dir", "auto");
+replyText.textContent = "Great post, this matches my experience exactly.";
+reply.appendChild(replyText);
+var replyCount = D.el("div");
+replyCount.setAttribute("aria-label", "1 reaction; see who reacted to this");
+reply.appendChild(replyCount);
+postBox.appendChild(reply);
+
+real.root.appendChild(postBox);
+
+var realApi = runScan(real, "/groups/realestateconversation");
+realApi.scanPosts();
+var rp = realApi.queue()[0] || {};
+check("the post is found without role=article", !!rp.fb_post_id);
+check("exactly one post, not the comment too", realApi.queue().length, 1);
+check("its caption is read",
+      /Five things I learned/.test(rp.body || ""));
+check("the reaction count BELOW the bar is read", rp.likes, 214);
+check("and the comment's own count is not taken", rp.likes !== 1);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

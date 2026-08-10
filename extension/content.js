@@ -265,7 +265,7 @@
     for (var i = 0; i < candidates.length; i++) {
       var el = candidates[i];
       if (isBelowBar(el, bar)) continue;
-      if (el.closest('div[role="article"]') !== article) continue;
+      if (!owned(article, el)) continue;
 
       var text = (el.textContent || "").trim().replace(/\s+/g, " ");
       var anchor = el.tagName === "A" ? el : el.closest("a");
@@ -352,7 +352,19 @@
   // querySelector searches all descendants, and a post contains its own
   // comments — so an unscoped lookup finds the comments' media and buttons.
   function owned(article, el) {
-    return el.closest('div[role="article"]') === article;
+    // Not "is the nearest article this one" — the post container often has
+    // no role at all, and that test then excluded every element inside it.
+    // What matters is only that the element is not part of a reply.
+    // Walk up from the element. If a comment article is reached before the
+    // post container, the element belongs to that reply; if the container is
+    // reached first, it is the post's own.
+    var node = el;
+    while (node) {
+      if (node === article) return true;
+      if (node.getAttribute && isCommentArticle(node)) return false;
+      node = node.parentElement;
+    }
+    return false;
   }
 
   // True when `el` sits after the action bar — i.e. in the comments.
@@ -371,7 +383,7 @@
   function ownQuery(article, selector) {
     var found = article.querySelectorAll(selector);
     for (var i = 0; i < found.length; i++) {
-      if (found[i].closest('div[role="article"]') === article) return found[i];
+      if (owned(article, found[i])) return found[i];
     }
     return null;
   }
@@ -531,7 +543,7 @@
       if (link && (link.innerText || "").trim().length >= text.length - 2) continue;
 
       // Belt and braces: anything owned by a different article isn't ours.
-      if (el.closest('div[role="article"]') !== article) continue;
+      if (!owned(article, el)) continue;
 
       // In the loose pass this would otherwise pick the article's own
       // wrapper, whose text is the whole post plus all of its chrome.
@@ -572,15 +584,14 @@
    * Runs only when the worded patterns found nothing, so it can add reads
    * and never remove them.
    */
-  function bareCountAboveBar(article, bar) {
+  function bareCount(article, bar) {
     var nodes = article.querySelectorAll(
       'span, div[dir="auto"], span[dir="auto"], div[role="button"]');
     var best = 0;
 
     for (var i = 0; i < nodes.length; i++) {
       var el = nodes[i];
-      if (el.closest('div[role="article"]') !== article) continue;
-      if (isBelowBar(el, bar)) continue;
+      if (!belongsToPost(article, el)) continue;
       if (el.children && el.children.length) continue;   // a leaf, not a box
 
       var text = (el.innerText || "").trim();
@@ -593,6 +604,22 @@
       if (n > best) best = n;
     }
     return best;
+  }
+
+  /* Belongs to the post itself, rather than to a reply shown under it.
+   *
+   * This replaces the "is it above the action bar" test for counts. A page
+   * report from a real group showed the reaction summary — aria-label
+   * "1 reaction; see who reacted to this" — sitting AFTER the Like button,
+   * so excluding everything below the bar threw away the very number the
+   * scan exists to read.
+   *
+   * Comments are separately identifiable by their own label, which makes
+   * this both simpler and more reliable: anything not inside a comment
+   * belongs to the post.
+   */
+  function belongsToPost(article, el) {
+    return owned(article, el);
   }
 
   function extractEngagement(article, bar) {
@@ -610,8 +637,7 @@
     var labelled = article.querySelectorAll("[aria-label]");
     for (var i = 0; i < labelled.length; i++) {
       var el = labelled[i];
-      if (el.closest('div[role="article"]') !== article) continue;
-      if (isBelowBar(el, bar)) continue;
+      if (!belongsToPost(article, el)) continue;
       labels.push(el.getAttribute("aria-label"));
     }
 
@@ -656,7 +682,7 @@
       /shares?:?\s*([\d][\d.,]*\s*[KMB]?)/i
     ]);
 
-    if (!result.likes) result.likes = bareCountAboveBar(article, bar);
+    if (!result.likes) result.likes = bareCount(article, bar);
 
     result.video_plays = firstMatch([
       /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
@@ -813,12 +839,60 @@
    */
   var NOT_FEED = '[aria-label*="Messenger" i], [role="dialog"]';
 
+  // A reply, by Facebook's own label. This is the only completely reliable
+  // signal on the page: comments carry aria-label="Comment by <name> <when>".
+  function isCommentArticle(el) {
+    return /^(comment|reply) by/i.test(el.getAttribute("aria-label") || "");
+  }
+
+  var SHARE_SELECTOR =
+    '[aria-label="Share"], [aria-label^="Send this to friends" i], ' +
+    '[aria-label^="Send this to friends or post it" i]';
+
+  /* Find the posts.
+   *
+   * A page report from a real group settled this: on that layout every
+   * div[role="article"] on the page was a COMMENT — five of them, all
+   * labelled "Comment by …" — and the posts carried no role at all. Hunting
+   * posts with role="article" was hunting them with a selector that only
+   * ever matches replies, which is why nothing was captured.
+   *
+   * So posts are found by the one control only a post has: Share. A comment
+   * offers Reply and never Share. From each Share control, walk up until the
+   * ancestor would contain a SECOND Share — at that point it wraps more than
+   * one post — and take the largest container holding exactly one. That
+   * depends on no class name and no role, only on what a post is.
+   */
   function feedArticles() {
-    var all = document.querySelectorAll('div[role="article"]');
     var out = [];
-    for (var i = 0; i < all.length; i++) {
-      if (all[i].closest(NOT_FEED)) continue;
-      out.push(all[i]);
+    var i;
+
+    // Preferred: real post articles, where the layout provides them.
+    var articles = document.querySelectorAll('div[role="article"]');
+    for (i = 0; i < articles.length; i++) {
+      if (articles[i].closest(NOT_FEED)) continue;
+      if (isCommentArticle(articles[i])) continue;
+      out.push(articles[i]);
+    }
+    if (out.length) return out;
+
+    // Otherwise, find them by their Share control.
+    var shares = document.querySelectorAll(SHARE_SELECTOR);
+    for (i = 0; i < shares.length; i++) {
+      var share = shares[i];
+      if (share.closest(NOT_FEED)) continue;
+      // A Share inside a comment article is not a post's.
+      var owningArticle = share.closest('div[role="article"]');
+      if (owningArticle && isCommentArticle(owningArticle)) continue;
+
+      var node = share.parentElement;
+      var best = null;
+      for (var hop = 0; hop < 18 && node && node !== document.body; hop++) {
+        if (node.querySelectorAll(SHARE_SELECTOR).length > 1) break;
+        best = node;
+        node = node.parentElement;
+      }
+      if (best && out.indexOf(best) === -1) out.push(best);
     }
     return out;
   }
@@ -963,7 +1037,14 @@
 
       // A shell has none of the three.
       if (!hasText && !hasMedia && !engagementRead) {
-        STATS.skipped++;
+        // Counted once per element, not once per sweep. The passive scan
+        // re-reads the page every second or so, so an article skipped here
+        // was re-counted every pass — the number climbed steadily while the
+        // user was not even scrolling, which read as runaway activity.
+        if (!article.__tallgrassSkipped) {
+          article.__tallgrassSkipped = true;
+          STATS.skipped++;
+        }
         return;
       }
 
@@ -1490,7 +1571,7 @@
       var nodes = article.querySelectorAll('span, div[dir="auto"], div[role="button"]');
       for (var s = 0; s < nodes.length && shorts.length < 30; s++) {
         var node = nodes[s];
-        if (node.closest('div[role="article"]') !== article) continue;
+        if (!owned(article, node)) continue;
         if (node.children && node.children.length) continue;
         var txt = (node.innerText || "").trim();
         if (!txt || txt.length > 40) continue;
