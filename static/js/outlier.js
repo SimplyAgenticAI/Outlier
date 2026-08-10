@@ -694,7 +694,14 @@
       }
     });
 
-    connectBtn.addEventListener("click", function () { issueKey(false); });
+    // The connect block runs on EVERY page so the extension can be handed a
+    // key wherever the user happens to be, but the button itself only exists
+    // on Capture and Account. Calling addEventListener on null threw, and
+    // because this file is one IIFE, that killed every handler defined after
+    // it — the pricing page's plan toggle and its checkout button among them.
+    if (connectBtn) {
+      connectBtn.addEventListener("click", function () { issueKey(false); });
+    }
   }
 
   var rotateKey = document.getElementById("rotate-key");
