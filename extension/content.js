@@ -210,17 +210,44 @@
     return Math.abs(hash).toString(36);
   }
 
-  function extractPostId(article, permalink, body, author) {
+  function extractPostId(article, permalink, body, author, extra) {
     if (permalink) {
       var idMatch = permalink.match(/(?:posts|permalink|videos|reel)\/(\d+)/);
       if (idMatch) return idMatch[1];
       return permalink;
     }
-    // Group feeds frequently render without a permalink until hover, so fall
-    // back to hashing author+body — stable enough to dedupe across scrolls.
-    if (!body && !author) return null;
-    return "h" + hashString(author + "|" + body.slice(0, 200));
+
+    /* No permalink — Facebook usually only exposes one on hover.
+     *
+     * Hashing author + body alone was survivable while a caption was
+     * required, because the caption made posts distinct. Now that photo
+     * posts and memes are captured too, a caption-less post contributes
+     * nothing to the hash and every one by the same author collapses onto a
+     * single id — which is precisely how a group of two hundred once deduped
+     * down to three.
+     *
+     * The timestamp, the image and the counts differ between two posts by
+     * the same person almost without exception. If fewer than two signals
+     * exist at all, a sequence number is added: two rows for one post is a
+     * visible, deletable problem, while a colliding id silently swallows a
+     * whole scan.
+     */
+    extra = extra || {};
+    var parts = [
+      author || "",
+      (body || "").slice(0, 200),
+      extra.posted || "",
+      extra.image || "",
+      extra.counts || ""
+    ];
+    var distinct = parts.filter(function (x) { return x; }).length;
+    if (!distinct) return null;
+    if (distinct < 2) parts.push("s" + (idSequence++));
+    return "h" + hashString(parts.join("|"));
   }
+
+  // Tie-breaker for posts with nothing distinguishing about them.
+  var idSequence = 0;
 
   // Names that are chrome, not people.
   var NOT_A_NAME = /^(like|comment|share|reply|see more|follow|join|group|admin|moderator|top contributor|author|·|\d+[hdwmy]|anonymous participant)$/i;
@@ -458,7 +485,23 @@
      * runs when the strict pass found nothing, so it can add captures and
      * never remove them.
      */
-    return longestTextBlock(article, authorName, bar, "div, span, p");
+    var loose = longestTextBlock(article, authorName, bar, "div, span, p");
+    if (loose) return loose;
+
+    /* Still nothing — so drop the action-bar cutoff entirely.
+     *
+     * Both passes above are bounded by the bar, which is correct when the
+     * bar is where it looks. When findActionBar latches onto something near
+     * the TOP of the article, every text block counts as "below" it and the
+     * post reads as empty — which is the "skipped, no text" landing on posts
+     * that plainly have text.
+     *
+     * Without the cutoff a reply's text can win instead of the caption. That
+     * is the lesser failure by a wide margin: a post saved with the wrong
+     * caption is visible and fixable, a post never saved at all is invisible.
+     */
+    return longestTextBlock(article, authorName, null, 'div[dir="auto"], span[dir="auto"]') ||
+           longestTextBlock(article, authorName, null, "div, span, p");
   }
 
   function longestTextBlock(article, authorName, bar, selector) {
@@ -883,38 +926,59 @@
       var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
       var permalink = extractPermalink(article);
-      var postId = extractPostId(article, permalink, body, author.name);
 
-      if (!postId || SEEN.has(postId)) return;
-
-      // Reject shells: no text, or "text" that is just the author's name
-      // echoed out of the header.
-      if (!body || body.length < 12) { STATS.skipped++; return; }
-      if (body.replace(/\s+/g, " ") === author.name) { STATS.skipped++; return; }
-
-      SEEN.add(postId);
-      found++;
-
+      /* Everything is read BEFORE the keep-or-skip decision, because all of
+       * it is part of that decision.
+       *
+       * Requiring a caption first threw away entire categories of real post:
+       * photo posts with no words typed, and memes whose words are rendered
+       * into the graphic — often a group's best performers, so it did not
+       * merely lose rows, it biased the median the survivors were scored
+       * against.
+       */
       var engagement = extractEngagement(article, bar);
       var media = extractMedia(article, bar);
 
       // Whether anything was actually read, as opposed to defaulting to zero.
-      // Without it "0 reactions" claims the post got none, when the truth is
-      // that nothing could be found — completely different facts, and the
-      // dashboard's "readable %" depends on the distinction.
+      // "0 reactions" claims the post got none; "not read" says nothing could
+      // be found. Different facts, and the dashboard reports the difference.
       var engagementRead = !!(engagement.likes || engagement.comments ||
                               engagement.shares || engagement.video_plays);
-      if (engagementRead) STATS.withEngagement++;
-      maybeAutoReport();
-      if (media.image_url || media.has_video) STATS.withMedia++;
 
       // Words rendered into the graphic rather than typed. Facebook runs OCR
-      // for screen readers and publishes it in the image's alt.
+      // for screen readers and publishes it in the image's alt, so a meme
+      // carries its whole message there.
       var bodyFromImage = false;
       if ((!body || body.length < 12) && media.image_text) {
         body = media.image_text;
         bodyFromImage = true;
       }
+
+      // "Text" that is only the author's name echoed out of the header is a
+      // header, not a caption.
+      if (body && body.replace(/\s+/g, " ") === author.name) body = "";
+
+      var hasText = !!body && body.length >= 12;
+      var hasMedia = !!(media.image_url || media.has_video);
+
+      // A shell has none of the three.
+      if (!hasText && !hasMedia && !engagementRead) {
+        STATS.skipped++;
+        return;
+      }
+
+      var postId = extractPostId(article, permalink, body, author.name, {
+        posted: extractTimestamp(article) || "",
+        image: media.image_url || "",
+        counts: [engagement.likes, engagement.comments, engagement.shares].join(",")
+      });
+      if (!postId || SEEN.has(postId)) return;
+
+      SEEN.add(postId);
+      found++;
+      if (engagementRead) STATS.withEngagement++;
+      if (hasMedia) STATS.withMedia++;
+      maybeAutoReport();
       logLine(engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));

@@ -71,10 +71,10 @@ for (var n = 0; n < 12; n++) {
 }
 var api6 = runScan(buildPage(sameAuthor), "/groups/growth");
 api6.scanPosts();
-// KNOWN TRADE-OFF: V1.7 requires a caption of 12+ characters, so posts with
-// no text at all — image-only posts, memes — are skipped rather than
-// deduped onto one id. Fewer rows, but never hundreds collapsed into one.
-check("caption-less posts are skipped, not merged", api6.queue().length, 0);
+// Photo posts and memes are captured now, so each must keep its own
+// identity: hashing author+body alone collapsed every caption-less post by
+// one person onto a single id, which is how two hundred once became three.
+check("each caption-less post keeps its own identity", api6.queue().length, 12);
 
 console.log("an open Messenger chat is not a feed");
 var chatPage = buildPage([

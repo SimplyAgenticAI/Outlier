@@ -150,6 +150,35 @@ var ncBodies = ncApi.queue().map(function (p) { return p.body || ""; });
 check("no post is given the action bar as its caption",
       ncBodies.every(function (b) { return !/Like\s+Comment\s+Share/i.test(b); }));
 
+console.log("posts whose words are in the picture");
+// Reported from a live scan: "skipped, no text" landing on posts that have
+// text, and "a lot of posts the text will be in the picture".
+var meme = buildPage([
+  { body: "",                                  // nothing typed at all
+    likes: 920,
+    image: "https://scontent.example/meme.jpg",
+    alt: "May be an image of text that says 'DISCIPLINE BEATS MOTIVATION'" }
+]);
+var memeApi = runScan(meme, "/groups/growth");
+memeApi.scanPosts();
+var m = memeApi.queue()[0] || {};
+check("a caption-less meme is captured", !!m.fb_post_id);
+check("its words are read out of the image", m.body, "DISCIPLINE BEATS MOTIVATION");
+check("and flagged as coming from the image", m.body_from_image, 1);
+
+console.log("a photo post with no words anywhere");
+var photo = buildPage([
+  { body: "", likes: 310, image: "https://scontent.example/holiday.jpg",
+    alt: "May be an image of 3 people, outdoors" }   // no transcription
+]);
+var photoApi = runScan(photo, "/groups/growth");
+photoApi.scanPosts();
+var ph = photoApi.queue()[0] || {};
+check("still captured, on the strength of the image and its counts",
+      !!ph.fb_post_id);
+check("with no invented caption", ph.body, "");
+check("and its reaction count intact", ph.likes, 310);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");
