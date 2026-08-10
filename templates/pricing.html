@@ -12,9 +12,9 @@
 {% if not billing_ready %}
 <div class="glass notice reveal">
   <b>Billing isn't switched on for this instance.</b>
-  Set <code>STRIPE_SECRET_KEY</code>, <code>STRIPE_PRICE_MONTH</code>,
-  <code>STRIPE_PRICE_YEAR</code> and <code>STRIPE_WEBHOOK_SECRET</code> to
-  enable checkout.
+  Checkout needs <code>STRIPE_SECRET_KEY</code> and
+  <code>STRIPE_WEBHOOK_SECRET</code> in the environment. The price ids ship
+  with the code, so those two are the whole list.
 </div>
 {% endif %}
 
