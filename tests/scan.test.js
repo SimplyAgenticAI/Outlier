@@ -30,6 +30,34 @@ check("nothing is queued before a scan is asked for", idle.queue().length, 0);
 idle.scanPosts();
 check("and it captures normally once one is", idle.queue().length, 2);
 
+console.log("counts arriving late must not re-capture the post");
+// Eight posts scrolled past, forty-six captured. The id is a hash that
+// includes the reaction counts, and Facebook fills those in progressively —
+// so the same post hashed differently on the next sweep and was captured
+// again, over and over.
+var late = buildPage([
+  { body: "A post whose reaction count has not loaded yet at all.", likes: 0 },
+  { body: "Another post in the same state, waiting on its numbers.", likes: 0 }
+]);
+var lateApi = runScan(late, "/groups/growth");
+lateApi.scanPosts();
+var afterFirst = lateApi.queue().length;
+
+// Facebook fills the counts in, exactly as it does on a real page.
+late.root.children.forEach(function (art, i) {
+  art.children.forEach(function (child) {
+    var label = child.getAttribute("aria-label") || "";
+    if (/reactions/.test(label)) {
+      child.setAttribute("aria-label", (400 + i * 37) + " reactions");
+    }
+  });
+});
+lateApi.scanPosts();
+lateApi.scanPosts();
+
+check("captured once on the first sweep", afterFirst, 2);
+check("and not again when the numbers arrive", lateApi.queue().length, 2);
+
 console.log("a scan of ordinary posts");
 var api = runScan(buildPage([
   { body: "First post about growing an audience organically over a long time.", likes: 120 },

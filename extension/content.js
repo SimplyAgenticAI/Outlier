@@ -1214,6 +1214,18 @@
     return found;
 
     function captureOne(article, articleIndex, source) {
+      /* One element is one post, and it is captured once.
+       *
+       * The id is a hash that includes the reaction counts, and Facebook
+       * fills those in progressively — so the same post hashed differently
+       * between sweeps and was captured again each time. Eight posts on
+       * screen became forty-six rows in the dashboard.
+       *
+       * Marking the element itself cannot drift: it is exactly as long-lived
+       * as the post it belongs to, and disappears when Facebook discards it.
+       */
+      if (article.__tallgrassCaptured) return;
+
       var verdict = verdicts[articleIndex];
 
       /* Comments are counted and skipped, never captured.
@@ -1327,6 +1339,7 @@
         }
       }
 
+      article.__tallgrassCaptured = true;
       SEEN.add(postId);
       found++;
       if (engagementRead) STATS.withEngagement++;
@@ -1975,9 +1988,10 @@
     // localhost while reading a hosted dashboard and never see your posts.
     hudBody.appendChild(row("Sending to", endpointLabel || "…",
                             endpointLabel ? "#7fa693" : null));
-    var where = source ? (source.kind === "group" ? "in this group"
-                                                 : "on this profile") : "on page";
-    hudBody.appendChild(row("Posts " + where, String(STATS.candidates)));
+    // This is how many posts are rendered right now, which is a handful at
+    // any moment — labelling it "posts in this group" read as a claim about
+    // the group's size, and "2" was plainly wrong as one.
+    hudBody.appendChild(row("Posts on screen", String(STATS.candidates)));
     hudBody.appendChild(row(
       "Captured this group",
       SEEN.size + " / " + maxPosts,
