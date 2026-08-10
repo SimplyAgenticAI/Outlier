@@ -147,6 +147,64 @@ api7.scanPosts();
 check("the chat message was not captured", api7.queue().length, 1);
 check("and the post still was", api7.queue()[0].body.indexOf("genuine feed post") !== -1);
 
+console.log("an open Messenger conversation on a group page");
+/* From tallgrass-page-report (5).txt, /groups/vibecodinglife:
+ *   div[role="article"]: 27 — 7 comments, and a pile of Messenger bubbles
+ *   [aria-posinset]    : 7  — the seven real posts
+ * Pooling every discovery strategy captured the chat bubbles as posts, which
+ * is why their counts made no sense: a chat message has no comments and no
+ * shares. The bubbles are labelled by Facebook and the posts are marked by
+ * it, so the marked ones win.
+ */
+var chatty = buildPage([]);
+var C = chatty.doc;
+
+var bubble2 = C.el("div");
+bubble2.setAttribute("role", "article");
+var bubbleLabel = C.el("div");
+bubbleLabel.setAttribute("aria-label", "Enter, Message sent August 2, 2026, 1:11 PM by Austin");
+bubble2.appendChild(bubbleLabel);
+var bubbleWho = C.el("a");
+bubbleWho.setAttribute("role", "link");
+bubbleWho.textContent = "Austin Armstrong";
+bubble2.appendChild(bubbleWho);
+var bubbleText2 = C.el("div");
+bubbleText2.setAttribute("dir", "auto");
+bubbleText2.textContent = "My friend applied to 67 jobs and got ghosted every time.";
+bubble2.appendChild(bubbleText2);
+chatty.root.appendChild(bubble2);
+
+var realPost = C.el("div");
+realPost.setAttribute("aria-posinset", "1");
+var rpWho = C.el("a");
+rpWho.setAttribute("role", "link");
+rpWho.textContent = "Sam Okafor";
+realPost.appendChild(rpWho);
+var rpBody = C.el("div");
+rpBody.setAttribute("dir", "auto");
+rpBody.textContent = "An actual post in the group, with a caption of its own.";
+realPost.appendChild(rpBody);
+var rpLike = C.el("div");
+rpLike.setAttribute("role", "button");
+rpLike.setAttribute("aria-label", "Like");
+realPost.appendChild(rpLike);
+var rpCount = C.el("div");
+rpCount.setAttribute("aria-label", "1,600 reactions; see who reacted to this");
+realPost.appendChild(rpCount);
+var rpFooter = C.el("span");
+rpFooter.textContent = "48 comments · 17 shares";
+realPost.appendChild(rpFooter);
+chatty.root.appendChild(realPost);
+
+var chattyApi = runScan(chatty, "/groups/vibecodinglife");
+chattyApi.scanPosts();
+var cq = chattyApi.queue();
+check("only the real post is captured", cq.length, 1);
+check("the chat message is not", /applied to 67 jobs/.test((cq[0] || {}).body || "") === false);
+check("its reactions are read", (cq[0] || {}).likes, 1600);
+check("its comments are read", (cq[0] || {}).comments, 48);
+check("its shares are read", (cq[0] || {}).shares, 17);
+
 console.log("a post nested inside a wrapper article");
 // Facebook wraps feed items, and a shared post renders the original inside
 // the sharer's article. Treating "nested" as proof of comment-ness meant the

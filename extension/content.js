@@ -950,31 +950,58 @@
    * them on a page whose role="article" nodes were all comments or
    * placeholders.
    */
+  /* Find the posts.
+   *
+   * Settled by page reports from three real groups.
+   *
+   * The last one had 27 div[role="article"] on a group page: 7 comments and a
+   * pile of MESSENGER chat bubbles from an open conversation. Pooling every
+   * strategy's candidates meant those bubbles were captured as posts, which
+   * is why counts made no sense — a chat message has no comments and no
+   * shares. The same page had aria-posinset exactly 7 times and exactly 7
+   * links to /posts/: seven real posts, marked by Facebook itself.
+   *
+   * So the strategies are tried IN ORDER and the first one that yields real
+   * posts wins, rather than everything being merged. aria-posinset first,
+   * because it is Facebook's own marker for a feed item.
+   */
   function feedArticles() {
-    var found = [];
+    var strategies = [
+      function () { return document.querySelectorAll("[aria-posinset]"); },
+      function () { return nonCommentArticles(); },
+      function () {
+        return containersAround('a[href*="/posts/"], a[href*="/permalink/"], a[href*="story_fbid"]');
+      },
+      function () { return containersAround(SHARE_SELECTOR); },
+      function () { return containersAroundShareText(); }
+    ];
 
-    push(found, document.querySelectorAll("[aria-posinset]"));
-    push(found, nonCommentArticles());
-    push(found, containersAround('a[href*="/posts/"], a[href*="/permalink/"], a[href*="story_fbid"]'));
-    push(found, containersAround(SHARE_SELECTOR));
-    if (!found.length) push(found, containersAroundShareText());
+    for (var s = 0; s < strategies.length; s++) {
+      var found = [];
+      try {
+        push(found, strategies[s]());
+      } catch (err) {
+        continue;                       // a strategy that throws is skipped
+      }
+      var kept = keepRealPosts(found);
+      if (kept.length) return kept;
+    }
+    return [];
+  }
 
-    // Drop skeletons, chrome and anything nested inside another candidate —
-    // the outermost container is the post.
+  function keepRealPosts(found) {
     var out = [];
     for (var i = 0; i < found.length; i++) {
       var el = found[i];
       try {
         if (el.closest(NOT_FEED)) continue;
+        if (isChatBubble(el)) continue;
         if (isCommentArticle(el)) continue;
         if (isLoadingShell(el)) continue;
         if (!looksLikeAPost(el)) continue;
         if (containedInAnother(el, found)) continue;
         out.push(el);
       } catch (err) {
-        // A malformed candidate is skipped rather than fatal — but recorded,
-        // because a page where discovery keeps throwing is a page where the
-        // scan will quietly under-collect.
         if (!STATS.lastError) {
           STATS.lastError = "post discovery failed: " +
             (err && err.message ? err.message : String(err)).slice(0, 60);
@@ -982,6 +1009,25 @@
       }
     }
     return out;
+  }
+
+  /* An open Messenger conversation.
+   *
+   * Chat bubbles carry role="article" like everything else, and the chat
+   * panel does not always sit inside a container the NOT_FEED selector
+   * catches. Facebook does label the bubbles themselves though — "Message
+   * sent…", "Message actions" — and nothing in a feed post says that.
+   */
+  function isChatBubble(el) {
+    var own = el.getAttribute("aria-label") || "";
+    if (/message (sent|actions)/i.test(own)) return true;
+    var labels = el.querySelectorAll("[aria-label]");
+    for (var i = 0; i < labels.length && i < 30; i++) {
+      if (/message (sent|actions)/i.test(labels[i].getAttribute("aria-label") || "")) {
+        return true;
+      }
+    }
+    return false;
   }
 
   function push(list, nodes) {
