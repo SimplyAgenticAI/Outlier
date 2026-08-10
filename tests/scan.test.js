@@ -18,6 +18,18 @@ function check(name, got, want) {
   if (!ok) { FAILURES.push(name); }
 }
 
+console.log("opening a group captures nothing on its own");
+// Simply switching into a group used to put twenty-odd posts in the
+// dashboard before Start had been pressed, because the mutation observer
+// scanned on every DOM change. Capture is an action the user takes.
+var idle = runScan(buildPage([
+  { body: "A post sitting on screen the moment the page opens.", likes: 140 },
+  { body: "And another one right below it, also just sitting there.", likes: 95 }
+]), "/groups/growth");
+check("nothing is queued before a scan is asked for", idle.queue().length, 0);
+idle.scanPosts();
+check("and it captures normally once one is", idle.queue().length, 2);
+
 console.log("a scan of ordinary posts");
 var api = runScan(buildPage([
   { body: "First post about growing an audience organically over a long time.", likes: 120 },

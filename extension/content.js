@@ -1102,6 +1102,25 @@
     return out;
   }
 
+  /* Look, but do not capture.
+   *
+   * Keeps the panel honest before a scan starts — the group name, and how
+   * many posts are on screen — without putting a single row in the
+   * dashboard. Resets the counters when the group changes, which scanPosts
+   * used to do as a side effect of capturing.
+   */
+  function countPostsOnScreen() {
+    try {
+      var source = detectSource();
+      if (!source) return;
+      if (source.fb_id !== currentSourceId) resetForSource(source);
+      STATS.articles = document.querySelectorAll('div[role="article"]').length;
+      STATS.candidates = feedArticles().length;
+    } catch (err) {
+      // Looking must never be able to break the panel.
+    }
+  }
+
   function scanPosts() {
     try {
       return scanPostsInner();
@@ -2084,10 +2103,20 @@
     if (message.type === "OUTLIER_STATS") { sendResponse({ ok: true, stats: STATS, scrolling: autoScrolling }); }
   });
 
-  // Passive scan as posts render during ordinary scrolling, debounced because
-  // Facebook mutates the DOM constantly.
+  /* Capture only while a scan is running.
+   *
+   * This used to scan on every DOM mutation, so simply opening a group put
+   * twenty-odd posts in the dashboard before Start had been pressed — and
+   * the counter carried on climbing with nothing running, which looked
+   * exactly like a runaway. Capture is an action the user takes, not
+   * something that happens to them for visiting a page.
+   *
+   * The observer still runs, because auto-scroll depends on posts being read
+   * as Facebook renders them, but it does nothing until a scan is live.
+   */
   var scanTimer;
   new MutationObserver(function () {
+    if (!autoScrolling) return;
     clearTimeout(scanTimer);
     scanTimer = setTimeout(scanPosts, 800);
   }).observe(document.body, { childList: true, subtree: true });
@@ -2101,7 +2130,14 @@
   }, 5000);
 
   buildHud();
-  setTimeout(function () { scanPosts(); renderHud(); }, 1500);
+
+  /* On load, and whenever the group changes, show what page this is without
+   * capturing anything from it. countPostsOnScreen only looks.
+   */
+  setTimeout(function () { countPostsOnScreen(); renderHud(); }, 1500);
+  setInterval(function () {
+    if (!autoScrolling) { countPostsOnScreen(); renderHud(); }
+  }, 2500);
 
   // Exposed for debugging against live Facebook: select a post in devtools and
   // run __outlier.extractBody($0) to see exactly what the extractors read.
