@@ -67,12 +67,25 @@ def _client():
     return stripe
 
 
+# The live prices for this account, so a fresh deploy bills correctly with
+# nothing to configure. A price id is not a secret — it identifies what is
+# being sold, and is useless without the secret key that authorises a charge.
+#
+# The environment still wins when set, which is what makes test mode possible:
+# test prices are different objects entirely, and a test key with a live price
+# id fails outright.
+DEFAULT_PRICES = {
+    "month": "price_1U2zlNKAWBo2NxJskmsfzvgs",   # $19 / month
+    "year":  "price_1U2zm4KAWBo2NxJssRLfeyyR",   # $190 / year
+}
+
+
 def price_id(interval):
-    """Stripe price ids come from the environment — they differ per account
-    and per mode, and hardcoding them would bill the wrong thing in test."""
-    return os.environ.get(
+    """The Stripe price to bill, environment first."""
+    override = os.environ.get(
         "STRIPE_PRICE_MONTH" if interval == "month" else "STRIPE_PRICE_YEAR"
     )
+    return override or DEFAULT_PRICES.get(interval)
 
 
 def create_checkout_session(user, interval, success_url, cancel_url):
