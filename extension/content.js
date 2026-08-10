@@ -876,23 +876,82 @@
     }
     if (out.length) return out;
 
-    // Otherwise, find them by their Share control.
-    var shares = document.querySelectorAll(SHARE_SELECTOR);
-    for (i = 0; i < shares.length; i++) {
-      var share = shares[i];
-      if (share.closest(NOT_FEED)) continue;
-      // A Share inside a comment article is not a post's.
-      var owningArticle = share.closest('div[role="article"]');
-      if (owningArticle && isCommentArticle(owningArticle)) continue;
+    /* Otherwise, find them by their permalink.
+     *
+     * Every post carries a link to itself on its timestamp — /posts/,
+     * /permalink/ or story_fbid — and a comment's links go to /user/. A page
+     * report from a real group showed the Share control has NO aria-label
+     * there, only the visible text, so anchoring on Share alone found
+     * nothing; the permalink is the sturdier signal and both are used.
+     *
+     * From each anchor, walk up until the ancestor would contain a SECOND
+     * anchor of the same kind — at that point it wraps more than one post —
+     * and take the largest container holding exactly one.
+     */
+    out = containersAround(
+      'a[href*="/posts/"], a[href*="/permalink/"], a[href*="story_fbid"]');
+    if (out.length) return out;
 
-      var node = share.parentElement;
+    out = containersAround(SHARE_SELECTOR);
+    if (out.length) return out;
+
+    return containersAroundShareText();
+  }
+
+  function containersAround(selector) {
+    var anchors = document.querySelectorAll(selector);
+    var out = [];
+    for (var i = 0; i < anchors.length; i++) {
+      var anchor = anchors[i];
+      if (anchor.closest(NOT_FEED)) continue;
+      var owning = anchor.closest('div[role="article"]');
+      if (owning && isCommentArticle(owning)) continue;   // a reply's link
+
+      var node = anchor.parentElement;
       var best = null;
       for (var hop = 0; hop < 18 && node && node !== document.body; hop++) {
-        if (node.querySelectorAll(SHARE_SELECTOR).length > 1) break;
+        if (node.querySelectorAll(selector).length > 1) break;
         best = node;
         node = node.parentElement;
       }
-      if (best && out.indexOf(best) === -1) out.push(best);
+      if (best && out.indexOf(best) === -1 && (best.innerText || "").length > 40) {
+        out.push(best);
+      }
+    }
+    return out;
+  }
+
+  // Last resort: Share rendered as plain text with no label at all, which is
+  // what the page report actually showed.
+  function containersAroundShareText() {
+    var candidates = document.querySelectorAll("div, span");
+    var shares = [];
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      if (el.children && el.children.length) continue;
+      if (!/^share$/i.test((el.innerText || "").trim())) continue;
+      if (el.closest(NOT_FEED)) continue;
+      shares.push(el);
+    }
+
+    var out = [];
+    for (var s = 0; s < shares.length; s++) {
+      var node = shares[s].parentElement;
+      var best = null;
+      for (var hop = 0; hop < 18 && node && node !== document.body; hop++) {
+        var inside = 0;
+        var leaves = node.querySelectorAll("div, span");
+        for (var l = 0; l < leaves.length; l++) {
+          if (leaves[l].children && leaves[l].children.length) continue;
+          if (/^share$/i.test((leaves[l].innerText || "").trim())) inside++;
+        }
+        if (inside > 1) break;
+        best = node;
+        node = node.parentElement;
+      }
+      if (best && out.indexOf(best) === -1 && (best.innerText || "").length > 40) {
+        out.push(best);
+      }
     }
     return out;
   }
@@ -967,7 +1026,9 @@
       }
     });
 
+    sweeps++;
     STATS.queued = QUEUE.length;
+    maybeAutoReport();
     renderHud();
     return found;
 
@@ -1514,15 +1575,28 @@
    */
   var autoReportDone = false;
 
+  var sweeps = 0;
+
   function maybeAutoReport() {
     if (autoReportDone) return;
-    if (STATS.candidates < 5) return;          // too early to conclude
-    if (STATS.withEngagement > 0) return;      // it is working
+
+    /* Fires on either failure, and the second one was missing.
+     *
+     * The gate used to require five candidates, so a scan that found NO
+     * posts at all — the case most in need of evidence — never produced a
+     * report. That is exactly the state this spent days in.
+     */
+    var foundNothing = sweeps >= 6 && capturedNothing();
+    var readNothing = STATS.candidates >= 5 && STATS.withEngagement === 0;
+    if (!foundNothing && !readNothing) return;
 
     autoReportDone = true;
-    logLine("No engagement read from " + STATS.candidates +
-            " posts — saving a report to Downloads.");
+    logLine("Extraction is failing — saving a report to Downloads.");
     savePageReport();
+  }
+
+  function capturedNothing() {
+    return STATS.sent === 0 && QUEUE.length === 0;
   }
 
   function savePageReport() {
@@ -1536,6 +1610,73 @@
     lines.push("url     : " + location.pathname);
     lines.push("source  : " + (source ? source.kind + " / " + source.name : "none"));
     lines.push("articles: " + document.querySelectorAll('div[role="article"]').length);
+    lines.push("");
+
+    /* A census of the page, because every report so far has contained only
+     * comments — so what a POST looks like here is still unknown. These are
+     * the signals post discovery could plausibly hang off.
+     */
+    function census(label, selector) {
+      var n = 0;
+      try { n = document.querySelectorAll(selector).length; } catch (e) { n = -1; }
+      lines.push("  " + label + ": " + n);
+    }
+    lines.push("--- what this page contains ---");
+    census('div[role="article"]        ', 'div[role="article"]');
+    census('  of those, comments       ', 'div[role="article"][aria-label^="Comment by" i]');
+    census('[role="feed"]              ', '[role="feed"]');
+    census('[role="main"]              ', '[role="main"]');
+    census('[aria-posinset]            ', '[aria-posinset]');
+    census('[data-pagelet]             ', '[data-pagelet]');
+    census('aria-label Share           ', '[aria-label="Share" i]');
+    census('aria-label Send this to..  ', '[aria-label^="Send this to friends" i]');
+    census('aria-label ..reactions;    ', '[aria-label*="reaction" i]');
+    census('links to /posts/           ', 'a[href*="/posts/"]');
+    census('links to /permalink/       ', 'a[href*="/permalink/"]');
+    census('links with story_fbid      ', 'a[href*="story_fbid"]');
+    census('links to /groups/..../user ', 'a[href*="/user/"]');
+
+    // Elements whose visible text is exactly "Share" — the report showed
+    // Share present as text with no aria-label anywhere.
+    var shareTexts = 0;
+    var everything = document.querySelectorAll("div, span");
+    for (var e = 0; e < everything.length; e++) {
+      var node = everything[e];
+      if (node.children && node.children.length) continue;
+      if (/^share$/i.test((node.innerText || "").trim())) shareTexts++;
+    }
+    lines.push("  text exactly 'Share'       : " + shareTexts);
+    lines.push("");
+
+    /* A post, whatever it turns out to be.
+     *
+     * Take the timestamp permalinks — every post has one and comments do not
+     * — and print the container around the first, so its actual shape is
+     * visible for once.
+     */
+    var permalink = document.querySelector(
+      'a[href*="/posts/"], a[href*="/permalink/"], a[href*="story_fbid"]');
+    lines.push("--- a post, found by its permalink ---");
+    if (!permalink) {
+      lines.push("NO PERMALINK LINK ANYWHERE ON THE PAGE");
+    } else {
+      lines.push("permalink href: " + (permalink.getAttribute("href") || "").slice(0, 120));
+      var box = permalink;
+      for (var up = 0; up < 12 && box.parentElement; up++) {
+        box = box.parentElement;
+        if ((box.innerText || "").length > 120) break;
+      }
+      lines.push("container role : " + (box.getAttribute("role") || "(none)"));
+      lines.push("container label: " + (box.getAttribute("aria-label") || "(none)"));
+      lines.push("container text : " + (box.innerText || "").replace(/\s+/g, " ").slice(0, 400));
+      lines.push("container aria-labels: " + JSON.stringify(
+        Array.prototype.slice.call(box.querySelectorAll("[aria-label]"))
+          .map(function (el) { return el.getAttribute("aria-label"); })
+          .filter(function (l) { return l && l.length < 70; }).slice(0, 25)));
+      lines.push("");
+      lines.push("--- that container's markup ---");
+      lines.push((box.outerHTML || "").slice(0, 40000));
+    }
     lines.push("");
 
     var articles = feedArticles();
