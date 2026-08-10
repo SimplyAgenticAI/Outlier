@@ -168,8 +168,9 @@ function buildPage(specs) {
 
 /* -------------------------------------------------------------- harness -- */
 
-function runScan(page, urlPath) {
+function runScan(page, urlPath, opts) {
   var stored = { enabled: true, endpoint: "https://dash.test", apiKey: "olk_x" };
+  if (opts && opts.maxPosts) { stored.maxPosts = opts.maxPosts; }
 
   global.chrome = {
     runtime: {

@@ -289,6 +289,52 @@ check("the real post is found by aria-posinset", !!mp.fb_post_id);
 check("its caption is read", /habit that changed/.test(mp.body || ""));
 check("its reaction count is read", mp.likes, 482);
 
+console.log("a container must not swallow the next post");
+// Reported: the same picture on post after post, and wrong comment/share
+// counts. Both came from the walk-up only stopping at a SECOND anchor — with
+// one permalink on screen it climbed until it held a slab of the feed.
+var twoUp = buildPage([
+  { body: "The first post, with a photograph of its own attached.",
+    likes: 300, image: "https://scontent.example/first.jpg" },
+  { body: "The second post, with a completely different picture.",
+    likes: 90, image: "https://scontent.example/second.jpg" }
+]);
+var twoApi = runScan(twoUp, "/groups/growth");
+twoApi.scanPosts();
+var q = twoApi.queue();
+check("both posts captured separately", q.length, 2);
+check("each keeps its own picture",
+      q.map(function (x) { return x.image_url; }),
+      ["https://scontent.example/first.jpg", "https://scontent.example/second.jpg"]);
+check("counts are not pooled", q.map(function (x) { return x.likes; }), [300, 90]);
+
+console.log("the same image is never attached twice");
+var dupes = buildPage([
+  { body: "A post that owns this picture outright and says so.",
+    likes: 120, image: "https://scontent.example/shared.jpg" },
+  { body: "A different post that must not inherit that picture.",
+    likes: 45, image: "https://scontent.example/shared.jpg" }
+]);
+var dupApi = runScan(dupes, "/groups/growth");
+dupApi.scanPosts();
+var dq = dupApi.queue();
+check("both posts still captured", dq.length, 2);
+check("only the first keeps the image",
+      dq.map(function (x) { return x.image_url; }),
+      ["https://scontent.example/shared.jpg", null]);
+
+console.log("the target is a limit, not a suggestion");
+var many = [];
+for (var n = 0; n < 12; n++) {
+  many.push({ body: "Post number " + n + " with plenty of caption text on it.",
+              likes: 50 + n });
+}
+var limited = buildPage(many);
+var limitApi = runScan(limited, "/groups/growth", { maxPosts: 5 });
+limitApi.scanPosts();
+limitApi.scanPosts();      // the passive sweep used to sail straight past
+check("capture stops at the target", limitApi.queue().length, 5);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

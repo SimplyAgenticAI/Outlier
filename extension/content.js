@@ -31,6 +31,7 @@
   window.__outlierLoaded = true;
 
   var SEEN = new Set();
+  var IMAGES_SEEN = {};   // one post per image; see the note at the assignment
   var QUEUE = [];
   var enabled = true;
   var autoScrolling = false;
@@ -86,6 +87,7 @@
 
     currentSourceId = id;
     SEEN = new Set();
+    IMAGES_SEEN = {};
     QUEUE = [];
     STATS = blankStats();
     if (source) logLine("— " + source.name.slice(0, 30) + " —");
@@ -968,6 +970,43 @@
    * count of its own. Requiring all three costs nothing real: anything
    * missing them was not going to produce a usable row anyway.
    */
+  /* Has the walk-up gone too far?
+   *
+   * The only stop condition used to be "a second anchor of the same kind".
+   * When just one post's permalink was on screen, nothing stopped the climb
+   * and it took a container holding a slab of the feed — which is why the
+   * same picture appeared on post after post, and why the comment and share
+   * counts were wrong: one "post" was reading its neighbours' numbers and
+   * their media.
+   *
+   * A feed unit has ONE action bar and ONE reaction summary. More than one of
+   * either means the container has swallowed the post below it.
+   */
+  function holdsMoreThanOnePost(el) {
+    if ((el.innerText || "").length > 6000) return true;      // a slab of feed
+    return countOutsideComments(el, '[aria-label*="reaction" i]') > 1 ||
+           countOutsideComments(el, '[aria-label="Like" i]') > 1 ||
+           countOutsideComments(el, '[aria-label*="Send this to friends" i]') > 1 ||
+           countOutsideComments(el, 'a[href*="/posts/"], a[href*="/permalink/"]') > 1;
+  }
+
+  /* Count markers that belong to the post, not to the replies shown under it.
+   *
+   * A preview comment carries its own reaction summary and its own Like, so
+   * counting those made a perfectly-sized container look like it already held
+   * two posts, and the walk stopped before it had found the post at all.
+   */
+  function countOutsideComments(el, selector) {
+    var nodes = el.querySelectorAll(selector);
+    var n = 0;
+    for (var i = 0; i < nodes.length; i++) {
+      var owning = nodes[i].closest('div[role="article"]');
+      if (owning && owning !== el && isCommentArticle(owning)) continue;
+      n++;
+    }
+    return n;
+  }
+
   function looksLikeAPost(el) {
     var hasAuthor = !!el.querySelector('a[role="link"], h2 a, h3 a, h4 a, strong');
     if (!hasAuthor) return false;
@@ -1016,6 +1055,7 @@
       var best = null;
       for (var hop = 0; hop < 18 && node && node !== document.body; hop++) {
         if (node.querySelectorAll(selector).length > 1) break;
+        if (holdsMoreThanOnePost(node)) break;
         best = node;
         node = node.parentElement;
       }
@@ -1051,6 +1091,7 @@
           if (/^share$/i.test((leaves[l].innerText || "").trim())) inside++;
         }
         if (inside > 1) break;
+        if (holdsMoreThanOnePost(node)) break;
         best = node;
         node = node.parentElement;
       }
@@ -1236,6 +1277,36 @@
         counts: [engagement.likes, engagement.comments, engagement.shares].join(",")
       });
       if (!postId || SEEN.has(postId)) return;
+
+      /* The target is a target, not a suggestion.
+       *
+       * It was only ever checked in the auto-scroll loop, so the passive
+       * sweep — which runs whether or not a scan is going — carried straight
+       * past it. Setting 200 and watching it reach 700, still climbing with
+       * nothing running, was this.
+       */
+      if (SEEN.size >= maxPosts) {
+        if (autoScrolling) stopAutoScroll("Target reached — " + SEEN.size + " posts");
+        return;
+      }
+
+      /* One image cannot belong to several posts.
+       *
+       * When a container over-reached it took its neighbour's picture too,
+       * and the same photograph appeared on post after post in the
+       * dashboard. Containers are bounded properly now, but a repeat is
+       * still evidence of an over-reach, so the image is dropped rather than
+       * attached to a post it does not belong to.
+       */
+      if (media.image_url) {
+        if (IMAGES_SEEN[media.image_url]) {
+          media.image_url = null;
+          media.image_count = 0;
+          hasMedia = !!media.has_video;
+        } else {
+          IMAGES_SEEN[media.image_url] = true;
+        }
+      }
 
       SEEN.add(postId);
       found++;
