@@ -863,39 +863,103 @@
    * one post — and take the largest container holding exactly one. That
    * depends on no class name and no role, only on what a post is.
    */
+  /* Find the posts.
+   *
+   * Settled by page reports from two real groups rather than by guesswork:
+   *
+   *   - On one, EVERY div[role="article"] was a comment and the posts had no
+   *     role at all.
+   *   - On the other there were four articles: two comments and two empty
+   *     "Loading..." skeletons Facebook renders while fetching. The old code
+   *     took those two skeletons as posts, and because it found "some", it
+   *     returned early and never tried anything else. Four articles on the
+   *     page, none of them a post, and nothing captured.
+   *
+   * So: gather candidates from every strategy, then keep only the ones that
+   * actually contain a post. aria-posinset comes first because it is
+   * Facebook's own marker for a feed item — the second report showed five of
+   * them on a page whose role="article" nodes were all comments or
+   * placeholders.
+   */
   function feedArticles() {
+    var found = [];
+
+    push(found, document.querySelectorAll("[aria-posinset]"));
+    push(found, nonCommentArticles());
+    push(found, containersAround('a[href*="/posts/"], a[href*="/permalink/"], a[href*="story_fbid"]'));
+    push(found, containersAround(SHARE_SELECTOR));
+    if (!found.length) push(found, containersAroundShareText());
+
+    // Drop skeletons, chrome and anything nested inside another candidate —
+    // the outermost container is the post.
     var out = [];
-    var i;
-
-    // Preferred: real post articles, where the layout provides them.
-    var articles = document.querySelectorAll('div[role="article"]');
-    for (i = 0; i < articles.length; i++) {
-      if (articles[i].closest(NOT_FEED)) continue;
-      if (isCommentArticle(articles[i])) continue;
-      out.push(articles[i]);
+    for (var i = 0; i < found.length; i++) {
+      var el = found[i];
+      try {
+        if (el.closest(NOT_FEED)) continue;
+        if (isCommentArticle(el)) continue;
+        if (isLoadingShell(el)) continue;
+        if (containedInAnother(el, found)) continue;
+        out.push(el);
+      } catch (err) {
+        // A malformed candidate is skipped rather than fatal — but recorded,
+        // because a page where discovery keeps throwing is a page where the
+        // scan will quietly under-collect.
+        if (!STATS.lastError) {
+          STATS.lastError = "post discovery failed: " +
+            (err && err.message ? err.message : String(err)).slice(0, 60);
+        }
+      }
     }
-    if (out.length) return out;
+    return out;
+  }
 
-    /* Otherwise, find them by their permalink.
-     *
-     * Every post carries a link to itself on its timestamp — /posts/,
-     * /permalink/ or story_fbid — and a comment's links go to /user/. A page
-     * report from a real group showed the Share control has NO aria-label
-     * there, only the visible text, so anchoring on Share alone found
-     * nothing; the permalink is the sturdier signal and both are used.
-     *
-     * From each anchor, walk up until the ancestor would contain a SECOND
-     * anchor of the same kind — at that point it wraps more than one post —
-     * and take the largest container holding exactly one.
-     */
-    out = containersAround(
-      'a[href*="/posts/"], a[href*="/permalink/"], a[href*="story_fbid"]');
-    if (out.length) return out;
+  function push(list, nodes) {
+    for (var i = 0; i < nodes.length; i++) {
+      if (list.indexOf(nodes[i]) === -1) list.push(nodes[i]);
+    }
+  }
 
-    out = containersAround(SHARE_SELECTOR);
-    if (out.length) return out;
+  function nonCommentArticles() {
+    var all = document.querySelectorAll('div[role="article"]');
+    var out = [];
+    for (var i = 0; i < all.length; i++) {
+      if (!isCommentArticle(all[i])) out.push(all[i]);
+    }
+    return out;
+  }
 
-    return containersAroundShareText();
+  /* A placeholder Facebook renders while a post is still loading: no text,
+   * and its only accessible name is "Loading...". Treating one as a post
+   * meant reporting a candidate that could never yield anything, and — worse
+   * — satisfying the "we found posts" test so nothing else was tried.
+   */
+  function isLoadingShell(el) {
+    var labels = el.querySelectorAll("[aria-label]");
+    var i, label;
+
+    // Facebook names the placeholder outright.
+    for (i = 0; i < labels.length; i++) {
+      label = labels[i].getAttribute("aria-label") || "";
+      if (/^loading/i.test(label)) return true;
+    }
+
+    // Otherwise it is only a shell if there is nothing in it worth having.
+    // A photo post has no caption and a caption-less post still carries its
+    // counts, so text length alone would discard real posts — which it did.
+    if ((el.innerText || "").trim().length >= 40) return false;
+    if (el.querySelector("img")) return false;
+    for (i = 0; i < labels.length; i++) {
+      if (/\d/.test(labels[i].getAttribute("aria-label") || "")) return false;
+    }
+    return true;
+  }
+
+  function containedInAnother(el, all) {
+    for (var i = 0; i < all.length; i++) {
+      if (all[i] !== el && all[i].contains && all[i].contains(el)) return true;
+    }
+    return false;
   }
 
   function containersAround(selector) {
@@ -957,6 +1021,22 @@
   }
 
   function scanPosts() {
+    try {
+      return scanPostsInner();
+    } catch (err) {
+      /* The sweep runs on a timer, so anything thrown outside the per-article
+       * guard — finding the posts, reading the source, a selector Chrome
+       * rejects — aborted this pass and every pass after it, silently.
+       */
+      STATS.lastError = "scan failed: " +
+        (err && err.message ? err.message : String(err)).slice(0, 80);
+      console.error("[Tallgrass] scan failed:", err);
+      try { renderHud(); } catch (e) { /* nothing further to do */ }
+      return 0;
+    }
+  }
+
+  function scanPostsInner() {
     if (!enabled) return 0;
 
     var source = detectSource();

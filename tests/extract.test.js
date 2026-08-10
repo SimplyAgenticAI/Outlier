@@ -242,6 +242,53 @@ check("its caption is read",
 check("the reaction count BELOW the bar is read", rp.likes, 214);
 check("and the comment's own count is not taken", rp.likes !== 1);
 
+console.log("a feed of loading skeletons and real posts");
+/* From tallgrass-page-report (1).txt, /groups/665320572142756:
+ *   div[role="article"]: 4  — 2 comments, and 2 empty "Loading..." shells
+ *   [aria-posinset]    : 5  — Facebook's own marker for a feed item
+ * The old code took the two skeletons as posts and, because it had "found
+ * some", returned before trying anything else. Four articles, no posts,
+ * nothing captured.
+ */
+var mixed = buildPage([]);
+var M = mixed.doc;
+
+// The placeholder Facebook renders while a post loads.
+var shell = M.el("div");
+shell.setAttribute("role", "article");
+var shellLabel = M.el("div");
+shellLabel.setAttribute("aria-label", "Loading...");
+shell.appendChild(shellLabel);
+mixed.root.appendChild(shell);
+
+// A real post, marked the way the feed marks them.
+var unit = M.el("div");
+unit.setAttribute("aria-posinset", "3");
+var uName = M.el("a");
+uName.setAttribute("role", "link");
+uName.textContent = "Ephraim Kungap";
+unit.appendChild(uName);
+var uBody = M.el("div");
+uBody.setAttribute("dir", "auto");
+uBody.textContent = "The habit that changed how I run my mornings this year.";
+unit.appendChild(uBody);
+var uLike = M.el("div");
+uLike.setAttribute("role", "button");
+uLike.setAttribute("aria-label", "Like");
+unit.appendChild(uLike);
+var uCount = M.el("div");
+uCount.setAttribute("aria-label", "482 reactions; see who reacted to this");
+unit.appendChild(uCount);
+mixed.root.appendChild(unit);
+
+var mixedApi = runScan(mixed, "/groups/665320572142756/");
+mixedApi.scanPosts();
+var mp = mixedApi.queue()[0] || {};
+check("the loading skeleton is not taken as a post", mixedApi.queue().length, 1);
+check("the real post is found by aria-posinset", !!mp.fb_post_id);
+check("its caption is read", /habit that changed/.test(mp.body || ""));
+check("its reaction count is read", mp.likes, 482);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");
