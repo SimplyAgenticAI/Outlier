@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "7.7"
+APP_VERSION = "7.8"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -497,9 +497,6 @@ def settings():
         sage_config=sage.get_config(),
         anthropic_model=sage.ANTHROPIC_MODEL,
         openai_model=sage.OPENAI_MODEL,
-        # Ads captured before the extension learned to skip them. Shown only
-        # when there are some — an offer to clean up nothing is just clutter.
-        sponsored_count=db.count_sponsored(_uid()),
         version=APP_VERSION,
         active="settings",
     )
@@ -1259,18 +1256,6 @@ def api_reset():
     """
     result = db.clear_all_captures(_uid())
     return jsonify({"ok": True, "reset": True, **result})
-
-
-@app.route("/api/clean-sponsored", methods=["POST"])
-@auth.login_required
-def api_clean_sponsored():
-    """Remove ads captured before the extension learned to skip them.
-
-    Separate from the full reset on purpose — this takes out the ads and
-    nothing else, so a scan worth keeping does not have to be thrown away to
-    get rid of them.
-    """
-    return jsonify({"ok": True, **db.delete_sponsored(_uid())})
 
 
 @app.route("/api/export/<fmt>")

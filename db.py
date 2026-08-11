@@ -553,52 +553,6 @@ def clear_demo_data(user_id=None):
             conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
 
 
-# One after every visible character is Facebook hiding its "Sponsored" label
-# from anything that reads the page. No post written by a person contains it.
-_JOINER = "͏"
-
-
-def count_sponsored(user_id):
-    """How many stored posts are ads that got in before they were filtered."""
-    with get_db() as conn:
-        return conn.execute(
-            "SELECT COUNT(*) AS n FROM posts WHERE user_id IS ? AND body LIKE ?",
-            (user_id, f"%{_JOINER}%"),
-        ).fetchone()["n"]
-
-
-def delete_sponsored(user_id):
-    """Remove stored ads, and only those.
-
-    Worth doing rather than leaving alone: an ad's reach is bought, so its
-    engagement describes a budget instead of the group — and since every score
-    here is a comparison against the source's median, each one left in place
-    moves the number every real post is judged against.
-
-    The test is the invisible joiner Facebook interleaves through its own
-    label, which is as close to a signature as this gets. Matching on the word
-    would be wrong twice over: the label never contains it in readable form,
-    and a member's genuine post about advertising does.
-    """
-    if user_id is None:
-        raise ValueError("delete_sponsored requires a user_id")
-
-    with get_db() as conn:
-        ids = [r["id"] for r in conn.execute(
-            "SELECT id FROM posts WHERE user_id IS ? AND body LIKE ?",
-            (user_id, f"%{_JOINER}%"),
-        ).fetchall()]
-
-        if ids:
-            marks = ",".join("?" * len(ids))
-            # Saved and remix rows reference posts, so they go first.
-            conn.execute(f"DELETE FROM saved WHERE post_id IN ({marks})", ids)
-            conn.execute(f"DELETE FROM remixes WHERE post_id IN ({marks})", ids)
-            conn.execute(f"DELETE FROM posts WHERE id IN ({marks})", ids)
-
-    return {"removed": len(ids)}
-
-
 def clear_all_captures(user_id):
     """Delete every source, post and capture belonging to one account.
 

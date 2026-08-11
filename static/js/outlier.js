@@ -299,27 +299,6 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
-  // Only rendered when there are ads to remove, so the guard is doing real
-  // work here rather than being defensive for its own sake.
-  var cleanSponsored = document.getElementById("clean-sponsored");
-  if (cleanSponsored) {
-    cleanSponsored.addEventListener("click", function () {
-      cleanSponsored.disabled = true;
-      toast("Removing ads…");
-      post("/api/clean-sponsored")
-        .then(function (data) {
-          var n = (data && data.removed) || 0;
-          window.sessionStorage.setItem("outlier-reset",
-            "Removed " + n + " sponsored post" + (n === 1 ? "" : "s") + ".");
-          window.location.reload();
-        })
-        .catch(function () {
-          cleanSponsored.disabled = false;
-          toast("Could not remove them", true);
-        });
-    });
-  }
-
   var resetAll = document.getElementById("reset-all");
   if (resetAll) {
     resetAll.addEventListener("click", function () {
