@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "7.3"
+APP_VERSION = "7.4"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -72,6 +72,20 @@ def add_cors_headers(response):
     if response.mimetype == "text/html":
         response.headers["Cache-Control"] = "no-store, must-revalidate"
     return response
+
+
+def client_ip():
+    """The caller's address, as seen from behind Render's proxy.
+
+    remote_addr on a hosted instance is the proxy, so every visitor shares one
+    value and a per-address limit would throttle the whole internet at once.
+    X-Forwarded-For is a chain the client can prepend to, but the platform
+    appends the real peer last, so the final entry is the one to trust.
+    """
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    if forwarded:
+        return forwarded.split(",")[-1].strip()
+    return request.remote_addr or ""
 
 
 def _uid():
@@ -723,11 +737,14 @@ def register():
     error = None
     if request.method == "POST":
         password = request.form.get("password") or ""
-        if password != (request.form.get("password_confirm") or ""):
+        if auth.signup_throttled(client_ip()):
+            error = "Too many accounts created from here. Try again later."
+        elif password != (request.form.get("password_confirm") or ""):
             error = "Passwords don't match."
         else:
             user, error = auth.create_user(request.form.get("email"), password)
             if user:
+                auth.record_signup(client_ip())
                 # A pre-existing single-user install would otherwise find its
                 # own captures invisible once everything is owner-scoped.
                 claimed = db.claim_unowned_data(user["id"])

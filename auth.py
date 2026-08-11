@@ -36,6 +36,14 @@ _ATTEMPTS = {}
 MAX_ATTEMPTS = 8
 ATTEMPT_WINDOW = 900        # 15 minutes
 
+# Signups from one address, over the same window. Login was throttled and
+# registration was not, so the one endpoint that CREATES rows was the one
+# anybody could hit in a loop — each account carrying its own API key and its
+# own free-tier allowance. Keyed by address rather than by email, since the
+# attacker picks the email.
+_SIGNUPS = {}
+MAX_SIGNUPS = 5
+
 
 # ---------------------------------------------------------------- secrets
 
@@ -151,6 +159,31 @@ def create_user(email, password):
     user = dict(row)
     user["api_key"] = raw_key      # shown once, never retrievable again
     return user, None
+
+
+def signup_throttled(ip):
+    """True when this address has created its allowance of accounts.
+
+    Counted on success, not on attempt: a failed signup is usually somebody
+    mistyping their password or rediscovering they already have an account,
+    and locking them out for fifteen minutes over that would be its own bug.
+    """
+    if not ip:
+        return False
+    count, first_at = _SIGNUPS.get(ip, (0, 0))
+    if time.time() - first_at > ATTEMPT_WINDOW:
+        _SIGNUPS.pop(ip, None)
+        return False
+    return count >= MAX_SIGNUPS
+
+
+def record_signup(ip):
+    if not ip:
+        return
+    count, first_at = _SIGNUPS.get(ip, (0, time.time()))
+    if time.time() - first_at > ATTEMPT_WINDOW:
+        count, first_at = 0, time.time()
+    _SIGNUPS[ip] = (count + 1, first_at)
 
 
 def _throttled(email):

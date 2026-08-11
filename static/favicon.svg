@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <!-- The brand mark: a low scatter, and the one post that broke out. Same
+       shape as the header, drawn a little heavier so it survives 16px. -->
+  <rect width="24" height="24" rx="6" fill="#0b1d13"/>
+  <g fill="#34d399">
+    <circle cx="5" cy="18" r="2"/>
+    <circle cx="9" cy="16" r="2"/>
+    <circle cx="13" cy="17" r="2"/>
+    <circle cx="17" cy="15" r="2"/>
+  </g>
+  <circle cx="19" cy="5.5" r="3.2" fill="#d9b45f"/>
+</svg>
