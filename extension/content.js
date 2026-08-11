@@ -1815,6 +1815,9 @@
 
   function flush() {
     if (!QUEUE.length) return;
+    // Nothing can be delivered from a dead context, and trying is what made
+    // the failure recursive.
+    if (orphaned) return;
 
     var source = detectSource();
     if (!source) { QUEUE = []; return; }
@@ -1828,44 +1831,88 @@
       return;
     }
 
-    chrome.runtime.sendMessage(
-      { type: "OUTLIER_CAPTURE", source: source, posts: batch },
-      function (response) {
-        if (chrome.runtime.lastError) {
-          STATS.lastError = "Extension worker asleep — retrying";
-          QUEUE = batch.concat(QUEUE);   // don't lose the batch
+    /* sendMessage does not merely report a dead context through lastError —
+     * it can throw outright. Uncaught, that escaped the interval that calls
+     * this, taking the batch with it. */
+    try {
+      chrome.runtime.sendMessage(
+        { type: "OUTLIER_CAPTURE", source: source, posts: batch },
+        function (response) {
+          if (chrome.runtime.lastError) {
+            QUEUE = batch.concat(QUEUE);   // don't lose the batch
+            var why = chrome.runtime.lastError.message || "";
+            /* Retrying a dead context is not resilience — it is silent data
+             * loss dressed up as patience. Say what is wrong and stop. */
+            if (isOrphanError(why)) { handleOrphaned(); return; }
+            STATS.lastError = "Extension worker asleep — retrying";
+            renderHud();
+            return;
+          }
+          if (!response || !response.ok) {
+            STATS.lastError = (response && response.error) || "Dashboard rejected the batch";
+            QUEUE = batch.concat(QUEUE);
+            renderHud();
+            return;
+          }
+          STATS.sent += batch.length;
+          STATS.added += response.new || 0;
+          STATS.lastError = null;
+          logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
           renderHud();
-          return;
         }
-        if (!response || !response.ok) {
-          STATS.lastError = (response && response.error) || "Dashboard rejected the batch";
-          QUEUE = batch.concat(QUEUE);
-          renderHud();
-          return;
-        }
-        STATS.sent += batch.length;
-        STATS.added += response.new || 0;
-        STATS.lastError = null;
-        logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
-        renderHud();
-      }
-    );
+      );
+    } catch (err) {
+      QUEUE = batch.concat(QUEUE);
+      if (isOrphanError(err && err.message)) { handleOrphaned(); return; }
+      STATS.lastError = "Could not reach the extension — retrying";
+      renderHud();
+    }
   }
 
   /* ------------------------------------------------------ auto-scroll */
 
-  // When the extension reloads (self-update), scripts already injected into
-  // open tabs are orphaned — chrome.runtime.id goes undefined and every API
-  // call throws. Without this the HUD just silently stops working.
+  /* Is this script still attached to a living extension?
+   *
+   * chrome.runtime.id alone was not enough. After the extension is reloaded
+   * or updated, the scripts already injected into open tabs are orphaned —
+   * but the id often still reads back fine, so this returned true and the
+   * capture path carried on as though everything were normal. Calling into
+   * the API is what actually fails, so call into it: getManifest throws on
+   * an orphaned context and is otherwise free.
+   */
   function contextAlive() {
     try {
-      return !!(chrome.runtime && chrome.runtime.id);
+      if (!(chrome.runtime && chrome.runtime.id)) return false;
+      return !!chrome.runtime.getManifest();
     } catch (e) {
       return false;
     }
   }
 
+  /* Chrome describes a dead context in more than one way, and none of them
+   * mean "asleep". A sleeping worker wakes itself when a message arrives; an
+   * orphaned one never will, so retrying is silent, permanent data loss —
+   * posts scroll by, the counter climbs, and nothing is ever delivered.
+   */
+  function isOrphanError(message) {
+    return /context invalidated|receiving end does not exist|extension is disabled/i
+      .test(message || "");
+  }
+
+  /* Once, and only once.
+   *
+   * Stopping the scan flushes what is queued, and on a dead context that
+   * flush fails and lands straight back here — handleOrphaned to
+   * stopAutoScroll to flush to handleOrphaned, until the stack gives out and
+   * takes the whole content script with it. The page is already beyond
+   * saving at this point; all that is left is to say so.
+   */
+  var orphaned = false;
+
   function handleOrphaned() {
+    if (orphaned) return;
+    orphaned = true;
+
     stopAutoScroll(null);
     if (!hud) return;
     STATS.lastError = "Extension updated. Reload this page to continue.";
@@ -2674,6 +2721,7 @@
     readableTimestamp: readableTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
+    flush: flush,
     detectSource: detectSource,
     postOrigin: postOrigin,
     // Not in the UI — a developer tool belongs in the console, not in the

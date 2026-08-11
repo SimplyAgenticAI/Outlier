@@ -96,14 +96,31 @@ async function bumpCounter(newCount) {
   chrome.action.setBadgeBackgroundColor({ color: "#10b981" });
 }
 
+function describe(err) {
+  if (!err) return "The extension hit an unknown error";
+  return String(err.message || err).slice(0, 200);
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  /* Always answer, even when answering is bad news.
+   *
+   * These used to be .then(sendResponse) with no catch. A rejection anywhere
+   * inside meant sendResponse was never called, the channel stayed open
+   * until it timed out, and the page saw only "worker asleep" — so a real
+   * error surfaced as a phantom sleeping worker and the batch was retried
+   * forever instead of being reported.
+   */
   if (message.type === "OUTLIER_CAPTURE") {
-    handleCapture(message).then(sendResponse);
+    handleCapture(message)
+      .catch((err) => ({ ok: false, error: describe(err) }))
+      .then(sendResponse);
     return true;  // keep the channel open for the async reply
   }
 
   if (message.type === "OUTLIER_PING") {
-    testConnection().then(sendResponse);
+    testConnection()
+      .catch((err) => ({ ok: false, error: describe(err) }))
+      .then(sendResponse);
     return true;
   }
 });
