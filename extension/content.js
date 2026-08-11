@@ -458,9 +458,7 @@
       if (isBelowBar(el, bar)) continue;
       if (!owned(article, el)) continue;
 
-      // Author names carry the same interleaved joiners the body does, and a
-      // name full of invisible characters matches nothing on the next sweep.
-      var text = visibleText(el.textContent).trim().replace(/\s+/g, " ");
+      var text = (el.textContent || "").trim().replace(/\s+/g, " ");
       var anchor = el.tagName === "A" ? el : el.closest("a");
       var href = (anchor && anchor.href) || "";
 
@@ -488,20 +486,6 @@
     }
 
     return { name: "Unknown", url: null };
-  }
-
-  /* Characters Facebook puts between letters so text cannot be matched.
-   *
-   * A captured post came back reading like line noise: a hundred and twenty
-   * characters, of which sixty were U+034F COMBINING GRAPHEME JOINER, one
-   * after every single visible letter. They render as nothing and mean
-   * nothing — they exist to break string matching — so they are stripped
-   * from everything read off the page.
-   */
-  var INVISIBLE_RE = /[͏​-‏⁠-⁤⁪-⁯﻿­᠎]/g;
-
-  function visibleText(value) {
-    return (value || "").replace(INVISIBLE_RE, "");
   }
 
   var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
@@ -736,7 +720,7 @@
       // "Like Comment Share", and every such post then hashed to the same id.
       if (bar && (el === bar || (bar.contains && bar.contains(el)))) continue;
 
-      var text = visibleText(el.innerText).trim();
+      var text = el.innerText ? el.innerText.trim() : "";
       if (!text || text.length <= best.length) continue;
       if (CHROME_RE.test(text)) continue;
       if (isOnlyChrome(text)) continue;
@@ -1708,28 +1692,12 @@
        * still. A stable id is what lets a post be re-sent with better numbers
        * and UPDATE its row rather than duplicate it.
        */
-      /* Decided once, then kept.
-       *
-       * A post is normally read before Facebook has finished rendering it,
-       * and re-read on later sweeps to pick up its numbers. But the id is
-       * taken from the permalink when there is one and a hash of the content
-       * when there is not — so a post first seen without its permalink got a
-       * hash, and the moment the link appeared it got a DIFFERENT id and
-       * landed in the dashboard a second time. That is a scan of 200
-       * finishing at 202: not an off-by-two, one duplicate row per post whose
-       * permalink arrived late.
-       *
-       * Pinning the id to the element makes it survive whatever Facebook
-       * fills in afterwards. One element is one row, for the life of the page.
-       */
-      var postId = (prior && prior.postId) || extractPostId(
-        article, permalink, body, author.name, {
-          // Only what the card actually stated. An invented timestamp in the
-          // id is an id that changes on its own.
-          posted: readableTimestamp(article) || "",
-          image: media.image_url || ""
-        }
-      );
+      var postId = extractPostId(article, permalink, body, author.name, {
+        // Only what the card actually stated. An invented timestamp in the
+        // id is an id that changes on its own.
+        posted: readableTimestamp(article) || "",
+        image: media.image_url || ""
+      });
       // SEEN guards against capturing the same post twice from DIFFERENT
       // elements. A re-read of an element already captured is a deliberate
       // refresh, so it must not be blocked here.
@@ -1789,7 +1757,6 @@
                      (engagementRead && !prior.engagementRead) ||
                      (body && body.length > prior.bodyLength + 40);
         article.__tallgrassCaptured = {
-          postId: postId,                 // fixed at first capture, never re-derived
           complete: complete,
           reads: reads,
           likes: Math.max(engagement.likes, prior.likes || 0),
@@ -1800,7 +1767,6 @@
         STATS.refreshed++;
       } else {
         article.__tallgrassCaptured = {
-          postId: postId,                 // fixed at first capture, never re-derived
           complete: complete,
           reads: reads,
           likes: engagement.likes,
@@ -1844,32 +1810,14 @@
         body_from_image: bodyFromImage ? 1 : 0,
         engagement_read: engagementRead ? 1 : 0
       });
-      scheduleFlush();
     }
   }
 
-  /* How long to wait for the worker before assuming the batch died with it.
-   * Generous, because a slow dashboard is not a lost batch — but finite,
-   * because silence used to mean the posts were gone for good. */
-  var SEND_TIMEOUT_MS = 8000;
-
-  var flushTimer = null;
-
-  function scheduleFlush() {
-    if (flushTimer) return;              // one pending send is enough
-    flushTimer = setTimeout(function () {
-      flushTimer = null;
-      flush();
-    }, 400);
-  }
-
   function flush() {
-    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     if (!QUEUE.length) return;
-    /* Nothing can be delivered from a dead context, and trying is what made
-     * the failure recursive — but returning quietly is what made it
-     * invisible. Say why, every time, for as long as posts are stacking up. */
-    if (orphaned) { showOrphaned(); return; }
+    // Nothing can be delivered from a dead context, and trying is what made
+    // the failure recursive.
+    if (orphaned) return;
 
     var source = detectSource();
     if (!source) { QUEUE = []; return; }
@@ -1877,38 +1825,7 @@
     var batch = QUEUE.splice(0, QUEUE.length);
     STATS.queued = 0;
 
-    /* A batch is not gone until the dashboard says so.
-     *
-     * These posts have already left the queue, and every path that fails puts
-     * them back — except the one that never runs at all. Chrome tears down the
-     * service worker whenever it feels like it, and a scan lasts ten minutes,
-     * so a batch in flight during a teardown got no callback, no error and no
-     * second chance: it simply stopped existing. That is captured 127, sent 74,
-     * with nothing on screen suggesting anything went wrong.
-     *
-     * So silence is now a failure like any other. If no answer comes back, the
-     * posts return to the queue and go again. Sending twice is free — the
-     * dashboard keys on the post id and reports the duplicate as nothing new —
-     * while sending nothing is the bug that lost a third of a scan.
-     */
-    var settled = false;
-
-    function giveBack(reason) {
-      if (settled) return;
-      settled = true;
-      QUEUE = batch.concat(QUEUE);
-      STATS.queued = QUEUE.length;
-      if (reason) STATS.lastError = reason;
-      renderHud();
-      scheduleFlush();
-    }
-
-    var watchdog = setTimeout(function () {
-      giveBack(null);            // no message: a retry that works is not news
-    }, SEND_TIMEOUT_MS);
-
     if (!contextAlive()) {
-      clearTimeout(watchdog);
       QUEUE = batch.concat(QUEUE);
       handleOrphaned();
       return;
@@ -1921,48 +1838,34 @@
       chrome.runtime.sendMessage(
         { type: "OUTLIER_CAPTURE", source: source, posts: batch },
         function (response) {
-          clearTimeout(watchdog);
-          // The watchdog already put these back and they are on their way
-          // again; counting them here would count them twice.
-          if (settled) return;
-
           if (chrome.runtime.lastError) {
+            QUEUE = batch.concat(QUEUE);   // don't lose the batch
             var why = chrome.runtime.lastError.message || "";
             /* Retrying a dead context is not resilience — it is silent data
              * loss dressed up as patience. Say what is wrong and stop. */
-            if (isOrphanError(why)) {
-              settled = true;
-              QUEUE = batch.concat(QUEUE);
-              handleOrphaned();
-              return;
-            }
-            giveBack("Extension worker asleep — retrying");
+            if (isOrphanError(why)) { handleOrphaned(); return; }
+            STATS.lastError = "Extension worker asleep — retrying";
+            renderHud();
             return;
           }
           if (!response || !response.ok) {
-            giveBack((response && response.error) || "Dashboard rejected the batch");
+            STATS.lastError = (response && response.error) || "Dashboard rejected the batch";
+            QUEUE = batch.concat(QUEUE);
+            renderHud();
             return;
           }
-
-          settled = true;
           STATS.sent += batch.length;
           STATS.added += response.new || 0;
           STATS.lastError = null;
           logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
           renderHud();
-          // More may have arrived while this was in the air.
-          if (QUEUE.length) scheduleFlush();
         }
       );
     } catch (err) {
-      clearTimeout(watchdog);
-      if (isOrphanError(err && err.message)) {
-        settled = true;
-        QUEUE = batch.concat(QUEUE);
-        handleOrphaned();
-        return;
-      }
-      giveBack("Could not reach the extension — retrying");
+      QUEUE = batch.concat(QUEUE);
+      if (isOrphanError(err && err.message)) { handleOrphaned(); return; }
+      STATS.lastError = "Could not reach the extension — retrying";
+      renderHud();
     }
   }
 
@@ -1996,33 +1899,24 @@
       .test(message || "");
   }
 
-  /* Stop once, but say so every time.
+  /* Once, and only once.
    *
-   * The stopping has to happen once: stopping a scan flushes what is queued,
-   * and on a dead context that flush fails and lands straight back here —
-   * handleOrphaned to stopAutoScroll to flush to handleOrphaned, until the
-   * stack gives out and takes the content script with it.
-   *
-   * The MESSAGE is the opposite: it has to be re-asserted constantly. Set
-   * once, it was wiped by ordinary use — changing group rebuilds STATS from
-   * blank and starting a scan clears lastError — after which this returned
-   * immediately on its own latch and displayed nothing at all. Sending stayed
-   * disabled, correctly, but the only thing on screen was "waiting to send"
-   * and a queue that climbed forever with no reason given. A silent kill
-   * switch is worse than the bug it was added to fix.
+   * Stopping the scan flushes what is queued, and on a dead context that
+   * flush fails and lands straight back here — handleOrphaned to
+   * stopAutoScroll to flush to handleOrphaned, until the stack gives out and
+   * takes the whole content script with it. The page is already beyond
+   * saving at this point; all that is left is to say so.
    */
   var orphaned = false;
 
   function handleOrphaned() {
-    var first = !orphaned;
+    if (orphaned) return;
     orphaned = true;
-    if (first) stopAutoScroll(null);
-    showOrphaned();
-  }
 
-  function showOrphaned() {
+    stopAutoScroll(null);
     if (!hud) return;
     STATS.lastError = "Extension updated. Reload this page to continue.";
+    renderHud();
 
     if (hudBtn) {
       hudBtn.textContent = "Reload page";
@@ -2030,7 +1924,6 @@
       hudBtn.style.color = "#1a1305";
       hudBtn.onclick = function () { window.location.reload(); };
     }
-    renderHud();
   }
 
   function startAutoScroll() {
@@ -2040,8 +1933,7 @@
     autoScrolling = true;
     idleScrolls = 0;
     scanStartedAt = Date.now();
-    // Clearing the slate must not clear a reason the page cannot recover from.
-    if (!orphaned) STATS.lastError = null;
+    STATS.lastError = null;
     STATS.done = null;
     // Tells the service worker not to self-update mid-capture.
     try { chrome.storage.local.set({ capturing: true }); } catch (e) {}
@@ -2790,17 +2682,6 @@
     scanTimer = setTimeout(scanPosts, 800);
   }).observe(document.body, { childList: true, subtree: true });
 
-  /* Send as soon as there is something to send.
-   *
-   * This was a flat four-second poll, so a post read a moment after one fired
-   * sat in the queue for nearly the full interval — the dashboard visibly
-   * lagged the scan for no reason the user could see. Now queuing schedules a
-   * send, and the short delay only exists to let a burst of posts from one
-   * scroll travel as a single request instead of one request each.
-   *
-   * The interval stays as a safety net, since a batch put back after a failed
-   * send has nothing else to retry it.
-   */
   setInterval(flush, 4000);
 
   // Poll for orphaning even when idle, so a tab left open across an update
@@ -2824,7 +2705,6 @@
   // Also what the offline fixture tests drive.
   window.__outlier = {
     detectSource: detectSource,
-    visibleText: visibleText,
     loadHudBox: loadHudBox,
     clampHudBox: clampHudBox,
     looksLikePost: looksLikePost,
@@ -2841,9 +2721,6 @@
     readableTimestamp: readableTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
-    // A test seam: waiting twelve real seconds to prove a batch survives
-    // silence is not a test anyone runs.
-    setSendTimeout: function (ms) { SEND_TIMEOUT_MS = ms; },
     flush: flush,
     detectSource: detectSource,
     postOrigin: postOrigin,

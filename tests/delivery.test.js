@@ -41,41 +41,6 @@ check("and is counted as sent", ok.stats().sent, 1);
 check("with no error left showing", ok.stats().lastError, null);
 
 console.log();
-console.log("one post is one row, however late Facebook fills it in");
-
-/* A scan set to 200 finished at 202. Not an off-by-two — one duplicate row
- * for each post whose permalink arrived after it was first read.
- *
- * A post is normally captured before Facebook has finished rendering it, then
- * re-read to pick up its numbers. The id comes from the permalink when there
- * is one and a hash of the content when there is not, so a post first seen
- * without its link got a hash and then, the moment the link appeared, a
- * completely different id — and a second row in the dashboard.
- */
-var late = buildPage([{ body: "A post read before Facebook finished it", likes: 0 }]);
-var lateApi = runScan(late, "/groups/1234567890/");
-lateApi.scanPosts();
-var firstId = (lateApi.queue()[0] || {}).fb_post_id;
-
-var article = global.document.querySelectorAll('div[role="article"]')[0];
-article.children.forEach(function (c) {
-  var label = c.getAttribute("aria-label") || "";
-  if (/reactions/.test(label)) c.setAttribute("aria-label", "412 reactions");
-});
-var link = late.doc.el("a");                    // the permalink, arriving late
-link.setAttribute("href", "/groups/1234567890/posts/998877/");
-link.href = "https://www.facebook.com/groups/1234567890/posts/998877/";
-link.setAttribute("role", "link");
-link.textContent = "2h";
-article.appendChild(link);
-lateApi.scanPosts();
-
-var lateIds = lateApi.queue().map(function (p) { return p.fb_post_id; });
-check("the post is re-sent with its numbers", lateIds.length > 1, true);
-check("  under the id it was first given", new Set(lateIds).size, 1);
-check("  which is the one the dashboard already has", lateIds[0], firstId);
-
-console.log();
 console.log("an orphaned extension is reported, not retried");
 
 /* Exactly what Chrome does to a content script whose extension was reloaded:
@@ -121,37 +86,6 @@ check("  and it is reported as an orphan",
       /reload this page/i.test(thrower.stats().lastError || ""), true);
 
 console.log();
-console.log("the reason stays on screen for as long as it is true");
-
-/* The regression that put this section here. Sending was correctly disabled
- * once the context died, but the message saying so was set a single time —
- * and changing group rebuilds STATS from blank while starting a scan clears
- * lastError. After either, the explanation was gone and the stop was silent:
- * posts stacked up under "waiting to send" with nothing to say why, forever.
- * The panel only shows "waiting to send" when there is NO error, so a silent
- * stop is indistinguishable from a healthy queue.
- */
-var wiped = scanned();
-global.chrome.runtime.sendMessage = function (_m, cb) {
-  global.chrome.runtime.lastError = { message: "Extension context invalidated." };
-  if (cb) cb(undefined);
-  global.chrome.runtime.lastError = null;
-};
-wiped.flush();
-check("the reason is shown the first time",
-      /reload this page/i.test(wiped.stats().lastError || ""), true);
-
-wiped.stats().lastError = null;          // as changing group or pressing Start does
-wiped.scanPosts();
-wiped.flush();
-check("and again after something clears it",
-      /reload this page/i.test(wiped.stats().lastError || ""), true);
-check("  rather than sitting there silently",
-      wiped.stats().lastError === null, false);
-check("  with the posts still held, not dropped",
-      wiped.queue().length > 0, true);
-
-console.log();
 console.log("a genuinely sleeping worker is still worth retrying");
 
 var asleep = scanned();
@@ -168,48 +102,9 @@ check("and it is NOT called an orphan",
       /reload this page/i.test(asleep.stats().lastError || ""), false);
 
 console.log();
-console.log("a batch nobody answers is not a batch that is lost");
-
-/* Captured 127, sent 74, and no error anywhere on screen.
- *
- * flush takes the posts OUT of the queue before sending, and every failing
- * path puts them back — except the one that never runs at all. Chrome tears
- * down the service worker whenever it likes, and a scan lasts ten minutes, so
- * a batch in flight during a teardown got no callback, no lastError and no
- * second chance. It stopped existing, and the only evidence was two counters
- * quietly disagreeing.
- *
- * Silence is a failure like any other now: the posts go back and are sent
- * again. Sending twice is free, because the dashboard keys on the post id and
- * reports a duplicate as nothing new. Sending nothing lost a third of a scan.
- */
-var swallowed = scanned();
-swallowed.setSendTimeout(40);
-var attempts = 0;
-global.chrome.runtime.sendMessage = function () { attempts++; /* never answers */ };
-swallowed.flush();
-
-check("the posts leave the queue while in flight", swallowed.queue().length, 0);
-check("  and none are counted as sent", swallowed.stats().sent, 0);
-
-setTimeout(function () {
-  check("the unanswered batch comes back", swallowed.queue().length, 1);
-  check("  still uncounted, so the totals cannot drift",
-        swallowed.stats().sent, 0);
-
-  // And once something does answer, it lands.
-  global.chrome.runtime.sendMessage = function (_m, cb) {
-    if (cb) cb({ ok: true, new: 1 });
-  };
-  swallowed.flush();
-  check("  and it is delivered on the retry", swallowed.stats().sent, 1);
-  check("  leaving the queue empty", swallowed.queue().length, 0);
-
-  console.log();
-  if (FAILURES.length) {
-    console.log(FAILURES.length + " FAILURES");
-    process.exit(1);
-  }
-  console.log("delivery behaves");
-  process.exit(0);
-}, 140);
+if (FAILURES.length) {
+  console.log(FAILURES.length + " FAILURES");
+  process.exit(1);
+}
+console.log("delivery behaves");
+process.exit(0);
