@@ -1459,7 +1459,6 @@
 
     sweeps++;
     STATS.queued = QUEUE.length;
-    maybeAutoReport();
     renderHud();
     return found;
 
@@ -1652,7 +1651,6 @@
       if (engagement.comments > 0) STATS.withComments++;
       if (engagement.shares > 0) STATS.withShares++;
       if (hasMedia) STATS.withMedia++;
-      maybeAutoReport();
       logLine(engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
@@ -2092,61 +2090,24 @@
   }
 
 
-  /* Write what the scanner is looking at to a file.
-   *
-   * Every extractor here has been tuned against a reconstruction of
-   * Facebook's markup rather than the page itself, because the page is only
-   * reachable from the browser that is signed in. That is why engagement
-   * kept reading as zero and each fix was a guess. One click, one file in
-   * Downloads, nothing sent anywhere.
-   */
-  /* Write the report once, on its own, when extraction has clearly failed.
-   *
-   * Asking the user to press a button and send a file has failed repeatedly —
-   * reasonably, since it is the developer's problem, not theirs. So the
-   * extension decides for itself: if a scan has looked at a real number of
-   * posts and read engagement from none of them, something is wrong with the
-   * extractors and the evidence is written to Downloads automatically.
-   *
-   * Once per page load, and never when things are working.
-   */
-  var autoReportDone = false;
-
   var sweeps = 0;
 
-  function maybeAutoReport() {
-    if (autoReportDone) return;
-
-    /* Fires on either failure, and the second one was missing.
-     *
-     * The gate used to require five candidates, so a scan that found NO
-     * posts at all — the case most in need of evidence — never produced a
-     * report. That is exactly the state this spent days in.
-     */
-    var foundNothing = sweeps >= 6 && capturedNothing();
-    var readNothing = STATS.candidates >= 5 && STATS.withEngagement === 0;
-
-    /* Reactions arriving while comments and shares stay at zero is its own
-     * failure, and the report never fired for it — a post recorded as "142
-     * reactions, 0 comments, 0 shares" when it really had 265, 54 and 22
-     * looked healthy enough to the old test. Partial counts are wrong
-     * counts, and wrong counts feed the score.
-     */
-    var readPartially = STATS.withEngagement >= 5 &&
-                        STATS.withComments === 0 && STATS.withShares === 0;
-
-    if (!foundNothing && !readNothing && !readPartially) return;
-
-    autoReportDone = true;
-    logLine("Extraction is failing — saving a report to Downloads.");
-    savePageReport();
-  }
-
-  function capturedNothing() {
-    return STATS.sent === 0 && QUEUE.length === 0;
-  }
-
-  function savePageReport() {
+  /* Dump what the scanner is looking at. Console only, and only when asked.
+   *
+   * Every extractor here was tuned against a reconstruction of Facebook's
+   * markup rather than the page itself, because the page is only reachable
+   * from the browser that is signed in. This is what closed that gap, and it
+   * is why engagement reads correctly now.
+   *
+   * It used to fire itself on failure and write tallgrass-page-report.txt
+   * into the user's Downloads folder. That earned its keep during
+   * development and has no business shipping: an extension silently dropping
+   * files on a stranger's machine looks like malware to a Web Store
+   * reviewer, and the report contains the page's markup, which is not
+   * something to write to disk unprompted. Run __outlier.pageReport() from
+   * the console when a page needs diagnosing.
+   */
+  function pageReport() {
     var lines = [];
     var source = detectSource();
     var version = "?";
@@ -2301,20 +2262,8 @@
       lines.push("");
     }
 
-    var text = lines.join(String.fromCharCode(10));
-    try {
-      var link = document.createElement("a");
-      link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
-      link.download = "tallgrass-page-report.txt";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      logLine("Saved tallgrass-page-report.txt to Downloads");
-    } catch (e) {
-      console.log(text);
-      STATS.lastError = "Could not save the file — the report is in the console (F12).";
-    }
-    renderHud();
+    console.log(lines.join(String.fromCharCode(10)));
+    return "Report printed above.";
   }
 
   function renderHud() {
@@ -2523,9 +2472,9 @@
     parseCount: parseCount,
     scanPosts: scanPosts,
     // Not in the UI — a developer tool belongs in the console, not in the
-    // product. Run __outlier.savePageReport() if the extractors need
-    // debugging against a real page.
-    savePageReport: savePageReport,
+    // product, and never on the user's disk. Run __outlier.pageReport() if
+    // the extractors need debugging against a real page.
+    pageReport: pageReport,
     // A function, not the object: STATS is reassigned when the source
     // changes, so a captured reference goes stale and reads as all zeros.
     stats: function () { return STATS; },
