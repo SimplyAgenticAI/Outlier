@@ -47,8 +47,9 @@ async function getApiKey() {
   const existing = (stored.apiKey || "").trim();
   if (existing) return existing;
 
-  // Nothing stored — ask the dashboard for one. See fetchKeyFromDashboard.
-  return await fetchKeyFromDashboard();
+  // Nothing stored — ask through the same shared path, so a cold start with
+  // several batches in hand cannot mint several keys at once.
+  return await refreshKey();
 }
 
 /* Get a key without the user doing anything.
@@ -69,10 +70,25 @@ async function fetchKeyFromDashboard() {
   if (!endpoint) return "";
 
   try {
+    /* Present the key we already hold.
+     *
+     * Keys are stored hashed, so the dashboard cannot read one back — asking
+     * without presenting one is asking for a rotation, and a rotation revokes
+     * whatever is in use. That is what "Key refreshed — retrying" was: one
+     * batch's replacement killing the key another batch was already spending,
+     * on and on, delivering a fraction of the scan.
+     *
+     * Presenting it lets the dashboard verify it and hand the same one back,
+     * so nothing is revoked and nothing else is disturbed.
+     */
+    const held = await chrome.storage.local.get(["apiKey"]);
+    const headers = { "X-Tallgrass-Extension": "1" };
+    if (held.apiKey) headers["X-Outlier-Key"] = held.apiKey;
+
     const response = await fetch(`${endpoint}/api/extension/key`, {
       method: "POST",
       credentials: "include",
-      headers: { "X-Tallgrass-Extension": "1" }
+      headers: headers
     });
     if (!response.ok) return "";          // not signed in, or not our server
 
@@ -125,6 +141,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
+/* One key refresh at a time, shared by everyone who asks.
+ *
+ * Batches run concurrently, so when a key goes stale they all find out at
+ * once. Each asking separately produced a rotation each, and every rotation
+ * revoked the one before it — so batches went out spending keys their own
+ * siblings had just killed. Whoever asks while a refresh is running waits for
+ * that one instead of starting another.
+ */
+let keyRefresh = null;
+
+function refreshKey() {
+  if (!keyRefresh) {
+    keyRefresh = fetchKeyFromDashboard().finally(() => { keyRefresh = null; });
+  }
+  return keyRefresh;
+}
+
 async function handleCapture(message) {
   const endpoint = await getEndpoint();
 
@@ -135,6 +168,12 @@ async function handleCapture(message) {
     };
   }
 
+  const post = (key) => fetch(`${endpoint}/api/capture`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Outlier-Key": key },
+    body: JSON.stringify({ source: message.source, posts: message.posts })
+  });
+
   try {
     const apiKey = await getApiKey();
     if (!apiKey) {
@@ -144,33 +183,31 @@ async function handleCapture(message) {
       };
     }
 
-    const response = await fetch(`${endpoint}/api/capture`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Outlier-Key": apiKey },
-      body: JSON.stringify({ source: message.source, posts: message.posts })
-    });
+    let response = await post(apiKey);
 
+    /* A stale key is recoverable, so recover from it here and now.
+     *
+     * This used to delete the key, ask for another, and hand the page back
+     * "Key refreshed — retrying" — which was not true. Nothing retried; the
+     * batch just waited for a later sweep, and by then another batch had
+     * usually rotated the key again. Deleting it made things worse still: an
+     * extension with no key looks disconnected, and the dashboard's
+     * auto-connect mints one whenever it believes that, so an open dashboard
+     * tab rotated the key out from under the scan.
+     *
+     * The key is now kept until a better one exists, the refresh is shared,
+     * and the same batch goes again immediately on the new key.
+     */
     if (response.status === 401) {
-      /* Throw the dead key away.
-       *
-       * Keeping it meant the extension looked connected forever: the
-       * dashboard's auto-connect only re-issues when it believes there is
-       * no key, and a REVOKED key is indistinguishable from a live one
-       * until it is used. Captures piled up locally and never landed, with
-       * nothing on either side saying why.
-       */
-      // Throw the dead key away and immediately ask for a live one. A
-      // revoked key is indistinguishable from a good one until it is used,
-      // so without this the extension would keep sending with it forever.
-      await chrome.storage.local.remove(["apiKey"]);
-      const fresh = await fetchKeyFromDashboard();
-      if (fresh) {
-        return { ok: false, error: "Key refreshed — retrying", retry: true };
+      const fresh = await refreshKey();
+      if (fresh) response = await post(fresh);
+
+      if (!fresh || response.status === 401) {
+        return {
+          ok: false,
+          error: "Sign in at " + endpoint + " in this browser to reconnect."
+        };
       }
-      return {
-        ok: false,
-        error: "Sign in at " + endpoint + " in this browser to reconnect."
-      };
     }
     if (response.status === 402) {
       const body = await response.json().catch(() => ({}));
