@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Privacy — {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="legal">
+  <h1>Privacy Policy</h1>
+  <p class="legal-date">Last updated {{ updated }}</p>
+
+  <p class="legal-lede">
+    {{ app_name }} reads posts you are already looking at on Facebook and
+    scores them against the median for their own group. This page says exactly
+    what that means for your data, in the order that matters: what leaves your
+    browser, who else sees it, and how to get rid of it.
+  </p>
+
+  <h2>What the extension collects</h2>
+  <p>
+    The extension only reads a page <b>while a scan is running</b> — after you
+    press Start in the extension window. Opening Facebook, or opening a group,
+    collects nothing. When you press Stop, it stops.
+  </p>
+  <p>While scanning, it reads the posts visible on the page you are on:</p>
+  <ul>
+    <li>the post's text</li>
+    <li>the author's display name and profile link</li>
+    <li>reaction, comment and share counts</li>
+    <li>the link to the post, its type (photo, reel, link…) and its timestamp</li>
+    <li>the address of the post's main image, so the dashboard can show a thumbnail</li>
+    <li>the name and address of the group, page or profile you are viewing</li>
+  </ul>
+
+  <h3>What it does not collect</h3>
+  <ul>
+    <li>Your Facebook password, or any Facebook credential. The extension never sees the login form.</li>
+    <li>Your Facebook cookies or session token.</li>
+    <li>Messages, Messenger conversations, or anything in your inbox.</li>
+    <li>Your friend list, your notifications, or your own profile data.</li>
+    <li>Comment text. Only the comment <i>count</i> is read, never the comments themselves.</li>
+    <li>Private groups you are not a member of. The extension can only see what your own logged-in account can already see on screen.</li>
+  </ul>
+  <p>
+    It has no ability to browse on its own. It reads the tab you are looking
+    at, and only while you have a scan running.
+  </p>
+
+  <h2>What the dashboard stores</h2>
+  <ul>
+    <li><b>Your account:</b> your email address and a password hash. Your password is stored using scrypt and is never stored, logged or transmitted in readable form.</li>
+    <li><b>Your API key:</b> stored as a hash, not as the key itself. We cannot read your key back — a lost key has to be reissued, not recovered.</li>
+    <li><b>Your captured posts:</b> the fields listed above, kept under your account and visible only to you.</li>
+  </ul>
+
+  <h2 id="ai">When your posts are sent to an AI provider</h2>
+  <div class="legal-callout">
+    <p>
+      This is the one place your captured data leaves our servers, so it is
+      worth being blunt about it.
+    </p>
+    <p>
+      If you use <b>Sage</b> or the <b>remix</b> feature, the post text and
+      author name of the posts involved are sent to a third-party AI provider
+      — <b>Anthropic</b> or <b>OpenAI</b>, whichever is configured — so it can
+      answer or rewrite. Those posts are typically written by other people, so
+      you are sending someone else's public post to a third party. Both
+      providers state that API content is not used to train their models, but
+      it does leave our infrastructure.
+    </p>
+    <p>
+      <b>These features are optional and off unless a key is configured.</b>
+      If you never use Sage or remix, nothing you capture is ever sent to an
+      AI provider.
+    </p>
+  </div>
+  <p>
+    If you save your own provider API key in settings, it is stored in our
+    database so it can be replayed on your requests. Unlike your password, a
+    provider key cannot be hashed — it has to be sent onward to work. Prefer
+    setting it as a server environment variable if that matters to you.
+  </p>
+
+  <h2>Payments</h2>
+  <p>
+    Card details never touch {{ app_name }}. Checkout is hosted by
+    <b>Stripe</b> on Stripe's own page, and we never see, receive or store
+    your card number. We store only your Stripe customer and subscription
+    identifiers and your plan status, so we know what you are entitled to.
+  </p>
+
+  <h2>Who else receives data</h2>
+  <ul>
+    <li><b>Render</b> — hosts the application and its database.</li>
+    <li><b>Stripe</b> — payments and subscription status.</li>
+    <li><b>Anthropic or OpenAI</b> — only when you use Sage or remix, as described above.</li>
+  </ul>
+  <p>
+    There are no analytics trackers, no advertising pixels, and no third-party
+    scripts on the dashboard. We do not sell your data, and we do not share it
+    with anyone not named on this page.
+  </p>
+
+  <h2>Cookies</h2>
+  <p>
+    One cookie, holding your login session. It is <code>HttpOnly</code>,
+    <code>SameSite=Lax</code>, and marked <code>Secure</code> when served over
+    HTTPS. There are no advertising or analytics cookies, which is why you are
+    not being asked to accept anything.
+  </p>
+
+  <h2>Keeping and deleting your data</h2>
+  <p>
+    Captured posts stay until you delete them. <b>Clear all captures</b> in
+    Settings erases every post under your account immediately. To delete your
+    account and everything attached to it, email us and it will be removed.
+  </p>
+  <p>
+    You may request a copy of your data, correction of it, or its deletion, at
+    the address below.
+  </p>
+
+  <h2>Other people's posts</h2>
+  <p>
+    Most of what {{ app_name }} stores was written by other people. It is
+    collected from pages your own account can already see, it is kept private
+    to you, and it is never published or resold. If you are a Facebook user
+    and believe your posts are held here, write to us and we will remove them.
+  </p>
+
+  <h2>Children</h2>
+  <p>
+    {{ app_name }} is a business tool and is not intended for anyone under 16.
+    We do not knowingly collect data from children.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    If this policy changes in a way that affects what we collect or who
+    receives it, the date at the top changes and material changes are
+    announced in the app.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    Questions, deletion requests, or anything else:
+    <a href="mailto:{{ support_email }}">{{ support_email }}</a>.
+  </p>
+  <p class="legal-foot">{{ app_name }} {{ app_parent }}.</p>
+</section>
+{% endblock %}

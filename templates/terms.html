@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block title %}Terms — {{ app_name }}{% endblock %}
+
+{% block content %}
+<section class="legal">
+  <h1>Terms of Service</h1>
+  <p class="legal-date">Last updated {{ updated }}</p>
+
+  <p class="legal-lede">
+    Using {{ app_name }} means agreeing to what follows. It is short on
+    purpose.
+  </p>
+
+  <h2>What the service is</h2>
+  <p>
+    {{ app_name }} is a research tool. It records posts you are already
+    viewing on Facebook and ranks each one against the median engagement of
+    its own source, so a strong post in a small group is not buried under a
+    mediocre post from a large one. It is operated by MacRandle Acres.
+  </p>
+
+  <h2>Your account</h2>
+  <p>
+    You are responsible for your login and your API key. Do not share them —
+    anyone holding your API key can write posts into your account. If you
+    believe your key has leaked, reissue it from the Account page, which
+    immediately invalidates the old one.
+  </p>
+
+  <h2>Using it responsibly</h2>
+  <p>You agree not to:</p>
+  <ul>
+    <li>use the extension on an account that is not yours;</li>
+    <li>attempt to reach groups, pages or profiles your own account cannot already see;</li>
+    <li>run scans at a rate intended to overload Facebook, or to evade its rate limits;</li>
+    <li>republish or resell the captured content of others as though it were your own;</li>
+    <li>resell, sublicense or repackage {{ app_name }} itself;</li>
+    <li>use it to harass, profile or target any individual.</li>
+  </ul>
+
+  <h2>Facebook is not affiliated with us</h2>
+  <p>
+    {{ app_name }} is not affiliated with, endorsed by, sponsored by or in any
+    way connected to Meta Platforms, Inc., Facebook, or any of their products.
+    All trademarks belong to their respective owners.
+  </p>
+  <p>
+    <b>Your use of Facebook remains governed by Facebook's own terms.</b>
+    Automated collection may be restricted by them, and it is your
+    responsibility to stay within the rules of any platform you scan. We
+    cannot and do not indemnify you against action taken by Facebook on your
+    account.
+  </p>
+
+  <h2>Plans and billing</h2>
+  <p>
+    The free plan is free and stays free. Pro is billed monthly or yearly
+    through Stripe, renews automatically, and can be cancelled at any time
+    from the Account page. Cancelling stops the next renewal; you keep Pro
+    until the end of the period you have already paid for.
+  </p>
+  <p>
+    We do not automatically refund partial periods. If something went wrong,
+    write to us — refunds are handled case by case and we would rather sort it
+    out than argue.
+  </p>
+  <p>
+    Prices may change. Existing subscribers get notice before a change affects
+    their renewal.
+  </p>
+
+  <h2>Your data, and losing it</h2>
+  <p>
+    Your captured posts are yours. We claim no ownership of them and do not
+    publish them.
+  </p>
+  <p>
+    <b>Keep your own copy of anything you cannot lose.</b> {{ app_name }} is
+    not a backup service. Depending on how your instance is hosted, captures
+    may not survive a restart — where that is the case the dashboard warns you
+    at the top of every page.
+  </p>
+
+  <h2>No warranty</h2>
+  <p>
+    {{ app_name }} is provided as is. Facebook changes its markup without
+    notice, and when it does, scans can miss posts or read counts incorrectly
+    until we catch up. We do not warrant that captured figures are complete or
+    accurate, and you should not treat them as an authoritative record.
+    Scoring is a signal, not advice.
+  </p>
+
+  <h2>Limitation of liability</h2>
+  <p>
+    To the fullest extent the law allows, MacRandle Acres is not liable for
+    indirect, incidental or consequential damages, for lost profits, or for
+    lost data. Our total liability for any claim is limited to the amount you
+    paid us in the twelve months before it arose.
+  </p>
+
+  <h2>Ending it</h2>
+  <p>
+    You may stop and delete your account at any time. We may suspend an
+    account that breaches these terms or that puts the service at risk, and
+    will say why where we reasonably can.
+  </p>
+
+  <h2>Changes</h2>
+  <p>
+    These terms may be updated. The date at the top changes, and material
+    changes are announced in the app. Continuing to use {{ app_name }} after
+    that means accepting the new version.
+  </p>
+
+  <h2>Contact</h2>
+  <p>
+    <a href="mailto:{{ support_email }}">{{ support_email }}</a>
+  </p>
+  <p class="legal-foot">{{ app_name }} {{ app_parent }}.</p>
+</section>
+{% endblock %}

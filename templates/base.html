@@ -60,6 +60,19 @@
   {% block content %}{% endblock %}
 </main>
 
+{# The Chrome Web Store listing has to link to a live privacy policy, and a
+   policy nothing links to is one nobody can find. #}
+<footer class="sitefoot">
+  <span class="sitefoot-brand">{{ app_name }} <span>{{ app_parent }}</span></span>
+  <nav>
+    <a href="{{ url_for('pricing') }}">Pricing</a>
+    <a href="{{ url_for('privacy') }}">Privacy</a>
+    <a href="{{ url_for('terms') }}">Terms</a>
+    <a href="mailto:{{ support_email }}">Contact</a>
+  </nav>
+  <span class="sitefoot-note">Not affiliated with Meta or Facebook.</span>
+</footer>
+
 <div class="toast" id="toast"></div>
 
 <script src="{{ url_for('static', filename='js/field.js') }}"></script>

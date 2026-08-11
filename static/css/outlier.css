@@ -1169,6 +1169,13 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 .auth-alt a { color: var(--emerald-bright); text-decoration: none; }
 .auth-alt a:hover { text-decoration: underline; }
 
+.auth-legal {
+  text-align: center; margin: 22px 0 0; font-size: 11.5px;
+  line-height: 1.6; color: var(--text-faint);
+}
+.auth-legal a { color: var(--text-muted); text-decoration: none; }
+.auth-legal a:hover { color: var(--emerald); }
+
 /* ------------------------------------------------------------- account */
 
 .account-link {
@@ -1292,4 +1299,64 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 .stat-hint {
   display: block; font-size: 10.5px; color: var(--text-faint);
   margin-top: 3px; line-height: 1.35;
+}
+
+/* ------------------------------------------------------------------ legal */
+
+/* Prose pages — privacy and terms. Narrow measure, because a policy set at
+   the full width of the dashboard is a policy nobody finishes reading. */
+
+.legal { max-width: 720px; margin: 0 auto 40px; }
+.legal h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.02em; }
+.legal h2 {
+  font-size: 18px; margin: 38px 0 12px; color: var(--emerald-bright);
+  letter-spacing: -0.01em;
+}
+.legal h3 { font-size: 14.5px; margin: 24px 0 8px; color: var(--text); }
+.legal p, .legal li { color: var(--text-muted); line-height: 1.75; font-size: 14.5px; }
+.legal p { margin: 0 0 14px; }
+.legal ul { margin: 0 0 16px; padding-left: 20px; }
+.legal li { margin-bottom: 7px; }
+.legal b { color: var(--text); font-weight: 600; }
+.legal a { color: var(--emerald); }
+.legal code { color: var(--gold); font-size: 12.5px; }
+
+.legal-date { font-size: 12.5px; color: var(--text-faint); margin-bottom: 26px; }
+.legal-lede { font-size: 16px; color: var(--text); line-height: 1.65; }
+.legal-foot {
+  margin-top: 40px; padding-top: 18px; border-top: 1px solid var(--border);
+  font-size: 12.5px; color: var(--text-faint);
+}
+
+/* The AI disclosure. It is the only place captured data leaves our servers,
+   so it gets a box rather than being lost in the middle of a list. */
+.legal-callout {
+  background: rgba(217, 180, 95, 0.06);
+  border: 1px solid rgba(217, 180, 95, 0.22);
+  border-left: 2px solid var(--gold);
+  border-radius: 12px; padding: 18px 20px 6px; margin: 0 0 16px;
+}
+.legal-callout p:last-child { margin-bottom: 14px; }
+
+/* ----------------------------------------------------------- site footer */
+
+.sitefoot {
+  max-width: 1180px; margin: 60px auto 0; padding: 22px 28px 30px;
+  border-top: 1px solid var(--border);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 22px;
+  font-size: 12.5px; color: var(--text-faint);
+}
+.sitefoot-brand { font-weight: 600; color: var(--text-muted); }
+.sitefoot-brand span { font-weight: 400; color: var(--text-faint); }
+.sitefoot nav { display: flex; gap: 18px; flex-wrap: wrap; }
+.sitefoot a {
+  color: var(--text-muted); text-decoration: none;
+  transition: color 0.18s var(--ease);
+}
+.sitefoot a:hover { color: var(--emerald); }
+.sitefoot-note { margin-left: auto; }
+
+@media (max-width: 640px) {
+  .sitefoot { flex-direction: column; align-items: flex-start; }
+  .sitefoot-note { margin-left: 0; }
 }

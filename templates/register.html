@@ -54,6 +54,14 @@
     <p class="auth-alt">
       Already have one? <a href="{{ url_for('login') }}">Sign in</a>
     </p>
+
+    {# Consent has to be shown where the account is actually created, not
+       buried in a footer on some other page. #}
+    <p class="auth-legal">
+      Creating an account means you accept the
+      <a href="{{ url_for('terms') }}">Terms</a> and
+      <a href="{{ url_for('privacy') }}">Privacy Policy</a>.
+    </p>
   </div>
 </main>
 

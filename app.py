@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "7.0"
+APP_VERSION = "7.1"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -30,6 +30,15 @@ APP_SHORT_NAME = "Tallgrass"
 # The umbrella brand. Shown under the mark, not inside it.
 APP_PARENT = "by MacRandle Acres"
 APP_TAGLINE = "Find the standout posts in your Facebook groups, and write the next one."
+
+# Printed on the privacy policy and terms as the address for deletion
+# requests, so it has to be an inbox someone actually reads. Override it in
+# the environment once there is a real support address to point at.
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "jrizzla23@gmail.com")
+
+# The date shown on the legal pages. Bump it when the terms change in a way
+# that affects what is collected or who receives it — not for typos.
+LEGAL_UPDATED = "10 August 2026"
 
 db.init_db()
 db.promote_sole_account()
@@ -627,6 +636,8 @@ def inject_globals():
         "app_short_name": APP_SHORT_NAME,
         "app_parent": APP_PARENT,
         "app_tagline": APP_TAGLINE,
+        "support_email": SUPPORT_EMAIL,
+        "updated": LEGAL_UPDATED,
         # The scoring thresholds, so no template hardcodes "8" and quietly
         # disagrees with the engine when it changes.
         "min_sample": outliers.MIN_SAMPLE,
@@ -767,6 +778,18 @@ def pricing():
         version=APP_VERSION,
         active="pricing",
     )
+
+
+@app.route("/privacy")
+def privacy():
+    """Public on purpose — the Chrome Web Store listing links straight here,
+    and a reviewer hitting a login wall is a rejected submission."""
+    return render_template("privacy.html", version=APP_VERSION, active="legal")
+
+
+@app.route("/terms")
+def terms():
+    return render_template("terms.html", version=APP_VERSION, active="legal")
 
 
 @app.route("/billing/checkout/<interval>", methods=["POST"])
