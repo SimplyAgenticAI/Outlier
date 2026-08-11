@@ -41,6 +41,36 @@ check("and is counted as sent", ok.stats().sent, 1);
 check("with no error left showing", ok.stats().lastError, null);
 
 console.log();
+console.log("the URL drifting does not delete the queue");
+
+/* Two hundred captured, zero sent, no error anywhere.
+ *
+ * flush used to read `if (!source) { QUEUE = []; return; }` — if it could not
+ * name the page at that instant, every post waiting to be sent was deleted.
+ * Facebook is a single page app and the URL moves constantly while you
+ * scroll: a photo viewer, a reel, a post permalink. Any of those, landing
+ * between capture and send, destroyed the batch silently. Nothing was logged,
+ * no error was shown, and the captured counter carried on climbing.
+ */
+var drifted = scanned();
+check("a post is queued while the group is on screen", drifted.queue().length, 1);
+
+// Facebook opens the photo viewer, as it does when a scan scrolls past media.
+global.location = new URL("https://www.facebook.com/photo/?fbid=987654321");
+global.window.location = global.location;
+check("  and the page is no longer identifiable", drifted.detectSource(), null);
+
+drifted.flush();
+check("the post is NOT thrown away", drifted.stats().sent, 1);
+check("  and it is filed under the group it came from",
+      drifted.lastSource() && drifted.lastSource().fb_id, "group:1234567890");
+check("  leaving nothing stranded", drifted.queue().length, 0);
+
+// Back on the group, everything still works.
+global.location = new URL("https://www.facebook.com/groups/1234567890/");
+global.window.location = global.location;
+
+console.log();
 console.log("an orphaned extension is reported, not retried");
 
 /* Exactly what Chrome does to a content script whose extension was reloaded:

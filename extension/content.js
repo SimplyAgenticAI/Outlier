@@ -33,6 +33,15 @@
   var SEEN = new Set();
   var IMAGES_SEEN = {};   // one post per image; see the note at the assignment
   var QUEUE = [];
+
+  /* The last page we could name.
+   *
+   * Posts are captured while the page is identifiable and sent a moment
+   * later, by which time Facebook may have pushed a URL we do not recognise.
+   * Remembering it means a batch is still filed under the group it actually
+   * came from instead of being thrown away.
+   */
+  var lastKnownSource = null;
   var enabled = true;
   var autoScrolling = false;
   var scrollTimer = null;
@@ -1518,6 +1527,7 @@
     if (!enabled) return 0;
 
     var source = detectSource();
+    if (source) lastKnownSource = source;
     if (!source) {
       STATS.lastError = "Open a group, profile, page or feed to scan";
       renderHud();
@@ -1853,8 +1863,23 @@
       logLine("Extension is responding again — resuming");
     }
 
-    var source = detectSource();
-    if (!source) { QUEUE = []; return; }
+    /* Never throw the queue away for not knowing where we are.
+     *
+     * This line used to be QUEUE = [] — if detectSource could not name the
+     * page at that instant, every post waiting to be sent was deleted, with
+     * no error and nothing in the log. Facebook is a single page app and the
+     * URL drifts constantly while you scroll: a photo viewer, a post
+     * permalink, a reel. Any of those, arriving between capture and send,
+     * silently destroyed the batch. Captured kept climbing, sent stayed at
+     * zero, and nothing on screen said a thing.
+     *
+     * Every post in the queue was captured while the page WAS identifiable,
+     * so the last known source is the right one to send them under, and if
+     * even that is missing they wait rather than die.
+     */
+    var source = detectSource() || lastKnownSource;
+    if (!source) return;
+    lastKnownSource = source;
 
     var batch = QUEUE.splice(0, QUEUE.length);
     STATS.queued = 0;
@@ -2780,6 +2805,7 @@
   // Also what the offline fixture tests drive.
   window.__outlier = {
     detectSource: detectSource,
+    lastSource: function () { return lastKnownSource; },
     loadHudBox: loadHudBox,
     clampHudBox: clampHudBox,
     looksLikePost: looksLikePost,
