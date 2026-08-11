@@ -504,61 +504,6 @@
     return (value || "").replace(INVISIBLE_RE, "");
   }
 
-  /* Is this an ad?
-   *
-   * It matters more than it looks. A sponsored post has paid distribution, so
-   * its engagement says nothing about what this group responds to — and every
-   * one of them included in a source drags that source's median, which is the
-   * number every score in the app is measured against. Ads do not just add
-   * noise, they quietly move the baseline.
-   *
-   * They cannot be found by looking for the word. Facebook scrambles the
-   * letters of "Sponsored" across separate spans, reorders them visually with
-   * CSS, and pads them with decoy characters, so the text really does read
-   * "edrposonS..." — the label is an anagram by the time it reaches us. Sorting
-   * the letters is therefore the reliable test, and it survives the
-   * reshuffling that a literal match is designed to defeat.
-   */
-  var SPONSORED_SORTED = "denooprss";           // "sponsored", letters sorted
-  var LABEL_RE = /\b(sponsored|paid partnership|suggested for you)\b/i;
-  var LABEL_MAX = 40;
-
-  function looksSponsored(text) {
-    var raw = text || "";
-    var clean = visibleText(raw);
-
-    /* The scrambled label, which can be any length because Facebook pads it
-     * with decoys. Only trusted when the text was obfuscated in the first
-     * place: the interleaved joiners are the tell, and a member writing about
-     * advertising does not produce them. Without that condition, a genuine
-     * post whose words happened to sort the right way would be discarded.
-     */
-    if (clean.length !== raw.length) {
-      var tokens = clean.match(/[A-Za-z]{9}/g) || [];
-      for (var i = 0; i < tokens.length; i++) {
-        if (tokens[i].toLowerCase().split("").sort().join("") === SPONSORED_SORTED) {
-          return true;
-        }
-      }
-    }
-
-    /* The plain label, when Facebook is not bothering to hide it. Confined to
-     * short text so that "what I learned running sponsored ads", which is
-     * somebody's actual post, stays in.
-     */
-    return clean.length <= LABEL_MAX && LABEL_RE.test(clean);
-  }
-
-  function isSponsoredPost(article, bar) {
-    var nodes = article.querySelectorAll('span, a[role="link"], div[dir="auto"]');
-    for (var i = 0; i < nodes.length; i++) {
-      var el = nodes[i];
-      if (isBelowBar(el, bar)) break;
-      if (looksSponsored(el.innerText || el.textContent || "")) return true;
-    }
-    return false;
-  }
-
   var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
 
   /* The post/comment boundary.
@@ -1700,23 +1645,9 @@
         return;
       }
 
-      var bar = findActionBar(article);
-
-      /* Ads are not posts, and letting one through costs more than the row.
-       *
-       * A sponsored post's reach is bought, so its engagement describes a
-       * budget rather than the group — and because every score in the app is
-       * measured against its source's median, each ad included quietly moves
-       * the number everything else is judged by. Marked complete so no later
-       * sweep reconsiders it.
-       */
-      if (isSponsoredPost(article, bar)) {
-        article.__tallgrassCaptured = { complete: true, sponsored: true };
-        return;
-      }
-
       STATS.candidates++;
 
+      var bar = findActionBar(article);
       var author = extractAuthor(article, bar);
       var body = extractBody(article, author.name, bar);
       var permalink = extractPermalink(article);
@@ -2803,7 +2734,6 @@
   window.__outlier = {
     detectSource: detectSource,
     visibleText: visibleText,
-    looksSponsored: looksSponsored,
     loadHudBox: loadHudBox,
     clampHudBox: clampHudBox,
     looksLikePost: looksLikePost,

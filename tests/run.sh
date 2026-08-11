@@ -36,8 +36,8 @@ echo "--- extraction ---"
 node tests/extract.test.js
 echo "--- capture surfaces ---"
 node tests/source.test.js
-echo "--- sponsored posts ---"
-node tests/sponsored.test.js
+echo "--- text cleaning ---"
+node tests/text.test.js
 echo "--- capture delivery ---"
 node tests/delivery.test.js
 echo "--- extension panel ---"
