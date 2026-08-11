@@ -38,6 +38,8 @@ echo "--- capture surfaces ---"
 node tests/source.test.js
 echo "--- text cleaning ---"
 node tests/text.test.js
+echo "--- service worker ---"
+node tests/worker.test.js
 echo "--- capture delivery ---"
 node tests/delivery.test.js
 echo "--- extension panel ---"

@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "8.1"
+APP_VERSION = "8.2"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -918,18 +918,39 @@ def api_extension_key():
       * the session cookie is SameSite=Lax, so a cross-site POST from another
         page carries no session at all and lands on the login redirect.
 
-    It rotates, because keys are stored hashed and cannot be read back. The
-    extension only calls this when it has no working key, so a rotation
-    happens when one is actually needed rather than on every download — which
-    is the bug that silently revoked fourteen keys in a row.
+    It only rotates when it has to. Keys are stored hashed and cannot be read
+    back, so issuing one used to mean minting one — and minting revokes
+    whatever was in use. That turned every concurrent call into a fight: two
+    batches hitting a stale key both asked for a replacement, the second
+    rotation invalidated the first, and the extension chased a key that was
+    revoked before it could spend it. A scan of fifty delivered six.
+
+    So a caller that already holds a working key gets that key back
+    unchanged. The extension presents what it has; if it still verifies and
+    belongs to this account, nothing rotates and no other browser is kicked
+    off. Rotation is left for the case it was meant for — a caller with no
+    valid key at all.
     """
     if request.headers.get("X-Tallgrass-Extension") != "1":
         return jsonify({"ok": False, "error": "Not an extension request"}), 403
 
-    new_key = auth.rotate_api_key(auth.current_user()["id"])
+    user = auth.current_user()
+    presented = request.headers.get("X-Outlier-Key", "").strip()
+
+    if presented:
+        owner = auth.user_for_api_key(presented)
+        if owner and owner["id"] == user["id"]:
+            return jsonify({
+                "ok": True,
+                "api_key": presented,
+                "rotated": False,
+                "endpoint": request.url_root.rstrip("/"),
+            })
+
     return jsonify({
         "ok": True,
-        "api_key": new_key,
+        "api_key": auth.rotate_api_key(user["id"]),
+        "rotated": True,
         "endpoint": request.url_root.rstrip("/"),
     })
 

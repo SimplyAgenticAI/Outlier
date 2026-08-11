@@ -47,8 +47,9 @@ async function getApiKey() {
   const existing = (stored.apiKey || "").trim();
   if (existing) return existing;
 
-  // Nothing stored — ask the dashboard for one. See fetchKeyFromDashboard.
-  return await fetchKeyFromDashboard();
+  // Nothing stored — ask the dashboard for one, through the same single-flight
+  // path everything else uses so a cold start cannot mint several at once.
+  return await refreshKey();
 }
 
 /* Get a key without the user doing anything.
@@ -69,10 +70,21 @@ async function fetchKeyFromDashboard() {
   if (!endpoint) return "";
 
   try {
+    /* Present whatever key we hold.
+     *
+     * The dashboard hands it straight back if it is still valid, and only
+     * mints a replacement when it is genuinely dead. Asking without it means
+     * asking for a rotation, and a rotation revokes the key any other browser
+     * — or any batch already in flight — is currently using.
+     */
+    const stored = await chrome.storage.local.get(["apiKey"]);
+    const headers = { "X-Tallgrass-Extension": "1" };
+    if (stored.apiKey) headers["X-Outlier-Key"] = stored.apiKey;
+
     const response = await fetch(`${endpoint}/api/extension/key`, {
       method: "POST",
       credentials: "include",
-      headers: { "X-Tallgrass-Extension": "1" }
+      headers: headers
     });
     if (!response.ok) return "";          // not signed in, or not our server
 
@@ -125,7 +137,46 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-async function handleCapture(message) {
+/* Captures go up one at a time.
+ *
+ * Nothing here is slow, so this costs nothing in practice — but the service
+ * worker will happily run a dozen handleCapture calls at once, and when the
+ * stored key has gone stale every one of them discovers that simultaneously
+ * and asks for a replacement. Each replacement revoked the one before it, so
+ * batches ended up spending keys that had already been invalidated by their
+ * own siblings. Fifty posts scanned, six delivered.
+ *
+ * Serialising means the first batch finds the problem, fixes it once, and
+ * everything behind it uses the key that is now good.
+ */
+let captureChain = Promise.resolve();
+
+function serialised(task) {
+  const run = captureChain.then(task, task);
+  captureChain = run.then(() => {}, () => {});   // never reject the chain
+  return run;
+}
+
+/* One key refresh at a time, shared by every caller.
+ *
+ * Two batches asking at once produced two rotations, and the second killed
+ * the first. Whoever asks while a refresh is already running waits for that
+ * one instead of starting another.
+ */
+let keyRefresh = null;
+
+function refreshKey() {
+  if (!keyRefresh) {
+    keyRefresh = fetchKeyFromDashboard().finally(() => { keyRefresh = null; });
+  }
+  return keyRefresh;
+}
+
+function handleCapture(message) {
+  return serialised(() => sendCapture(message));
+}
+
+async function sendCapture(message) {
   const endpoint = await getEndpoint();
 
   if (!(await hasHostPermission(endpoint))) {
@@ -135,8 +186,14 @@ async function handleCapture(message) {
     };
   }
 
+  const post = (key) => fetch(`${endpoint}/api/capture`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Outlier-Key": key },
+    body: JSON.stringify({ source: message.source, posts: message.posts })
+  });
+
   try {
-    const apiKey = await getApiKey();
+    let apiKey = await getApiKey();
     if (!apiKey) {
       return {
         ok: false,
@@ -144,34 +201,39 @@ async function handleCapture(message) {
       };
     }
 
-    const response = await fetch(`${endpoint}/api/capture`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Outlier-Key": apiKey },
-      body: JSON.stringify({ source: message.source, posts: message.posts })
-    });
+    let response = await post(apiKey);
 
+    /* A stale key is recoverable, so recover from it here.
+     *
+     * This used to delete the key, fetch a new one, and hand the page back
+     * "Key refreshed — retrying" — leaving the batch to be re-sent on some
+     * later sweep. Two things went wrong with that. Deleting the key made the
+     * extension look disconnected, and the dashboard's auto-connect mints a
+     * key whenever it believes that, so an open dashboard tab rotated the key
+     * out from under the scan. And "retrying" was a promise the extension did
+     * not keep — nothing retried, it just waited.
+     *
+     * Now the key is replaced in place and the same batch is sent again
+     * immediately. The old key is kept until a better one exists, so nothing
+     * ever observes the extension as unconnected.
+     */
     if (response.status === 401) {
-      /* Throw the dead key away.
-       *
-       * Keeping it meant the extension looked connected forever: the
-       * dashboard's auto-connect only re-issues when it believes there is
-       * no key, and a REVOKED key is indistinguishable from a live one
-       * until it is used. Captures piled up locally and never landed, with
-       * nothing on either side saying why.
-       */
-      // Throw the dead key away and immediately ask for a live one. A
-      // revoked key is indistinguishable from a good one until it is used,
-      // so without this the extension would keep sending with it forever.
-      await chrome.storage.local.remove(["apiKey"]);
-      const fresh = await fetchKeyFromDashboard();
-      if (fresh) {
-        return { ok: false, error: "Key refreshed — retrying", retry: true };
+      const fresh = await refreshKey();
+      if (!fresh) {
+        return {
+          ok: false,
+          error: "Sign in at " + endpoint + " in this browser to reconnect."
+        };
       }
-      return {
-        ok: false,
-        error: "Sign in at " + endpoint + " in this browser to reconnect."
-      };
+      response = await post(fresh);
+      if (response.status === 401) {
+        return {
+          ok: false,
+          error: "Sign in at " + endpoint + " in this browser to reconnect."
+        };
+      }
     }
+
     if (response.status === 402) {
       const body = await response.json().catch(() => ({}));
       return { ok: false, error: body.error || "Plan limit reached", upgrade: true };
