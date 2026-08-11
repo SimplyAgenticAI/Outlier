@@ -86,6 +86,37 @@ check("  and it is reported as an orphan",
       /reload this page/i.test(thrower.stats().lastError || ""), true);
 
 console.log();
+console.log("the reason stays on screen for as long as it is true");
+
+/* The regression that put this section here. Sending was correctly disabled
+ * once the context died, but the message saying so was set a single time —
+ * and changing group rebuilds STATS from blank while starting a scan clears
+ * lastError. After either, the explanation was gone and the stop was silent:
+ * posts stacked up under "waiting to send" with nothing to say why, forever.
+ * The panel only shows "waiting to send" when there is NO error, so a silent
+ * stop is indistinguishable from a healthy queue.
+ */
+var wiped = scanned();
+global.chrome.runtime.sendMessage = function (_m, cb) {
+  global.chrome.runtime.lastError = { message: "Extension context invalidated." };
+  if (cb) cb(undefined);
+  global.chrome.runtime.lastError = null;
+};
+wiped.flush();
+check("the reason is shown the first time",
+      /reload this page/i.test(wiped.stats().lastError || ""), true);
+
+wiped.stats().lastError = null;          // as changing group or pressing Start does
+wiped.scanPosts();
+wiped.flush();
+check("and again after something clears it",
+      /reload this page/i.test(wiped.stats().lastError || ""), true);
+check("  rather than sitting there silently",
+      wiped.stats().lastError === null, false);
+check("  with the posts still held, not dropped",
+      wiped.queue().length > 0, true);
+
+console.log();
 console.log("a genuinely sleeping worker is still worth retrying");
 
 var asleep = scanned();

@@ -1900,9 +1900,10 @@
 
   function flush() {
     if (!QUEUE.length) return;
-    // Nothing can be delivered from a dead context, and trying is what made
-    // the failure recursive.
-    if (orphaned) return;
+    /* Nothing can be delivered from a dead context, and trying is what made
+     * the failure recursive — but returning quietly is what made it
+     * invisible. Say why, every time, for as long as posts are stacking up. */
+    if (orphaned) { showOrphaned(); return; }
 
     var source = detectSource();
     if (!source) { QUEUE = []; return; }
@@ -1984,24 +1985,33 @@
       .test(message || "");
   }
 
-  /* Once, and only once.
+  /* Stop once, but say so every time.
    *
-   * Stopping the scan flushes what is queued, and on a dead context that
-   * flush fails and lands straight back here — handleOrphaned to
-   * stopAutoScroll to flush to handleOrphaned, until the stack gives out and
-   * takes the whole content script with it. The page is already beyond
-   * saving at this point; all that is left is to say so.
+   * The stopping has to happen once: stopping a scan flushes what is queued,
+   * and on a dead context that flush fails and lands straight back here —
+   * handleOrphaned to stopAutoScroll to flush to handleOrphaned, until the
+   * stack gives out and takes the content script with it.
+   *
+   * The MESSAGE is the opposite: it has to be re-asserted constantly. Set
+   * once, it was wiped by ordinary use — changing group rebuilds STATS from
+   * blank and starting a scan clears lastError — after which this returned
+   * immediately on its own latch and displayed nothing at all. Sending stayed
+   * disabled, correctly, but the only thing on screen was "waiting to send"
+   * and a queue that climbed forever with no reason given. A silent kill
+   * switch is worse than the bug it was added to fix.
    */
   var orphaned = false;
 
   function handleOrphaned() {
-    if (orphaned) return;
+    var first = !orphaned;
     orphaned = true;
+    if (first) stopAutoScroll(null);
+    showOrphaned();
+  }
 
-    stopAutoScroll(null);
+  function showOrphaned() {
     if (!hud) return;
     STATS.lastError = "Extension updated. Reload this page to continue.";
-    renderHud();
 
     if (hudBtn) {
       hudBtn.textContent = "Reload page";
@@ -2009,6 +2019,7 @@
       hudBtn.style.color = "#1a1305";
       hudBtn.onclick = function () { window.location.reload(); };
     }
+    renderHud();
   }
 
   function startAutoScroll() {
@@ -2018,7 +2029,8 @@
     autoScrolling = true;
     idleScrolls = 0;
     scanStartedAt = Date.now();
-    STATS.lastError = null;
+    // Clearing the slate must not clear a reason the page cannot recover from.
+    if (!orphaned) STATS.lastError = null;
     STATS.done = null;
     // Tells the service worker not to self-update mid-capture.
     try { chrome.storage.local.set({ capturing: true }); } catch (e) {}
