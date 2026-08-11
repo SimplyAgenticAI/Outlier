@@ -167,6 +167,25 @@
     </div>
   </div>
 
+  {% if sponsored_count %}
+  <div class="glass panel reveal">
+    <h2>Sponsored posts</h2>
+    <p class="fine">
+      <b>{{ sponsored_count }}</b>
+      {{ 'ad was' if sponsored_count == 1 else 'ads were' }} captured before the
+      extension learned to recognise them. They show up as a long run of
+      nonsense characters, which is Facebook scrambling the word "Sponsored"
+      so it can't be matched. An ad's reach is bought, so its engagement says
+      nothing about the group — and because every score here is measured
+      against the group's median, each one left in place moves the number your
+      real posts are judged against. This removes the ads and nothing else.
+    </p>
+    <button class="btn btn-ghost danger" id="clean-sponsored">
+      Remove {{ sponsored_count }} ad{{ '' if sponsored_count == 1 else 's' }}
+    </button>
+  </div>
+  {% endif %}
+
   <div class="glass panel reveal">
     <h2>Danger zone</h2>
     <p class="fine">
