@@ -1813,11 +1813,45 @@
     }
   }
 
+  /* A woken worker answers in well under a second, so waiting for the next
+   * four-second sweep to find that out wastes most of it. One retry, soon,
+   * and the interval remains the backstop. */
+  var retryTimer = null;
+
+  function scheduleRetry() {
+    if (retryTimer) return;
+    retryTimer = setTimeout(function () {
+      retryTimer = null;
+      flush();
+    }, 1000);
+  }
+
+  var flushing = false;
+
   function flush() {
+    // stopAutoScroll flushes, and this can reach handleOrphaned, which stops
+    // the scan — which flushes. Without this the two call each other until
+    // the stack gives out and takes the content script with it.
+    if (flushing) return;
+    flushing = true;
+    try { flushInner(); } finally { flushing = false; }
+  }
+
+  function flushInner() {
     if (!QUEUE.length) return;
-    // Nothing can be delivered from a dead context, and trying is what made
-    // the failure recursive.
-    if (orphaned) return;
+
+    /* A dead context cannot deliver, and trying is what made the failure
+     * recursive — but this must never be a quiet dead end. If the context is
+     * alive after all, the flag was set on a sleeping worker and delivery
+     * simply resumes; if it really is gone, say so, every time, for as long
+     * as posts are stacking up behind it.
+     */
+    if (orphaned) {
+      if (orphanCertain || !contextAlive()) { showOrphaned(); return; }
+      orphaned = false;
+      STATS.lastError = null;
+      logLine("Extension is responding again — resuming");
+    }
 
     var source = detectSource();
     if (!source) { QUEUE = []; return; }
@@ -1841,11 +1875,17 @@
           if (chrome.runtime.lastError) {
             QUEUE = batch.concat(QUEUE);   // don't lose the batch
             var why = chrome.runtime.lastError.message || "";
-            /* Retrying a dead context is not resilience — it is silent data
-             * loss dressed up as patience. Say what is wrong and stop. */
-            if (isOrphanError(why)) { handleOrphaned(); return; }
+            /* A dead context is worth stopping for; a sleeping worker is not.
+             * They report themselves almost identically, so the words alone
+             * decide nothing — the live check does. Anything else is
+             * transient and the batch, already back on the queue, goes again. */
+            if (isDefiniteOrphan(why) || !contextAlive()) {
+              handleOrphaned(isDefiniteOrphan(why));
+              return;
+            }
             STATS.lastError = "Extension worker asleep — retrying";
             renderHud();
+            scheduleRetry();
             return;
           }
           if (!response || !response.ok) {
@@ -1863,9 +1903,13 @@
       );
     } catch (err) {
       QUEUE = batch.concat(QUEUE);
-      if (isOrphanError(err && err.message)) { handleOrphaned(); return; }
+      if (isDefiniteOrphan(err && err.message) || !contextAlive()) {
+        handleOrphaned(isDefiniteOrphan(err && err.message));
+        return;
+      }
       STATS.lastError = "Could not reach the extension — retrying";
       renderHud();
+      scheduleRetry();
     }
   }
 
@@ -1894,29 +1938,59 @@
    * orphaned one never will, so retrying is silent, permanent data loss —
    * posts scroll by, the counter climbs, and nothing is ever delivered.
    */
-  function isOrphanError(message) {
-    return /context invalidated|receiving end does not exist|extension is disabled/i
-      .test(message || "");
+  /* Only these two mean the extension is actually gone.
+   *
+   * "Receiving end does not exist" was in this list and had no business being
+   * here. Chrome lets the service worker sleep after half a minute idle, and
+   * the first message after that routinely fails with exactly those words
+   * before it is woken — it is the most ordinary event in the extension's
+   * life. Treating it as a dead extension turned a nap into a permanent
+   * outage: delivery latched off, the explanation was wiped by the next group
+   * change, and the panel sat on "waiting to send" with nothing sent and
+   * nothing wrong on screen, for as long as the tab stayed open.
+   */
+  function isDefiniteOrphan(message) {
+    return /context invalidated|extension is disabled/i.test(message || "");
   }
 
-  /* Once, and only once.
+  /* Stop once, say so always, and never on a guess.
    *
-   * Stopping the scan flushes what is queued, and on a dead context that
-   * flush fails and lands straight back here — handleOrphaned to
-   * stopAutoScroll to flush to handleOrphaned, until the stack gives out and
-   * takes the whole content script with it. The page is already beyond
-   * saving at this point; all that is left is to say so.
+   * The stopping has to happen once: stopping a scan flushes what is queued,
+   * and on a dead context that flush fails and lands straight back here —
+   * handleOrphaned to stopAutoScroll to flush to handleOrphaned, until the
+   * stack gives out and takes the content script with it.
+   *
+   * The MESSAGE is the opposite and has to be re-asserted, because ordinary
+   * use wipes it: changing group rebuilds STATS from blank and starting a
+   * scan clears lastError. Set once, it vanished, and what was left was a
+   * silent switch that had turned delivery off with nothing to say why.
+   *
+   * And it is never latched on a guess. Only a context that fails a live
+   * check counts, so a sleeping service worker — which reports itself in a
+   * way that reads identically — cannot end the scan.
    */
   var orphaned = false;
 
-  function handleOrphaned() {
-    if (orphaned) return;
-    orphaned = true;
+  /* Callers decide whether this is warranted — either Chrome said the context
+   * was invalidated, which is unambiguous, or a live check failed. Re-testing
+   * here as well would swallow the unambiguous case, since a context can be
+   * invalidated while the stub of an API it left behind still answers.
+   */
+  var orphanCertain = false;
 
-    stopAutoScroll(null);
+  function handleOrphaned(certain) {
+    var first = !orphaned;
+    orphaned = true;
+    if (certain) orphanCertain = true;
+    if (first) stopAutoScroll(null);
+    showOrphaned();
+  }
+
+  function showOrphaned() {
     if (!hud) return;
-    STATS.lastError = "Extension updated. Reload this page to continue.";
-    renderHud();
+    STATS.lastError =
+      "Extension was updated — reload this Facebook tab to resume. " +
+      "Nothing is being sent until you do.";
 
     if (hudBtn) {
       hudBtn.textContent = "Reload page";
@@ -1924,6 +1998,7 @@
       hudBtn.style.color = "#1a1305";
       hudBtn.onclick = function () { window.location.reload(); };
     }
+    renderHud();
   }
 
   function startAutoScroll() {

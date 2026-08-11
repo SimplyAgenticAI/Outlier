@@ -56,13 +56,21 @@ orphan.flush();
 check("the batch is kept rather than dropped", orphan.queue().length, 1);
 check("nothing is counted as sent", orphan.stats().sent, 0);
 check("the page says the extension needs a reload",
-      /reload this page/i.test(orphan.stats().lastError || ""), true);
+      /reload this facebook tab/i.test(orphan.stats().lastError || ""), true);
 check("  and does NOT blame a sleeping worker",
       /asleep/i.test(orphan.stats().lastError || ""), false);
 
-/* The same context, reported the other way Chrome words it. */
+/* A real orphan reported the ambiguous way is still caught — but on evidence,
+ * not on wording. "Receiving end does not exist" is what a genuinely dead
+ * extension says AND what a sleeping worker says, so the message decides
+ * nothing and the live check decides everything. Here the context is really
+ * gone: touching the runtime throws, exactly as Chrome makes it. */
 var orphan2 = scanned();
 global.chrome.runtime.sendMessage = function (_m, cb) {
+  // Dead before the callback runs, which is the order Chrome does it in.
+  global.chrome.runtime.getManifest = function () {
+    throw new Error("Extension context invalidated.");
+  };
   global.chrome.runtime.lastError = {
     message: "Could not establish connection. Receiving end does not exist."
   };
@@ -70,8 +78,8 @@ global.chrome.runtime.sendMessage = function (_m, cb) {
   global.chrome.runtime.lastError = null;
 };
 orphan2.flush();
-check("the other wording is recognised too",
-      /reload this page/i.test(orphan2.stats().lastError || ""), true);
+check("a genuinely dead context is caught however it is worded",
+      /reload this facebook tab/i.test(orphan2.stats().lastError || ""), true);
 
 /* And sendMessage does not only report a dead context — it throws one. That
  * escaped the interval calling flush and took the batch with it. */
@@ -83,7 +91,46 @@ thrower.flush();
 check("a throw is caught rather than escaping", true);
 check("  the batch survives it", thrower.queue().length, 1);
 check("  and it is reported as an orphan",
-      /reload this page/i.test(thrower.stats().lastError || ""), true);
+      /reload this facebook tab/i.test(thrower.stats().lastError || ""), true);
+
+console.log();
+console.log("a sleeping worker is a nap, not a death");
+
+/* THE bug. "Receiving end does not exist" was treated as a dead extension,
+ * but Chrome lets the service worker sleep after half a minute idle and the
+ * first message after that routinely fails with exactly those words before it
+ * is woken. So the most ordinary event in the extension's life turned
+ * delivery off permanently — and silently, because the explanation was wiped
+ * by the next group change. The panel sat on "waiting to send", nothing sent,
+ * nothing marked wrong, for as long as the tab stayed open.
+ *
+ * The words alone must decide nothing. Only a context that fails a live check
+ * counts as gone.
+ */
+var napped = scanned();
+var asleepOnce = true;
+global.chrome.runtime.sendMessage = function (_m, cb) {
+  if (asleepOnce) {
+    asleepOnce = false;
+    global.chrome.runtime.lastError = {
+      message: "Could not establish connection. Receiving end does not exist."
+    };
+    if (cb) cb(undefined);
+    global.chrome.runtime.lastError = null;
+    return;
+  }
+  if (cb) cb({ ok: true, new: 1 });          // awake now, as it really is
+};
+
+napped.flush();
+check("the batch is held, not lost", napped.queue().length, 1);
+check("  and the page does NOT declare the extension dead",
+      /reload this/i.test(napped.stats().lastError || ""), false);
+
+napped.flush();                              // the worker is up by now
+check("the very next attempt delivers", napped.stats().sent, 1);
+check("  leaving nothing queued", napped.queue().length, 0);
+check("  and no error behind", napped.stats().lastError, null);
 
 console.log();
 console.log("a genuinely sleeping worker is still worth retrying");
@@ -99,7 +146,7 @@ global.chrome.runtime.sendMessage = function (_m, cb) {
 asleep.flush();
 check("the batch is kept for the next attempt", asleep.queue().length, 1);
 check("and it is NOT called an orphan",
-      /reload this page/i.test(asleep.stats().lastError || ""), false);
+      /reload this facebook tab/i.test(asleep.stats().lastError || ""), false);
 
 console.log();
 if (FAILURES.length) {
