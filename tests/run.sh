@@ -36,6 +36,8 @@ echo "--- extraction ---"
 node tests/extract.test.js
 echo "--- capture surfaces ---"
 node tests/source.test.js
+echo "--- extension panel ---"
+node tests/hud.test.js
 echo "--- dashboard javascript ---"
 node tests/frontend.test.js
 echo "--- app consistency ---"

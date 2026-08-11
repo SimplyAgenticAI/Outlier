@@ -1954,27 +1954,65 @@
 
   var hudLog, hudEndpoint;
 
+  /* The panel is positioned from the top left, and that is not cosmetic.
+   *
+   * CSS resize always grows a box down and to the right of its top-left
+   * corner. This panel used to be pinned by right and bottom, which made the
+   * corner you grab the one corner that cannot move: dragging the grip
+   * outward expanded the box away from the cursor and dragging it inward
+   * grew it the other way, so the control read as inverted. Anchoring the
+   * top left instead means the grip and the edge it moves are the same edge.
+   */
+  var HUD_DEFAULT = { width: 380, height: 460 };
+
   function loadHudBox() {
+    var saved = {};
     try {
-      var saved = JSON.parse(localStorage.getItem("outlierHud") || "{}");
-      return {
-        width: saved.width || 380,
-        height: saved.height || 460,
-        right: saved.right !== undefined ? saved.right : 20,
-        bottom: saved.bottom !== undefined ? saved.bottom : 20
-      };
-    } catch (e) {
-      return { width: 380, height: 460, right: 20, bottom: 20 };
+      saved = JSON.parse(localStorage.getItem("outlierHud") || "{}");
+    } catch (e) { /* private mode, or something else wrote the key */ }
+
+    var width = saved.width || HUD_DEFAULT.width;
+    var height = saved.height || HUD_DEFAULT.height;
+    var left = saved.left;
+    var top = saved.top;
+
+    // Panels saved by an earlier version recorded the opposite pair. Convert
+    // rather than discard, so nobody's placement is thrown away on update.
+    if (left === undefined && saved.right !== undefined) {
+      left = window.innerWidth - saved.right - width;
     }
+    if (top === undefined && saved.bottom !== undefined) {
+      top = window.innerHeight - saved.bottom - height;
+    }
+    if (left === undefined) left = window.innerWidth - width - 20;
+    if (top === undefined) top = window.innerHeight - height - 20;
+
+    return clampHudBox({ width: width, height: height, left: left, top: top });
+  }
+
+  /* Keep the panel reachable. A window that is narrower than the one the
+   * position was saved on would otherwise leave it off screen, with the
+   * header — the only way to drag it back — out of reach.
+   */
+  function clampHudBox(box) {
+    var maxLeft = Math.max(0, window.innerWidth - Math.min(box.width, window.innerWidth));
+    var maxTop = Math.max(0, window.innerHeight - 40);
+    box.left = Math.min(Math.max(0, box.left), maxLeft);
+    box.top = Math.min(Math.max(0, box.top), maxTop);
+    return box;
   }
 
   function saveHudBox() {
+    if (!hud) return;
+    var rect = hud.getBoundingClientRect();
     try {
       localStorage.setItem("outlierHud", JSON.stringify({
-        width: parseInt(hud.style.width, 10),
-        height: parseInt(hud.style.height, 10),
-        right: parseInt(hud.style.right, 10),
-        bottom: parseInt(hud.style.bottom, 10)
+        // From the rendered box, not the style string: height reads "auto"
+        // while the panel is collapsed, and parseInt of that is NaN.
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+        left: Math.round(rect.left),
+        top: Math.round(rect.top)
       }));
     } catch (e) { /* private mode — position just won't persist */ }
   }
@@ -1985,7 +2023,7 @@
     hud = document.createElement("div");
     styleEl(hud, {
       position: "fixed",
-      bottom: box.bottom + "px", right: box.right + "px",
+      top: box.top + "px", left: box.left + "px",
       width: box.width + "px", height: box.height + "px",
       minWidth: "300px", minHeight: "240px",
       zIndex: "2147483647",
@@ -2053,28 +2091,43 @@
       padding: "1em 1.1em", overflow: "hidden", minHeight: "0"
     });
 
+    /* Collapsing must not cost the panel its size.
+     *
+     * The expanded height is remembered here rather than read back from
+     * storage, because while the panel is collapsed the saved height IS the
+     * collapsed height — restoring from it reopened the panel as a sliver.
+     */
+    var expandedHeight = box.height;
     collapse.addEventListener("click", function () {
       var hidden = content.style.display === "none";
+      if (!hidden) expandedHeight = hud.getBoundingClientRect().height;
       content.style.display = hidden ? "flex" : "none";
-      hud.style.height = hidden ? loadHudBox().height + "px" : "auto";
+      hud.style.height = hidden ? expandedHeight + "px" : "auto";
       collapse.textContent = hidden ? "–" : "+";
     });
 
-    // Drag by the header. Position is kept in right/bottom so the panel stays
-    // anchored the same way it was authored.
-    var dragging = false, startX, startY, startRight, startBottom;
+    // Drag by the header. Left/top move WITH the pointer, where right/bottom
+    // had to move against it — the same sign error that made resizing feel
+    // backwards would have applied here too.
+    var dragging = false, startX, startY, startLeft, startTop;
     header.addEventListener("mousedown", function (event) {
       if (event.target === close || event.target === collapse) return;
       dragging = true;
       startX = event.clientX; startY = event.clientY;
-      startRight = parseInt(hud.style.right, 10);
-      startBottom = parseInt(hud.style.bottom, 10);
+      var rect = hud.getBoundingClientRect();
+      startLeft = rect.left; startTop = rect.top;
       event.preventDefault();
     });
     document.addEventListener("mousemove", function (event) {
       if (!dragging) return;
-      hud.style.right = Math.max(0, startRight - (event.clientX - startX)) + "px";
-      hud.style.bottom = Math.max(0, startBottom - (event.clientY - startY)) + "px";
+      var rect = hud.getBoundingClientRect();
+      var box = clampHudBox({
+        width: rect.width, height: rect.height,
+        left: startLeft + (event.clientX - startX),
+        top: startTop + (event.clientY - startY)
+      });
+      hud.style.left = box.left + "px";
+      hud.style.top = box.top + "px";
     });
     document.addEventListener("mouseup", function () {
       if (!dragging) return;
@@ -2099,6 +2152,17 @@
       saveHudBox();
     }).observe(hud);
     rescale();
+
+    /* Anchoring the top left means the panel no longer follows a shrinking
+     * window on its own, so pull it back when the viewport gets smaller. */
+    window.addEventListener("resize", function () {
+      var rect = hud.getBoundingClientRect();
+      var box = clampHudBox({
+        width: rect.width, height: rect.height, left: rect.left, top: rect.top
+      });
+      hud.style.left = box.left + "px";
+      hud.style.top = box.top + "px";
+    });
 
     /* --- stat rows --- */
     hudBody = document.createElement("div");
@@ -2594,6 +2658,8 @@
   // Also what the offline fixture tests drive.
   window.__outlier = {
     detectSource: detectSource,
+    loadHudBox: loadHudBox,
+    clampHudBox: clampHudBox,
     looksLikePost: looksLikePost,
     classify: classify,
     ownQuery: ownQuery,

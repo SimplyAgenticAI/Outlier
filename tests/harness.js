@@ -228,6 +228,14 @@ function runScan(page, urlPath, opts) {
   global.navigator = {
     clipboard: { writeText: function () { return Promise.resolve(); } }
   };
+  // The HUD remembers its size and position here. Seeded per run via
+  // opts.storage so a test can present what an older version saved.
+  var store = (opts && opts.storage) || {};
+  global.localStorage = {
+    getItem: function (k) { return store[k] === undefined ? null : store[k]; },
+    setItem: function (k, v) { store[k] = String(v); },
+    removeItem: function (k) { delete store[k]; }
+  };
   global.MutationObserver = function () {
     return { observe: function () {}, disconnect: function () {} };
   };
