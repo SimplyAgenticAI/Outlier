@@ -41,6 +41,41 @@ check("and is counted as sent", ok.stats().sent, 1);
 check("with no error left showing", ok.stats().lastError, null);
 
 console.log();
+console.log("one post is one row, however late Facebook fills it in");
+
+/* A scan set to 200 finished at 202. Not an off-by-two — one duplicate row
+ * for each post whose permalink arrived after it was first read.
+ *
+ * A post is normally captured before Facebook has finished rendering it, then
+ * re-read to pick up its numbers. The id comes from the permalink when there
+ * is one and a hash of the content when there is not, so a post first seen
+ * without its link got a hash and then, the moment the link appeared, a
+ * completely different id — and a second row in the dashboard.
+ */
+var late = buildPage([{ body: "A post read before Facebook finished it", likes: 0 }]);
+var lateApi = runScan(late, "/groups/1234567890/");
+lateApi.scanPosts();
+var firstId = (lateApi.queue()[0] || {}).fb_post_id;
+
+var article = global.document.querySelectorAll('div[role="article"]')[0];
+article.children.forEach(function (c) {
+  var label = c.getAttribute("aria-label") || "";
+  if (/reactions/.test(label)) c.setAttribute("aria-label", "412 reactions");
+});
+var link = late.doc.el("a");                    // the permalink, arriving late
+link.setAttribute("href", "/groups/1234567890/posts/998877/");
+link.href = "https://www.facebook.com/groups/1234567890/posts/998877/";
+link.setAttribute("role", "link");
+link.textContent = "2h";
+article.appendChild(link);
+lateApi.scanPosts();
+
+var lateIds = lateApi.queue().map(function (p) { return p.fb_post_id; });
+check("the post is re-sent with its numbers", lateIds.length > 1, true);
+check("  under the id it was first given", new Set(lateIds).size, 1);
+check("  which is the one the dashboard already has", lateIds[0], firstId);
+
+console.log();
 console.log("an orphaned extension is reported, not retried");
 
 /* Exactly what Chrome does to a content script whose extension was reloaded:

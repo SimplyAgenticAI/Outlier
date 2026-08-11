@@ -1708,12 +1708,28 @@
        * still. A stable id is what lets a post be re-sent with better numbers
        * and UPDATE its row rather than duplicate it.
        */
-      var postId = extractPostId(article, permalink, body, author.name, {
-        // Only what the card actually stated. An invented timestamp in the
-        // id is an id that changes on its own.
-        posted: readableTimestamp(article) || "",
-        image: media.image_url || ""
-      });
+      /* Decided once, then kept.
+       *
+       * A post is normally read before Facebook has finished rendering it,
+       * and re-read on later sweeps to pick up its numbers. But the id is
+       * taken from the permalink when there is one and a hash of the content
+       * when there is not — so a post first seen without its permalink got a
+       * hash, and the moment the link appeared it got a DIFFERENT id and
+       * landed in the dashboard a second time. That is a scan of 200
+       * finishing at 202: not an off-by-two, one duplicate row per post whose
+       * permalink arrived late.
+       *
+       * Pinning the id to the element makes it survive whatever Facebook
+       * fills in afterwards. One element is one row, for the life of the page.
+       */
+      var postId = (prior && prior.postId) || extractPostId(
+        article, permalink, body, author.name, {
+          // Only what the card actually stated. An invented timestamp in the
+          // id is an id that changes on its own.
+          posted: readableTimestamp(article) || "",
+          image: media.image_url || ""
+        }
+      );
       // SEEN guards against capturing the same post twice from DIFFERENT
       // elements. A re-read of an element already captured is a deliberate
       // refresh, so it must not be blocked here.
@@ -1773,6 +1789,7 @@
                      (engagementRead && !prior.engagementRead) ||
                      (body && body.length > prior.bodyLength + 40);
         article.__tallgrassCaptured = {
+          postId: postId,                 // fixed at first capture, never re-derived
           complete: complete,
           reads: reads,
           likes: Math.max(engagement.likes, prior.likes || 0),
@@ -1783,6 +1800,7 @@
         STATS.refreshed++;
       } else {
         article.__tallgrassCaptured = {
+          postId: postId,                 // fixed at first capture, never re-derived
           complete: complete,
           reads: reads,
           likes: engagement.likes,
@@ -1826,10 +1844,22 @@
         body_from_image: bodyFromImage ? 1 : 0,
         engagement_read: engagementRead ? 1 : 0
       });
+      scheduleFlush();
     }
   }
 
+  var flushTimer = null;
+
+  function scheduleFlush() {
+    if (flushTimer) return;              // one pending send is enough
+    flushTimer = setTimeout(function () {
+      flushTimer = null;
+      flush();
+    }, 400);
+  }
+
   function flush() {
+    if (flushTimer) { clearTimeout(flushTimer); flushTimer = null; }
     if (!QUEUE.length) return;
     /* Nothing can be delivered from a dead context, and trying is what made
      * the failure recursive — but returning quietly is what made it
@@ -2710,6 +2740,17 @@
     scanTimer = setTimeout(scanPosts, 800);
   }).observe(document.body, { childList: true, subtree: true });
 
+  /* Send as soon as there is something to send.
+   *
+   * This was a flat four-second poll, so a post read a moment after one fired
+   * sat in the queue for nearly the full interval — the dashboard visibly
+   * lagged the scan for no reason the user could see. Now queuing schedules a
+   * send, and the short delay only exists to let a burst of posts from one
+   * scroll travel as a single request instead of one request each.
+   *
+   * The interval stays as a safety net, since a batch put back after a failed
+   * send has nothing else to retry it.
+   */
   setInterval(flush, 4000);
 
   // Poll for orphaning even when idle, so a tab left open across an update
