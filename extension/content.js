@@ -1848,6 +1848,11 @@
     }
   }
 
+  /* How long to wait for the worker before assuming the batch died with it.
+   * Generous, because a slow dashboard is not a lost batch — but finite,
+   * because silence used to mean the posts were gone for good. */
+  var SEND_TIMEOUT_MS = 8000;
+
   var flushTimer = null;
 
   function scheduleFlush() {
@@ -1872,7 +1877,38 @@
     var batch = QUEUE.splice(0, QUEUE.length);
     STATS.queued = 0;
 
+    /* A batch is not gone until the dashboard says so.
+     *
+     * These posts have already left the queue, and every path that fails puts
+     * them back — except the one that never runs at all. Chrome tears down the
+     * service worker whenever it feels like it, and a scan lasts ten minutes,
+     * so a batch in flight during a teardown got no callback, no error and no
+     * second chance: it simply stopped existing. That is captured 127, sent 74,
+     * with nothing on screen suggesting anything went wrong.
+     *
+     * So silence is now a failure like any other. If no answer comes back, the
+     * posts return to the queue and go again. Sending twice is free — the
+     * dashboard keys on the post id and reports the duplicate as nothing new —
+     * while sending nothing is the bug that lost a third of a scan.
+     */
+    var settled = false;
+
+    function giveBack(reason) {
+      if (settled) return;
+      settled = true;
+      QUEUE = batch.concat(QUEUE);
+      STATS.queued = QUEUE.length;
+      if (reason) STATS.lastError = reason;
+      renderHud();
+      scheduleFlush();
+    }
+
+    var watchdog = setTimeout(function () {
+      giveBack(null);            // no message: a retry that works is not news
+    }, SEND_TIMEOUT_MS);
+
     if (!contextAlive()) {
+      clearTimeout(watchdog);
       QUEUE = batch.concat(QUEUE);
       handleOrphaned();
       return;
@@ -1885,34 +1921,48 @@
       chrome.runtime.sendMessage(
         { type: "OUTLIER_CAPTURE", source: source, posts: batch },
         function (response) {
+          clearTimeout(watchdog);
+          // The watchdog already put these back and they are on their way
+          // again; counting them here would count them twice.
+          if (settled) return;
+
           if (chrome.runtime.lastError) {
-            QUEUE = batch.concat(QUEUE);   // don't lose the batch
             var why = chrome.runtime.lastError.message || "";
             /* Retrying a dead context is not resilience — it is silent data
              * loss dressed up as patience. Say what is wrong and stop. */
-            if (isOrphanError(why)) { handleOrphaned(); return; }
-            STATS.lastError = "Extension worker asleep — retrying";
-            renderHud();
+            if (isOrphanError(why)) {
+              settled = true;
+              QUEUE = batch.concat(QUEUE);
+              handleOrphaned();
+              return;
+            }
+            giveBack("Extension worker asleep — retrying");
             return;
           }
           if (!response || !response.ok) {
-            STATS.lastError = (response && response.error) || "Dashboard rejected the batch";
-            QUEUE = batch.concat(QUEUE);
-            renderHud();
+            giveBack((response && response.error) || "Dashboard rejected the batch");
             return;
           }
+
+          settled = true;
           STATS.sent += batch.length;
           STATS.added += response.new || 0;
           STATS.lastError = null;
           logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
           renderHud();
+          // More may have arrived while this was in the air.
+          if (QUEUE.length) scheduleFlush();
         }
       );
     } catch (err) {
-      QUEUE = batch.concat(QUEUE);
-      if (isOrphanError(err && err.message)) { handleOrphaned(); return; }
-      STATS.lastError = "Could not reach the extension — retrying";
-      renderHud();
+      clearTimeout(watchdog);
+      if (isOrphanError(err && err.message)) {
+        settled = true;
+        QUEUE = batch.concat(QUEUE);
+        handleOrphaned();
+        return;
+      }
+      giveBack("Could not reach the extension — retrying");
     }
   }
 
@@ -2791,6 +2841,9 @@
     readableTimestamp: readableTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
+    // A test seam: waiting twelve real seconds to prove a batch survives
+    // silence is not a test anyone runs.
+    setSendTimeout: function (ms) { SEND_TIMEOUT_MS = ms; },
     flush: flush,
     detectSource: detectSource,
     postOrigin: postOrigin,

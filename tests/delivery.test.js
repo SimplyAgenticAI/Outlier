@@ -168,9 +168,48 @@ check("and it is NOT called an orphan",
       /reload this page/i.test(asleep.stats().lastError || ""), false);
 
 console.log();
-if (FAILURES.length) {
-  console.log(FAILURES.length + " FAILURES");
-  process.exit(1);
-}
-console.log("delivery behaves");
-process.exit(0);
+console.log("a batch nobody answers is not a batch that is lost");
+
+/* Captured 127, sent 74, and no error anywhere on screen.
+ *
+ * flush takes the posts OUT of the queue before sending, and every failing
+ * path puts them back — except the one that never runs at all. Chrome tears
+ * down the service worker whenever it likes, and a scan lasts ten minutes, so
+ * a batch in flight during a teardown got no callback, no lastError and no
+ * second chance. It stopped existing, and the only evidence was two counters
+ * quietly disagreeing.
+ *
+ * Silence is a failure like any other now: the posts go back and are sent
+ * again. Sending twice is free, because the dashboard keys on the post id and
+ * reports a duplicate as nothing new. Sending nothing lost a third of a scan.
+ */
+var swallowed = scanned();
+swallowed.setSendTimeout(40);
+var attempts = 0;
+global.chrome.runtime.sendMessage = function () { attempts++; /* never answers */ };
+swallowed.flush();
+
+check("the posts leave the queue while in flight", swallowed.queue().length, 0);
+check("  and none are counted as sent", swallowed.stats().sent, 0);
+
+setTimeout(function () {
+  check("the unanswered batch comes back", swallowed.queue().length, 1);
+  check("  still uncounted, so the totals cannot drift",
+        swallowed.stats().sent, 0);
+
+  // And once something does answer, it lands.
+  global.chrome.runtime.sendMessage = function (_m, cb) {
+    if (cb) cb({ ok: true, new: 1 });
+  };
+  swallowed.flush();
+  check("  and it is delivered on the retry", swallowed.stats().sent, 1);
+  check("  leaving the queue empty", swallowed.queue().length, 0);
+
+  console.log();
+  if (FAILURES.length) {
+    console.log(FAILURES.length + " FAILURES");
+    process.exit(1);
+  }
+  console.log("delivery behaves");
+  process.exit(0);
+}, 140);
