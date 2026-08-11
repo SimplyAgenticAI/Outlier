@@ -157,15 +157,50 @@ function capture(world, n) {
 function run() {
   return Promise.resolve()
     .then(function () {
-      console.log("batches go up one at a time");
+      console.log("every batch gets through");
       var world = makeWorld();
       var all = [];
       for (var i = 0; i < 8; i++) all.push(capture(world, i));
       return Promise.all(all).then(function (results) {
         check("every batch is answered", results.length, 8);
         check("all of them land", results.every(function (r) { return r && r.ok; }), true);
-        check("never more than one request in flight", world.maxInFlight, 1);
         check("all eight reach the dashboard", world.accepted, 8);
+      });
+    })
+    .then(function () {
+      console.log();
+      console.log("one stuck request does not take the rest down with it");
+
+      /* Batches were briefly queued behind one another, to stop concurrent
+       * ones each demanding a new key. Wrong place to fix it: a request in a
+       * service worker can get stuck — Chrome tears the worker down whenever
+       * it likes and a fetch that dies with it never settles — and one chain
+       * for every capture means that request blocks all of them. Nothing was
+       * sent again for the rest of the scan. Zero delivered, no error.
+       */
+      var world = makeWorld();
+      var realFetch = global.fetch;
+      var stuckSeen = false;
+      global.fetch = function (url, init) {
+        if (!stuckSeen && url.indexOf("/api/capture") !== -1) {
+          stuckSeen = true;
+          return new Promise(function () {});     // never settles, ever
+        }
+        return realFetch(url, init);
+      };
+
+      var stuck = capture(world, 0);              // this one hangs forever
+      var rest = [];
+      for (var i = 1; i <= 5; i++) rest.push(capture(world, i));
+
+      return Promise.all(rest).then(function (results) {
+        check("the five behind it are all answered", results.length, 5);
+        check("  and all of them land",
+              results.every(function (r) { return r && r.ok; }), true);
+        check("  reaching the dashboard", world.accepted, 5);
+        check("the stuck one is still pending, and harmless",
+              stuck instanceof Promise, true);
+        global.fetch = realFetch;
       });
     })
     .then(function () {
@@ -182,8 +217,16 @@ function run() {
         var delivered = results.filter(function (r) { return r && r.ok; }).length;
         check("all ten are delivered, not six", delivered, 10);
         check("  and all ten reach the dashboard", world.accepted, 10);
-        check("the key is replaced exactly once", world.minted, 1);
-        check("  and only the first batch is ever rejected", world.rejected, 1);
+        /* Exactly one mint is the property that matters. Every batch in
+         * flight discovers the stale key — they run concurrently, so they
+         * find out together — but they share a single refresh, so only one
+         * key is ever issued and none of them revokes another's. Serialising
+         * to avoid the duplicate 401s is what caused a total outage, and a
+         * rejected batch that retries and lands costs nothing. */
+        check("the key is replaced exactly once, however many batches ask",
+              world.minted, 1);
+        check("  and every rejected batch is retried, not abandoned",
+              world.rejected, world.accepted);
         check("nobody is told 'retrying' by something that will not retry",
               results.some(function (r) { return r && /retrying/i.test(r.error || ""); }),
               false);

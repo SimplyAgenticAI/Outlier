@@ -81,7 +81,7 @@ async function fetchKeyFromDashboard() {
     const headers = { "X-Tallgrass-Extension": "1" };
     if (stored.apiKey) headers["X-Outlier-Key"] = stored.apiKey;
 
-    const response = await fetch(`${endpoint}/api/extension/key`, {
+    const response = await withTimeout(`${endpoint}/api/extension/key`, {
       method: "POST",
       credentials: "include",
       headers: headers
@@ -137,25 +137,20 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 });
 
-/* Captures go up one at a time.
+/* Batches are NOT queued behind one another.
  *
- * Nothing here is slow, so this costs nothing in practice — but the service
- * worker will happily run a dozen handleCapture calls at once, and when the
- * stored key has gone stale every one of them discovers that simultaneously
- * and asks for a replacement. Each replacement revoked the one before it, so
- * batches ended up spending keys that had already been invalidated by their
- * own siblings. Fifty posts scanned, six delivered.
+ * They were, briefly, to stop concurrent batches each demanding a new key and
+ * revoking one another. That was the wrong place to fix it: one chain for
+ * every capture means one stuck request blocks all of them, and a request in
+ * a service worker can absolutely get stuck — Chrome tears the worker down
+ * whenever it likes, and a fetch that dies with it never settles. The chain
+ * then never advances and nothing is ever sent again. Zero delivered, no
+ * error, for the rest of the scan.
  *
- * Serialising means the first batch finds the problem, fixes it once, and
- * everything behind it uses the key that is now good.
+ * The key storm is fixed where it actually lived: the dashboard hands back a
+ * key that still works instead of minting a new one, and refreshes here are
+ * single-flighted. Neither of those needs a queue, so there isn't one.
  */
-let captureChain = Promise.resolve();
-
-function serialised(task) {
-  const run = captureChain.then(task, task);
-  captureChain = run.then(() => {}, () => {});   // never reject the chain
-  return run;
-}
 
 /* One key refresh at a time, shared by every caller.
  *
@@ -172,8 +167,23 @@ function refreshKey() {
   return keyRefresh;
 }
 
+/* No request waits forever.
+ *
+ * A hung fetch used to be indistinguishable from a slow one, and the page was
+ * left holding a batch it could neither send nor recover. Anything past this
+ * is reported as a failure so the posts go back on the queue and try again.
+ */
+const REQUEST_TIMEOUT_MS = 20000;
+
+function withTimeout(url, init) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+  return fetch(url, Object.assign({}, init, { signal: controller.signal }))
+    .finally(() => clearTimeout(timer));
+}
+
 function handleCapture(message) {
-  return serialised(() => sendCapture(message));
+  return sendCapture(message);
 }
 
 async function sendCapture(message) {
@@ -186,7 +196,7 @@ async function sendCapture(message) {
     };
   }
 
-  const post = (key) => fetch(`${endpoint}/api/capture`, {
+  const post = (key) => withTimeout(`${endpoint}/api/capture`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Outlier-Key": key },
     body: JSON.stringify({ source: message.source, posts: message.posts })
