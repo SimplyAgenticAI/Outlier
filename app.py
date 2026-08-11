@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "7.2"
+APP_VERSION = "7.3"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -34,7 +34,7 @@ APP_TAGLINE = "Find the standout posts in your Facebook groups, and write the ne
 # Printed on the privacy policy and terms as the address for deletion
 # requests, so it has to be an inbox someone actually reads. Override it in
 # the environment once there is a real support address to point at.
-SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "jrizzla23@gmail.com")
+SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "macrandleacres@gmail.com")
 
 # The date shown on the legal pages. Bump it when the terms change in a way
 # that affects what is collected or who receives it — not for typos.

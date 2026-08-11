@@ -152,6 +152,91 @@
     return fallback;
   }
 
+  /* Which group or person a single post came from.
+   *
+   * On a feed every post has a different origin, and filing them all under
+   * one source would score unrelated posts against a shared median — the one
+   * thing this product must not do. The permalink already carries the answer
+   * and is the most reliable thing on the card, so it is read first.
+   *
+   * This also keeps identity stable. The post id is prefixed with its
+   * origin, so the same post picked up from the home feed and again from
+   * inside its group resolves to one row rather than two.
+   */
+  function originFromPermalink(permalink) {
+    if (!permalink) return null;
+
+    var group = permalink.match(/\/groups\/([^/?#]+)/);
+    if (group && group[1] !== "feed") {
+      return {
+        fb_id: "group:" + group[1],
+        kind: "group",
+        name: "Facebook group " + group[1],
+        url: location.origin + "/groups/" + group[1]
+      };
+    }
+
+    var numeric = permalink.match(/profile\.php\?id=(\d+)/);
+    if (numeric) return profileSource(numeric[1], null);
+
+    var vanity = permalink.match(/facebook\.com\/([^/?#]+)\/(posts|videos|reel)\//);
+    if (vanity && RESERVED.indexOf(vanity[1]) === -1) {
+      return profileSource(vanity[1], null);
+    }
+    return null;
+  }
+
+  /* The origin of one post, best effort, falling back to the page itself.
+   *
+   * The name matters as much as the id: a source called "Facebook group
+   * 12345" is not something anyone recognises in the dashboard. When the
+   * post carries a readable link to its own group, that text is the name.
+   */
+  function postOrigin(article, permalink, pageSource) {
+    var origin = originFromPermalink(permalink);
+
+    var links = article.querySelectorAll('a[href*="/groups/"]');
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].href || links[i].getAttribute("href") || "";
+      var m = href.match(/\/groups\/([^/?#]+)/);
+      if (!m || m[1] === "feed") continue;
+      if (href.indexOf("/user/") !== -1) continue;   // a member, not the group
+
+      var text = (links[i].textContent || "").trim();
+      var spec = {
+        fb_id: "group:" + m[1],
+        kind: "group",
+        name: (text && text.length < 120) ? text : ("Facebook group " + m[1]),
+        url: location.origin + "/groups/" + m[1]
+      };
+      // Trust the permalink's id over a stray link, but take the name.
+      if (origin && origin.fb_id === spec.fb_id) return spec;
+      if (!origin) return spec;
+    }
+
+    return origin || pageSource;
+  }
+
+  // Path segments that are Facebook's own, never someone's profile.
+  var RESERVED = ["watch", "marketplace", "groups", "home.php", "gaming",
+                  "events", "notifications", "messages", "profile.php",
+                  "stories", "reel", "reels", "photo", "story.php",
+                  "settings", "bookmarks", "friends", "pages", "search",
+                  "sharer.php", "privacy", "policies", "help", ""];
+
+  function profileSource(handle, name) {
+    return {
+      fb_id: "profile:" + handle,
+      kind: "profile",
+      name: name || nameFromTitle(handle.replace(/[._-]/g, " ")),
+      url: /^\d+$/.test(handle)
+        ? location.origin + "/profile.php?id=" + handle
+        : location.origin + "/" + handle
+    };
+  }
+
+  var SOURCE_LABEL = { group: "Group", profile: "Profile", feed: "Feed" };
+
   function detectSource() {
     var url = location.href;
 
@@ -177,16 +262,36 @@
       };
     }
 
-    var reserved = ["watch", "marketplace", "groups", "home.php", "gaming",
-                    "events", "notifications", "messages", "profile.php", ""];
+    /* Numeric profiles.
+     *
+     * profile.php was in the reserved list, so every profile without a
+     * vanity URL — which is most of them — reported "Not on a group or
+     * profile page" and captured nothing. The id is in the query string,
+     * not the path, which is why the path-only match never saw it.
+     */
+    var numeric = url.match(/profile\.php\?id=(\d+)/);
+    if (numeric) return profileSource(numeric[1], nameFromTitle(null));
+
+    /* Feeds.
+     *
+     * The home feed and the groups feed are both real capture surfaces and
+     * both returned null: "" and "groups" are reserved path segments. They
+     * are declared as sources so a scan can start, but no post is ever filed
+     * under them — each post carries its own origin, resolved per card, and
+     * the dashboard files it there instead.
+     */
+    if (/\/groups\/feed\/?/.test(url)) {
+      return { fb_id: "feed:groups", kind: "feed", name: "Groups feed",
+               url: location.origin + "/groups/feed/", per_post: true };
+    }
+    if (/facebook\.com\/(\?.*)?$/.test(url) || /\/home\.php/.test(url)) {
+      return { fb_id: "feed:home", kind: "feed", name: "Home feed",
+               url: location.origin + "/", per_post: true };
+    }
+
     var profileMatch = url.match(/facebook\.com\/([^/?#]*)/);
-    if (profileMatch && reserved.indexOf(profileMatch[1]) === -1) {
-      return {
-        fb_id: "profile:" + profileMatch[1],
-        kind: "profile",
-        name: nameFromTitle(profileMatch[1]),
-        url: location.origin + "/" + profileMatch[1]
-      };
+    if (profileMatch && RESERVED.indexOf(profileMatch[1]) === -1) {
+      return profileSource(profileMatch[1], nameFromTitle(profileMatch[1]));
     }
 
     return null;
@@ -1008,7 +1113,16 @@
     return new Date(Date.now() - amount * msPer[unit]).toISOString().slice(0, 19);
   }
 
-  function extractTimestamp(article) {
+  /* When the card says it was posted, or null when it does not say.
+   *
+   * Split out from extractTimestamp on purpose: the post id must never
+   * contain a value the page did not provide. This used to fall straight
+   * through to the wall clock, so a post whose date could not be read hashed
+   * differently every second — the same post came back as a brand new row on
+   * the very next sweep, which is one of the ways a handful of posts turned
+   * into dozens of rows.
+   */
+  function readableTimestamp(article) {
     var abbr = article.querySelector("abbr[data-utime]");
     if (abbr && abbr.getAttribute("data-utime")) {
       return new Date(parseInt(abbr.getAttribute("data-utime"), 10) * 1000)
@@ -1020,7 +1134,20 @@
       var parsed = parseRelativeTime(label.trim());
       if (parsed) return parsed;
     }
-    return new Date().toISOString().slice(0, 19);
+    return null;
+  }
+
+  function extractTimestamp(article) {
+    var stated = readableTimestamp(article);
+    if (stated) return stated;
+
+    /* Nothing on the card, so this is a guess — but it has to be the SAME
+     * guess every sweep. Stamping the element once holds it still; reading
+     * the clock again on each pass made the post's own identity drift. */
+    if (!article.__tallgrassFirstSeen) {
+      article.__tallgrassFirstSeen = new Date().toISOString().slice(0, 19);
+    }
+    return article.__tallgrassFirstSeen;
   }
 
   /* ------------------------------------------------------ scan */
@@ -1392,7 +1519,7 @@
 
     var source = detectSource();
     if (!source) {
-      STATS.lastError = "Not on a group or profile page";
+      STATS.lastError = "Open a group, profile, page or feed to scan";
       renderHud();
       return 0;
     }
@@ -1566,7 +1693,9 @@
        * and UPDATE its row rather than duplicate it.
        */
       var postId = extractPostId(article, permalink, body, author.name, {
-        posted: extractTimestamp(article) || "",
+        // Only what the card actually stated. An invented timestamp in the
+        // id is an id that changes on its own.
+        posted: readableTimestamp(article) || "",
         image: media.image_url || ""
       });
       // SEEN guards against capturing the same post twice from DIFFERENT
@@ -1655,8 +1784,15 @@
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
 
+      /* Where this post actually came from, which on a feed is not the page
+       * it was read off. The id is prefixed with the origin rather than the
+       * page so a post seen in the feed and again in its own group is one
+       * row, not two. */
+      var origin = postOrigin(article, permalink, source);
+
       QUEUE.push({
-        fb_post_id: source.fb_id + "-" + postId,
+        fb_post_id: origin.fb_id + "-" + postId,
+        source: origin,
         body: body,
         permalink: permalink,
         post_type: extractPostType(article),
@@ -2272,7 +2408,7 @@
 
     var source = detectSource();
     hudBody.appendChild(row(
-      source ? (source.kind === "group" ? "Group" : "Profile") : "Page",
+      source ? SOURCE_LABEL[source.kind] || "Source" : "Page",
       source ? source.name.slice(0, 24) : "unsupported",
       source ? "#6ee7b7" : "#e07a5f"
     ));
@@ -2469,8 +2605,11 @@
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,
     extractTimestamp: extractTimestamp,
+    readableTimestamp: readableTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
+    detectSource: detectSource,
+    postOrigin: postOrigin,
     // Not in the UI — a developer tool belongs in the console, not in the
     // product, and never on the user's disk. Run __outlier.pageReport() if
     // the extractors need debugging against a real page.

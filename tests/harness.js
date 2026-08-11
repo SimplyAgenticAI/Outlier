@@ -117,6 +117,18 @@ function buildPage(specs) {
     body.textContent = spec.body;
     art.appendChild(body);
 
+    // Links inside the card, above the action bar. A group post rendered in
+    // a feed carries a link back to the group it was posted in, and that is
+    // how a feed capture works out where each post actually belongs.
+    (spec.links || []).forEach(function (spec2) {
+      var a = D.el("a");
+      a.setAttribute("href", spec2.href);
+      a.href = "https://www.facebook.com" + spec2.href;
+      a.setAttribute("role", "link");
+      a.textContent = spec2.text || "";
+      art.appendChild(a);
+    });
+
     if (spec.seeMore) {
       var more = D.el("div");
       more.setAttribute("role", "button");

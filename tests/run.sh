@@ -34,6 +34,8 @@ echo "--- scan captures posts ---"
 node tests/scan.test.js
 echo "--- extraction ---"
 node tests/extract.test.js
+echo "--- capture surfaces ---"
+node tests/source.test.js
 echo "--- dashboard javascript ---"
 node tests/frontend.test.js
 echo "--- app consistency ---"
