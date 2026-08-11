@@ -267,18 +267,10 @@ const UPDATE_ALARM = "outlier-update-check";
 // then re-reads the same old files, the mismatch survives, and the next alarm
 // reloads again — forever. So: only self-update against a local dashboard,
 // and give up after one ineffective attempt regardless.
-function isLocalEndpoint(endpoint) {
-  try {
-    const host = new URL(endpoint).hostname;
-    return host === "localhost" || host === "127.0.0.1" || host === "[::1]";
-  } catch (error) {
-    return false;
-  }
-}
 
 async function checkForUpdate() {
   const stored = await chrome.storage.local.get([
-    "autoUpdate", "capturing", "updateAttemptedFor"
+    "autoUpdate", "capturing", "updateStuck"
   ]);
   if (stored.autoUpdate === false) return;
 
@@ -299,33 +291,32 @@ async function checkForUpdate() {
   const running = chrome.runtime.getManifest().version;
   if (!latest || latest === running) {
     // Back in sync — clear any stale "update pending" state.
-    if (stored.updateAttemptedFor) {
-      await chrome.storage.local.remove(["updateAttemptedFor", "updateStuck"]);
+    if (stored.updateStuck) {
+      await chrome.storage.local.remove(["updateStuck"]);
     }
     return;
   }
 
-  if (!isLocalEndpoint(endpoint)) {
-    // Hosted dashboard: reloading cannot help. Flag it so the popup can tell
-    // the user to download a fresh copy instead of silently doing nothing.
-    await chrome.storage.local.set({ updateStuck: latest });
-    return;
-  }
-
-  if (stored.updateAttemptedFor === latest) {
-    // We already reloaded for this version and it did not take, so the folder
-    // is not the live project. Stop looping and say so.
-    await chrome.storage.local.set({ updateStuck: latest });
-    return;
-  }
-
-  await chrome.storage.local.set({
-    updateAttemptedFor: latest,
-    lastUpdateFrom: running,
-    lastUpdateTo: latest
-  });
-  console.log(`[Tallgrass] updating extension ${running} → ${latest}`);
-  chrome.runtime.reload();
+  /* An update is reported. It is never installed automatically.
+   *
+   * This used to call chrome.runtime.reload() whenever the dashboard
+   * advertised a newer version and the endpoint was local. Reloading the
+   * extension orphans the content script in every open Facebook tab — which
+   * is the exact failure it looked like something else was causing: captured
+   * climbing, sent stuck at zero, and nothing in the dashboard.
+   *
+   * It ran on a one minute alarm AND on every service worker startup, and MV3
+   * starts the worker constantly, so on a day when the dashboard's version
+   * moved ahead this fired over and over. Every scan was racing an extension
+   * that kept restarting underneath it, and no amount of fixing the delivery
+   * path could have helped: the tab doing the delivering was being killed.
+   *
+   * Nothing about an extension is urgent enough to justify pulling the floor
+   * out from under a running scan. The popup shows that a newer version
+   * exists; installing it is a decision the user makes when they are not
+   * mid-scan.
+   */
+  await chrome.storage.local.set({ updateStuck: latest });
 }
 
 chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });
