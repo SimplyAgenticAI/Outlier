@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tallgrass — by MacRandle Acres",
-  "version": "2.23.0",
+  "version": "2.24.0",
   "description": "Captures posts from the Facebook groups and profiles you're viewing and sends them to your Tallgrass dashboard, which ranks each post against the median for its own group.",
   "permissions": [
     "storage",
@@ -15,9 +15,9 @@
     "https://*.onrender.com/*",
     "https://*.facebook.com/*"
   ],
-  "comment_optional_hosts": "Only for a dashboard the user self-hosts on their own domain, requested from the popup's Save button and never at install time. http://*/* was dropped: localhost and 127.0.0.1 above already cover local development, and asking for plaintext access to every host meant an API key could be sent unencrypted to an arbitrary origin.",
   "optional_host_permissions": [
-    "https://*/*"
+    "https://*/*",
+    "http://*/*"
   ],
   "background": {
     "service_worker": "background.js"

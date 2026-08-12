@@ -185,20 +185,6 @@ el("save-endpoint").addEventListener("click", async () => {
     return;
   }
 
-  /* Plain http is only accepted on this machine.
-   *
-   * The extension asks for https access to other hosts and deliberately no
-   * longer asks for http, because your API key travels on every capture and
-   * over plain http it travels readable. Chrome would simply refuse the
-   * permission here, which reads as "blocked" and explains nothing, so say
-   * what is actually wrong.
-   */
-  if (/^http:\/\//.test(value) && !/^http:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(value)) {
-    say("Use https for a dashboard on another machine — an API key sent over " +
-        "plain http can be read in transit. http is only allowed on localhost.", "err");
-    return;
-  }
-
   say("Checking access…");
   const allowed = await ensureHostPermission(value);
   if (!allowed) {

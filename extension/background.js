@@ -47,9 +47,8 @@ async function getApiKey() {
   const existing = (stored.apiKey || "").trim();
   if (existing) return existing;
 
-  // Nothing stored — ask through the same shared path, so a cold start with
-  // several batches in hand cannot mint several keys at once.
-  return await refreshKey();
+  // Nothing stored — ask the dashboard for one. See fetchKeyFromDashboard.
+  return await fetchKeyFromDashboard();
 }
 
 /* Get a key without the user doing anything.
@@ -70,25 +69,10 @@ async function fetchKeyFromDashboard() {
   if (!endpoint) return "";
 
   try {
-    /* Present the key we already hold.
-     *
-     * Keys are stored hashed, so the dashboard cannot read one back — asking
-     * without presenting one is asking for a rotation, and a rotation revokes
-     * whatever is in use. That is what "Key refreshed — retrying" was: one
-     * batch's replacement killing the key another batch was already spending,
-     * on and on, delivering a fraction of the scan.
-     *
-     * Presenting it lets the dashboard verify it and hand the same one back,
-     * so nothing is revoked and nothing else is disturbed.
-     */
-    const held = await chrome.storage.local.get(["apiKey"]);
-    const headers = { "X-Tallgrass-Extension": "1" };
-    if (held.apiKey) headers["X-Outlier-Key"] = held.apiKey;
-
     const response = await fetch(`${endpoint}/api/extension/key`, {
       method: "POST",
       credentials: "include",
-      headers: headers
+      headers: { "X-Tallgrass-Extension": "1" }
     });
     if (!response.ok) return "";          // not signed in, or not our server
 
@@ -112,51 +96,17 @@ async function bumpCounter(newCount) {
   chrome.action.setBadgeBackgroundColor({ color: "#10b981" });
 }
 
-function describe(err) {
-  if (!err) return "The extension hit an unknown error";
-  return String(err.message || err).slice(0, 200);
-}
-
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  /* Always answer, even when answering is bad news.
-   *
-   * These used to be .then(sendResponse) with no catch. A rejection anywhere
-   * inside meant sendResponse was never called, the channel stayed open
-   * until it timed out, and the page saw only "worker asleep" — so a real
-   * error surfaced as a phantom sleeping worker and the batch was retried
-   * forever instead of being reported.
-   */
   if (message.type === "OUTLIER_CAPTURE") {
-    handleCapture(message)
-      .catch((err) => ({ ok: false, error: describe(err) }))
-      .then(sendResponse);
+    handleCapture(message).then(sendResponse);
     return true;  // keep the channel open for the async reply
   }
 
   if (message.type === "OUTLIER_PING") {
-    testConnection()
-      .catch((err) => ({ ok: false, error: describe(err) }))
-      .then(sendResponse);
+    testConnection().then(sendResponse);
     return true;
   }
 });
-
-/* One key refresh at a time, shared by everyone who asks.
- *
- * Batches run concurrently, so when a key goes stale they all find out at
- * once. Each asking separately produced a rotation each, and every rotation
- * revoked the one before it — so batches went out spending keys their own
- * siblings had just killed. Whoever asks while a refresh is running waits for
- * that one instead of starting another.
- */
-let keyRefresh = null;
-
-function refreshKey() {
-  if (!keyRefresh) {
-    keyRefresh = fetchKeyFromDashboard().finally(() => { keyRefresh = null; });
-  }
-  return keyRefresh;
-}
 
 async function handleCapture(message) {
   const endpoint = await getEndpoint();
@@ -168,12 +118,6 @@ async function handleCapture(message) {
     };
   }
 
-  const post = (key) => fetch(`${endpoint}/api/capture`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Outlier-Key": key },
-    body: JSON.stringify({ source: message.source, posts: message.posts })
-  });
-
   try {
     const apiKey = await getApiKey();
     if (!apiKey) {
@@ -183,31 +127,33 @@ async function handleCapture(message) {
       };
     }
 
-    let response = await post(apiKey);
+    const response = await fetch(`${endpoint}/api/capture`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Outlier-Key": apiKey },
+      body: JSON.stringify({ source: message.source, posts: message.posts })
+    });
 
-    /* A stale key is recoverable, so recover from it here and now.
-     *
-     * This used to delete the key, ask for another, and hand the page back
-     * "Key refreshed — retrying" — which was not true. Nothing retried; the
-     * batch just waited for a later sweep, and by then another batch had
-     * usually rotated the key again. Deleting it made things worse still: an
-     * extension with no key looks disconnected, and the dashboard's
-     * auto-connect mints one whenever it believes that, so an open dashboard
-     * tab rotated the key out from under the scan.
-     *
-     * The key is now kept until a better one exists, the refresh is shared,
-     * and the same batch goes again immediately on the new key.
-     */
     if (response.status === 401) {
-      const fresh = await refreshKey();
-      if (fresh) response = await post(fresh);
-
-      if (!fresh || response.status === 401) {
-        return {
-          ok: false,
-          error: "Sign in at " + endpoint + " in this browser to reconnect."
-        };
+      /* Throw the dead key away.
+       *
+       * Keeping it meant the extension looked connected forever: the
+       * dashboard's auto-connect only re-issues when it believes there is
+       * no key, and a REVOKED key is indistinguishable from a live one
+       * until it is used. Captures piled up locally and never landed, with
+       * nothing on either side saying why.
+       */
+      // Throw the dead key away and immediately ask for a live one. A
+      // revoked key is indistinguishable from a good one until it is used,
+      // so without this the extension would keep sending with it forever.
+      await chrome.storage.local.remove(["apiKey"]);
+      const fresh = await fetchKeyFromDashboard();
+      if (fresh) {
+        return { ok: false, error: "Key refreshed — retrying", retry: true };
       }
+      return {
+        ok: false,
+        error: "Sign in at " + endpoint + " in this browser to reconnect."
+      };
     }
     if (response.status === 402) {
       const body = await response.json().catch(() => ({}));
@@ -295,19 +241,10 @@ chrome.runtime.onInstalled.addListener(async (details) => {
 
 const UPDATE_ALARM = "outlier-update-check";
 
-// chrome.runtime.reload() re-reads the extension folder from disk. That only
-// produces a NEW version when the folder is the live project — i.e. when the
-// dashboard is running on this same machine.
-//
-// Against a hosted dashboard (Render), the server's manifest can be newer
-// while the folder on disk is a downloaded zip that never changes. Reloading
-// then re-reads the same old files, the mismatch survives, and the next alarm
-// reloads again — forever. So: only self-update against a local dashboard,
-// and give up after one ineffective attempt regardless.
 
 async function checkForUpdate() {
   const stored = await chrome.storage.local.get([
-    "autoUpdate", "capturing", "updateStuck"
+    "autoUpdate", "capturing", "updateAttemptedFor"
   ]);
   if (stored.autoUpdate === false) return;
 
@@ -328,32 +265,28 @@ async function checkForUpdate() {
   const running = chrome.runtime.getManifest().version;
   if (!latest || latest === running) {
     // Back in sync — clear any stale "update pending" state.
-    if (stored.updateStuck) {
-      await chrome.storage.local.remove(["updateStuck"]);
+    if (stored.updateAttemptedFor) {
+      await chrome.storage.local.remove(["updateAttemptedFor", "updateStuck"]);
     }
     return;
   }
 
-  /* An update is reported. It is never installed automatically.
+  /* Reported, never installed.
    *
-   * This used to call chrome.runtime.reload() whenever the dashboard
-   * advertised a newer version and the endpoint was local. Reloading the
-   * extension orphans the content script in every open Facebook tab — which
-   * is the exact failure it looked like something else was causing: captured
-   * climbing, sent stuck at zero, and nothing in the dashboard.
+   * This called chrome.runtime.reload() whenever the dashboard advertised a
+   * newer version and the folder was local. Reloading the extension orphans
+   * the content script in every open Facebook tab — captured climbing, sent
+   * stuck at zero, nothing in the dashboard. It ran on a one minute alarm AND
+   * on every service worker startup, and MV3 starts the worker constantly, so
+   * on any day the dashboard's version moved ahead it fired again and again,
+   * killing the tab doing the delivering. No extension update justifies
+   * pulling the floor out from under a running scan.
    *
-   * It ran on a one minute alarm AND on every service worker startup, and MV3
-   * starts the worker constantly, so on a day when the dashboard's version
-   * moved ahead this fired over and over. Every scan was racing an extension
-   * that kept restarting underneath it, and no amount of fixing the delivery
-   * path could have helped: the tab doing the delivering was being killed.
-   *
-   * Nothing about an extension is urgent enough to justify pulling the floor
-   * out from under a running scan. The popup shows that a newer version
-   * exists; installing it is a decision the user makes when they are not
-   * mid-scan.
+   * The popup shows that a newer version exists. Installing it is a decision
+   * made when not mid-scan.
    */
   await chrome.storage.local.set({ updateStuck: latest });
+  console.log(`[Tallgrass] update available ${running} → ${latest}`);
 }
 
 chrome.alarms.create(UPDATE_ALARM, { periodInMinutes: 1 });

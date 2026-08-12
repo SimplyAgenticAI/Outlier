@@ -117,18 +117,6 @@ function buildPage(specs) {
     body.textContent = spec.body;
     art.appendChild(body);
 
-    // Links inside the card, above the action bar. A group post rendered in
-    // a feed carries a link back to the group it was posted in, and that is
-    // how a feed capture works out where each post actually belongs.
-    (spec.links || []).forEach(function (spec2) {
-      var a = D.el("a");
-      a.setAttribute("href", spec2.href);
-      a.href = "https://www.facebook.com" + spec2.href;
-      a.setAttribute("role", "link");
-      a.textContent = spec2.text || "";
-      art.appendChild(a);
-    });
-
     if (spec.seeMore) {
       var more = D.el("div");
       more.setAttribute("role", "button");
@@ -227,14 +215,6 @@ function runScan(page, urlPath, opts) {
   };
   global.navigator = {
     clipboard: { writeText: function () { return Promise.resolve(); } }
-  };
-  // The HUD remembers its size and position here. Seeded per run via
-  // opts.storage so a test can present what an older version saved.
-  var store = (opts && opts.storage) || {};
-  global.localStorage = {
-    getItem: function (k) { return store[k] === undefined ? null : store[k]; },
-    setItem: function (k, v) { store[k] = String(v); },
-    removeItem: function (k) { delete store[k]; }
   };
   global.MutationObserver = function () {
     return { observe: function () {}, disconnect: function () {} };

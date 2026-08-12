@@ -33,15 +33,6 @@
   var SEEN = new Set();
   var IMAGES_SEEN = {};   // one post per image; see the note at the assignment
   var QUEUE = [];
-
-  /* The last page we could name.
-   *
-   * Posts are captured while the page is identifiable and sent a moment
-   * later, by which time Facebook may have pushed a URL we do not recognise.
-   * Remembering it means a batch is still filed under the group it actually
-   * came from instead of being thrown away.
-   */
-  var lastKnownSource = null;
   var enabled = true;
   var autoScrolling = false;
   var scrollTimer = null;
@@ -161,91 +152,6 @@
     return fallback;
   }
 
-  /* Which group or person a single post came from.
-   *
-   * On a feed every post has a different origin, and filing them all under
-   * one source would score unrelated posts against a shared median — the one
-   * thing this product must not do. The permalink already carries the answer
-   * and is the most reliable thing on the card, so it is read first.
-   *
-   * This also keeps identity stable. The post id is prefixed with its
-   * origin, so the same post picked up from the home feed and again from
-   * inside its group resolves to one row rather than two.
-   */
-  function originFromPermalink(permalink) {
-    if (!permalink) return null;
-
-    var group = permalink.match(/\/groups\/([^/?#]+)/);
-    if (group && group[1] !== "feed") {
-      return {
-        fb_id: "group:" + group[1],
-        kind: "group",
-        name: "Facebook group " + group[1],
-        url: location.origin + "/groups/" + group[1]
-      };
-    }
-
-    var numeric = permalink.match(/profile\.php\?id=(\d+)/);
-    if (numeric) return profileSource(numeric[1], null);
-
-    var vanity = permalink.match(/facebook\.com\/([^/?#]+)\/(posts|videos|reel)\//);
-    if (vanity && RESERVED.indexOf(vanity[1]) === -1) {
-      return profileSource(vanity[1], null);
-    }
-    return null;
-  }
-
-  /* The origin of one post, best effort, falling back to the page itself.
-   *
-   * The name matters as much as the id: a source called "Facebook group
-   * 12345" is not something anyone recognises in the dashboard. When the
-   * post carries a readable link to its own group, that text is the name.
-   */
-  function postOrigin(article, permalink, pageSource) {
-    var origin = originFromPermalink(permalink);
-
-    var links = article.querySelectorAll('a[href*="/groups/"]');
-    for (var i = 0; i < links.length; i++) {
-      var href = links[i].href || links[i].getAttribute("href") || "";
-      var m = href.match(/\/groups\/([^/?#]+)/);
-      if (!m || m[1] === "feed") continue;
-      if (href.indexOf("/user/") !== -1) continue;   // a member, not the group
-
-      var text = (links[i].textContent || "").trim();
-      var spec = {
-        fb_id: "group:" + m[1],
-        kind: "group",
-        name: (text && text.length < 120) ? text : ("Facebook group " + m[1]),
-        url: location.origin + "/groups/" + m[1]
-      };
-      // Trust the permalink's id over a stray link, but take the name.
-      if (origin && origin.fb_id === spec.fb_id) return spec;
-      if (!origin) return spec;
-    }
-
-    return origin || pageSource;
-  }
-
-  // Path segments that are Facebook's own, never someone's profile.
-  var RESERVED = ["watch", "marketplace", "groups", "home.php", "gaming",
-                  "events", "notifications", "messages", "profile.php",
-                  "stories", "reel", "reels", "photo", "story.php",
-                  "settings", "bookmarks", "friends", "pages", "search",
-                  "sharer.php", "privacy", "policies", "help", ""];
-
-  function profileSource(handle, name) {
-    return {
-      fb_id: "profile:" + handle,
-      kind: "profile",
-      name: name || nameFromTitle(handle.replace(/[._-]/g, " ")),
-      url: /^\d+$/.test(handle)
-        ? location.origin + "/profile.php?id=" + handle
-        : location.origin + "/" + handle
-    };
-  }
-
-  var SOURCE_LABEL = { group: "Group", profile: "Profile", feed: "Feed" };
-
   function detectSource() {
     var url = location.href;
 
@@ -271,36 +177,16 @@
       };
     }
 
-    /* Numeric profiles.
-     *
-     * profile.php was in the reserved list, so every profile without a
-     * vanity URL — which is most of them — reported "Not on a group or
-     * profile page" and captured nothing. The id is in the query string,
-     * not the path, which is why the path-only match never saw it.
-     */
-    var numeric = url.match(/profile\.php\?id=(\d+)/);
-    if (numeric) return profileSource(numeric[1], nameFromTitle(null));
-
-    /* Feeds.
-     *
-     * The home feed and the groups feed are both real capture surfaces and
-     * both returned null: "" and "groups" are reserved path segments. They
-     * are declared as sources so a scan can start, but no post is ever filed
-     * under them — each post carries its own origin, resolved per card, and
-     * the dashboard files it there instead.
-     */
-    if (/\/groups\/feed\/?/.test(url)) {
-      return { fb_id: "feed:groups", kind: "feed", name: "Groups feed",
-               url: location.origin + "/groups/feed/", per_post: true };
-    }
-    if (/facebook\.com\/(\?.*)?$/.test(url) || /\/home\.php/.test(url)) {
-      return { fb_id: "feed:home", kind: "feed", name: "Home feed",
-               url: location.origin + "/", per_post: true };
-    }
-
+    var reserved = ["watch", "marketplace", "groups", "home.php", "gaming",
+                    "events", "notifications", "messages", "profile.php", ""];
     var profileMatch = url.match(/facebook\.com\/([^/?#]*)/);
-    if (profileMatch && RESERVED.indexOf(profileMatch[1]) === -1) {
-      return profileSource(profileMatch[1], nameFromTitle(profileMatch[1]));
+    if (profileMatch && reserved.indexOf(profileMatch[1]) === -1) {
+      return {
+        fb_id: "profile:" + profileMatch[1],
+        kind: "profile",
+        name: nameFromTitle(profileMatch[1]),
+        url: location.origin + "/" + profileMatch[1]
+      };
     }
 
     return null;
@@ -1122,16 +1008,7 @@
     return new Date(Date.now() - amount * msPer[unit]).toISOString().slice(0, 19);
   }
 
-  /* When the card says it was posted, or null when it does not say.
-   *
-   * Split out from extractTimestamp on purpose: the post id must never
-   * contain a value the page did not provide. This used to fall straight
-   * through to the wall clock, so a post whose date could not be read hashed
-   * differently every second — the same post came back as a brand new row on
-   * the very next sweep, which is one of the ways a handful of posts turned
-   * into dozens of rows.
-   */
-  function readableTimestamp(article) {
+  function extractTimestamp(article) {
     var abbr = article.querySelector("abbr[data-utime]");
     if (abbr && abbr.getAttribute("data-utime")) {
       return new Date(parseInt(abbr.getAttribute("data-utime"), 10) * 1000)
@@ -1143,20 +1020,7 @@
       var parsed = parseRelativeTime(label.trim());
       if (parsed) return parsed;
     }
-    return null;
-  }
-
-  function extractTimestamp(article) {
-    var stated = readableTimestamp(article);
-    if (stated) return stated;
-
-    /* Nothing on the card, so this is a guess — but it has to be the SAME
-     * guess every sweep. Stamping the element once holds it still; reading
-     * the clock again on each pass made the post's own identity drift. */
-    if (!article.__tallgrassFirstSeen) {
-      article.__tallgrassFirstSeen = new Date().toISOString().slice(0, 19);
-    }
-    return article.__tallgrassFirstSeen;
+    return new Date().toISOString().slice(0, 19);
   }
 
   /* ------------------------------------------------------ scan */
@@ -1527,9 +1391,8 @@
     if (!enabled) return 0;
 
     var source = detectSource();
-    if (source) lastKnownSource = source;
     if (!source) {
-      STATS.lastError = "Open a group, profile, page or feed to scan";
+      STATS.lastError = "Not on a group or profile page";
       renderHud();
       return 0;
     }
@@ -1596,6 +1459,7 @@
 
     sweeps++;
     STATS.queued = QUEUE.length;
+    maybeAutoReport();
     renderHud();
     return found;
 
@@ -1703,9 +1567,7 @@
        * and UPDATE its row rather than duplicate it.
        */
       var postId = extractPostId(article, permalink, body, author.name, {
-        // Only what the card actually stated. An invented timestamp in the
-        // id is an id that changes on its own.
-        posted: readableTimestamp(article) || "",
+        posted: extractTimestamp(article) || "",
         image: media.image_url || ""
       });
       // SEEN guards against capturing the same post twice from DIFFERENT
@@ -1790,19 +1652,13 @@
       if (engagement.comments > 0) STATS.withComments++;
       if (engagement.shares > 0) STATS.withShares++;
       if (hasMedia) STATS.withMedia++;
+      maybeAutoReport();
       logLine(engagement.likes + "r " +
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
 
-      /* Where this post actually came from, which on a feed is not the page
-       * it was read off. The id is prefixed with the origin rather than the
-       * page so a post seen in the feed and again in its own group is one
-       * row, not two. */
-      var origin = postOrigin(article, permalink, source);
-
       QUEUE.push({
-        fb_post_id: origin.fb_id + "-" + postId,
-        source: origin,
+        fb_post_id: source.fb_id + "-" + postId,
         body: body,
         permalink: permalink,
         post_type: extractPostType(article),
@@ -1823,63 +1679,11 @@
     }
   }
 
-  /* A woken worker answers in well under a second, so waiting for the next
-   * four-second sweep to find that out wastes most of it. One retry, soon,
-   * and the interval remains the backstop. */
-  var retryTimer = null;
-
-  function scheduleRetry() {
-    if (retryTimer) return;
-    retryTimer = setTimeout(function () {
-      retryTimer = null;
-      flush();
-    }, 1000);
-  }
-
-  var flushing = false;
-
   function flush() {
-    // stopAutoScroll flushes, and this can reach handleOrphaned, which stops
-    // the scan — which flushes. Without this the two call each other until
-    // the stack gives out and takes the content script with it.
-    if (flushing) return;
-    flushing = true;
-    try { flushInner(); } finally { flushing = false; }
-  }
-
-  function flushInner() {
     if (!QUEUE.length) return;
 
-    /* A dead context cannot deliver, and trying is what made the failure
-     * recursive — but this must never be a quiet dead end. If the context is
-     * alive after all, the flag was set on a sleeping worker and delivery
-     * simply resumes; if it really is gone, say so, every time, for as long
-     * as posts are stacking up behind it.
-     */
-    if (orphaned) {
-      if (orphanCertain || !contextAlive()) { showOrphaned(); return; }
-      orphaned = false;
-      STATS.lastError = null;
-      logLine("Extension is responding again — resuming");
-    }
-
-    /* Never throw the queue away for not knowing where we are.
-     *
-     * This line used to be QUEUE = [] — if detectSource could not name the
-     * page at that instant, every post waiting to be sent was deleted, with
-     * no error and nothing in the log. Facebook is a single page app and the
-     * URL drifts constantly while you scroll: a photo viewer, a post
-     * permalink, a reel. Any of those, arriving between capture and send,
-     * silently destroyed the batch. Captured kept climbing, sent stayed at
-     * zero, and nothing on screen said a thing.
-     *
-     * Every post in the queue was captured while the page WAS identifiable,
-     * so the last known source is the right one to send them under, and if
-     * even that is missing they wait rather than die.
-     */
-    var source = detectSource() || lastKnownSource;
-    if (!source) return;
-    lastKnownSource = source;
+    var source = detectSource();
+    if (!source) { QUEUE = []; return; }
 
     var batch = QUEUE.splice(0, QUEUE.length);
     STATS.queued = 0;
@@ -1890,132 +1694,48 @@
       return;
     }
 
-    /* sendMessage does not merely report a dead context through lastError —
-     * it can throw outright. Uncaught, that escaped the interval that calls
-     * this, taking the batch with it. */
-    try {
-      chrome.runtime.sendMessage(
-        { type: "OUTLIER_CAPTURE", source: source, posts: batch },
-        function (response) {
-          if (chrome.runtime.lastError) {
-            QUEUE = batch.concat(QUEUE);   // don't lose the batch
-            var why = chrome.runtime.lastError.message || "";
-            /* A dead context is worth stopping for; a sleeping worker is not.
-             * They report themselves almost identically, so the words alone
-             * decide nothing — the live check does. Anything else is
-             * transient and the batch, already back on the queue, goes again. */
-            if (isDefiniteOrphan(why) || !contextAlive()) {
-              handleOrphaned(isDefiniteOrphan(why));
-              return;
-            }
-            STATS.lastError = "Extension worker asleep — retrying";
-            renderHud();
-            scheduleRetry();
-            return;
-          }
-          if (!response || !response.ok) {
-            STATS.lastError = (response && response.error) || "Dashboard rejected the batch";
-            QUEUE = batch.concat(QUEUE);
-            renderHud();
-            return;
-          }
-          STATS.sent += batch.length;
-          STATS.added += response.new || 0;
-          STATS.lastError = null;
-          logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
+    chrome.runtime.sendMessage(
+      { type: "OUTLIER_CAPTURE", source: source, posts: batch },
+      function (response) {
+        if (chrome.runtime.lastError) {
+          STATS.lastError = "Extension worker asleep — retrying";
+          QUEUE = batch.concat(QUEUE);   // don't lose the batch
           renderHud();
+          return;
         }
-      );
-    } catch (err) {
-      QUEUE = batch.concat(QUEUE);
-      if (isDefiniteOrphan(err && err.message) || !contextAlive()) {
-        handleOrphaned(isDefiniteOrphan(err && err.message));
-        return;
+        if (!response || !response.ok) {
+          STATS.lastError = (response && response.error) || "Dashboard rejected the batch";
+          QUEUE = batch.concat(QUEUE);
+          renderHud();
+          return;
+        }
+        STATS.sent += batch.length;
+        STATS.added += response.new || 0;
+        STATS.lastError = null;
+        logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
+        renderHud();
       }
-      STATS.lastError = "Could not reach the extension — retrying";
-      renderHud();
-      scheduleRetry();
-    }
+    );
   }
 
   /* ------------------------------------------------------ auto-scroll */
 
-  /* Is this script still attached to a living extension?
-   *
-   * chrome.runtime.id alone was not enough. After the extension is reloaded
-   * or updated, the scripts already injected into open tabs are orphaned —
-   * but the id often still reads back fine, so this returned true and the
-   * capture path carried on as though everything were normal. Calling into
-   * the API is what actually fails, so call into it: getManifest throws on
-   * an orphaned context and is otherwise free.
-   */
+  // When the extension reloads (self-update), scripts already injected into
+  // open tabs are orphaned — chrome.runtime.id goes undefined and every API
+  // call throws. Without this the HUD just silently stops working.
   function contextAlive() {
     try {
-      if (!(chrome.runtime && chrome.runtime.id)) return false;
-      return !!chrome.runtime.getManifest();
+      return !!(chrome.runtime && chrome.runtime.id);
     } catch (e) {
       return false;
     }
   }
 
-  /* Chrome describes a dead context in more than one way, and none of them
-   * mean "asleep". A sleeping worker wakes itself when a message arrives; an
-   * orphaned one never will, so retrying is silent, permanent data loss —
-   * posts scroll by, the counter climbs, and nothing is ever delivered.
-   */
-  /* Only these two mean the extension is actually gone.
-   *
-   * "Receiving end does not exist" was in this list and had no business being
-   * here. Chrome lets the service worker sleep after half a minute idle, and
-   * the first message after that routinely fails with exactly those words
-   * before it is woken — it is the most ordinary event in the extension's
-   * life. Treating it as a dead extension turned a nap into a permanent
-   * outage: delivery latched off, the explanation was wiped by the next group
-   * change, and the panel sat on "waiting to send" with nothing sent and
-   * nothing wrong on screen, for as long as the tab stayed open.
-   */
-  function isDefiniteOrphan(message) {
-    return /context invalidated|extension is disabled/i.test(message || "");
-  }
-
-  /* Stop once, say so always, and never on a guess.
-   *
-   * The stopping has to happen once: stopping a scan flushes what is queued,
-   * and on a dead context that flush fails and lands straight back here —
-   * handleOrphaned to stopAutoScroll to flush to handleOrphaned, until the
-   * stack gives out and takes the content script with it.
-   *
-   * The MESSAGE is the opposite and has to be re-asserted, because ordinary
-   * use wipes it: changing group rebuilds STATS from blank and starting a
-   * scan clears lastError. Set once, it vanished, and what was left was a
-   * silent switch that had turned delivery off with nothing to say why.
-   *
-   * And it is never latched on a guess. Only a context that fails a live
-   * check counts, so a sleeping service worker — which reports itself in a
-   * way that reads identically — cannot end the scan.
-   */
-  var orphaned = false;
-
-  /* Callers decide whether this is warranted — either Chrome said the context
-   * was invalidated, which is unambiguous, or a live check failed. Re-testing
-   * here as well would swallow the unambiguous case, since a context can be
-   * invalidated while the stub of an API it left behind still answers.
-   */
-  var orphanCertain = false;
-
-  function handleOrphaned(certain) {
-    var first = !orphaned;
-    orphaned = true;
-    if (certain) orphanCertain = true;
-    if (first) stopAutoScroll(null);
-    showOrphaned();
-  }
-
-  function showOrphaned() {
+  function handleOrphaned() {
+    stopAutoScroll(null);
     if (!hud) return;
-    STATS.lastError =
-      "Extension was updated — reload this Facebook tab to resume. " +
-      "Nothing is being sent until you do.";
+    STATS.lastError = "Extension updated. Reload this page to continue.";
+    renderHud();
 
     if (hudBtn) {
       hudBtn.textContent = "Reload page";
@@ -2023,7 +1743,6 @@
       hudBtn.style.color = "#1a1305";
       hudBtn.onclick = function () { window.location.reload(); };
     }
-    renderHud();
   }
 
   function startAutoScroll() {
@@ -2101,65 +1820,27 @@
 
   var hudLog, hudEndpoint;
 
-  /* The panel is positioned from the top left, and that is not cosmetic.
-   *
-   * CSS resize always grows a box down and to the right of its top-left
-   * corner. This panel used to be pinned by right and bottom, which made the
-   * corner you grab the one corner that cannot move: dragging the grip
-   * outward expanded the box away from the cursor and dragging it inward
-   * grew it the other way, so the control read as inverted. Anchoring the
-   * top left instead means the grip and the edge it moves are the same edge.
-   */
-  var HUD_DEFAULT = { width: 380, height: 460 };
-
   function loadHudBox() {
-    var saved = {};
     try {
-      saved = JSON.parse(localStorage.getItem("outlierHud") || "{}");
-    } catch (e) { /* private mode, or something else wrote the key */ }
-
-    var width = saved.width || HUD_DEFAULT.width;
-    var height = saved.height || HUD_DEFAULT.height;
-    var left = saved.left;
-    var top = saved.top;
-
-    // Panels saved by an earlier version recorded the opposite pair. Convert
-    // rather than discard, so nobody's placement is thrown away on update.
-    if (left === undefined && saved.right !== undefined) {
-      left = window.innerWidth - saved.right - width;
+      var saved = JSON.parse(localStorage.getItem("outlierHud") || "{}");
+      return {
+        width: saved.width || 380,
+        height: saved.height || 460,
+        right: saved.right !== undefined ? saved.right : 20,
+        bottom: saved.bottom !== undefined ? saved.bottom : 20
+      };
+    } catch (e) {
+      return { width: 380, height: 460, right: 20, bottom: 20 };
     }
-    if (top === undefined && saved.bottom !== undefined) {
-      top = window.innerHeight - saved.bottom - height;
-    }
-    if (left === undefined) left = window.innerWidth - width - 20;
-    if (top === undefined) top = window.innerHeight - height - 20;
-
-    return clampHudBox({ width: width, height: height, left: left, top: top });
-  }
-
-  /* Keep the panel reachable. A window that is narrower than the one the
-   * position was saved on would otherwise leave it off screen, with the
-   * header — the only way to drag it back — out of reach.
-   */
-  function clampHudBox(box) {
-    var maxLeft = Math.max(0, window.innerWidth - Math.min(box.width, window.innerWidth));
-    var maxTop = Math.max(0, window.innerHeight - 40);
-    box.left = Math.min(Math.max(0, box.left), maxLeft);
-    box.top = Math.min(Math.max(0, box.top), maxTop);
-    return box;
   }
 
   function saveHudBox() {
-    if (!hud) return;
-    var rect = hud.getBoundingClientRect();
     try {
       localStorage.setItem("outlierHud", JSON.stringify({
-        // From the rendered box, not the style string: height reads "auto"
-        // while the panel is collapsed, and parseInt of that is NaN.
-        width: Math.round(rect.width),
-        height: Math.round(rect.height),
-        left: Math.round(rect.left),
-        top: Math.round(rect.top)
+        width: parseInt(hud.style.width, 10),
+        height: parseInt(hud.style.height, 10),
+        right: parseInt(hud.style.right, 10),
+        bottom: parseInt(hud.style.bottom, 10)
       }));
     } catch (e) { /* private mode — position just won't persist */ }
   }
@@ -2170,7 +1851,7 @@
     hud = document.createElement("div");
     styleEl(hud, {
       position: "fixed",
-      top: box.top + "px", left: box.left + "px",
+      bottom: box.bottom + "px", right: box.right + "px",
       width: box.width + "px", height: box.height + "px",
       minWidth: "300px", minHeight: "240px",
       zIndex: "2147483647",
@@ -2238,43 +1919,28 @@
       padding: "1em 1.1em", overflow: "hidden", minHeight: "0"
     });
 
-    /* Collapsing must not cost the panel its size.
-     *
-     * The expanded height is remembered here rather than read back from
-     * storage, because while the panel is collapsed the saved height IS the
-     * collapsed height — restoring from it reopened the panel as a sliver.
-     */
-    var expandedHeight = box.height;
     collapse.addEventListener("click", function () {
       var hidden = content.style.display === "none";
-      if (!hidden) expandedHeight = hud.getBoundingClientRect().height;
       content.style.display = hidden ? "flex" : "none";
-      hud.style.height = hidden ? expandedHeight + "px" : "auto";
+      hud.style.height = hidden ? loadHudBox().height + "px" : "auto";
       collapse.textContent = hidden ? "–" : "+";
     });
 
-    // Drag by the header. Left/top move WITH the pointer, where right/bottom
-    // had to move against it — the same sign error that made resizing feel
-    // backwards would have applied here too.
-    var dragging = false, startX, startY, startLeft, startTop;
+    // Drag by the header. Position is kept in right/bottom so the panel stays
+    // anchored the same way it was authored.
+    var dragging = false, startX, startY, startRight, startBottom;
     header.addEventListener("mousedown", function (event) {
       if (event.target === close || event.target === collapse) return;
       dragging = true;
       startX = event.clientX; startY = event.clientY;
-      var rect = hud.getBoundingClientRect();
-      startLeft = rect.left; startTop = rect.top;
+      startRight = parseInt(hud.style.right, 10);
+      startBottom = parseInt(hud.style.bottom, 10);
       event.preventDefault();
     });
     document.addEventListener("mousemove", function (event) {
       if (!dragging) return;
-      var rect = hud.getBoundingClientRect();
-      var box = clampHudBox({
-        width: rect.width, height: rect.height,
-        left: startLeft + (event.clientX - startX),
-        top: startTop + (event.clientY - startY)
-      });
-      hud.style.left = box.left + "px";
-      hud.style.top = box.top + "px";
+      hud.style.right = Math.max(0, startRight - (event.clientX - startX)) + "px";
+      hud.style.bottom = Math.max(0, startBottom - (event.clientY - startY)) + "px";
     });
     document.addEventListener("mouseup", function () {
       if (!dragging) return;
@@ -2299,17 +1965,6 @@
       saveHudBox();
     }).observe(hud);
     rescale();
-
-    /* Anchoring the top left means the panel no longer follows a shrinking
-     * window on its own, so pull it back when the viewport gets smaller. */
-    window.addEventListener("resize", function () {
-      var rect = hud.getBoundingClientRect();
-      var box = clampHudBox({
-        width: rect.width, height: rect.height, left: rect.left, top: rect.top
-      });
-      hud.style.left = box.left + "px";
-      hud.style.top = box.top + "px";
-    });
 
     /* --- stat rows --- */
     hudBody = document.createElement("div");
@@ -2437,24 +2092,61 @@
   }
 
 
+  /* Write what the scanner is looking at to a file.
+   *
+   * Every extractor here has been tuned against a reconstruction of
+   * Facebook's markup rather than the page itself, because the page is only
+   * reachable from the browser that is signed in. That is why engagement
+   * kept reading as zero and each fix was a guess. One click, one file in
+   * Downloads, nothing sent anywhere.
+   */
+  /* Write the report once, on its own, when extraction has clearly failed.
+   *
+   * Asking the user to press a button and send a file has failed repeatedly —
+   * reasonably, since it is the developer's problem, not theirs. So the
+   * extension decides for itself: if a scan has looked at a real number of
+   * posts and read engagement from none of them, something is wrong with the
+   * extractors and the evidence is written to Downloads automatically.
+   *
+   * Once per page load, and never when things are working.
+   */
+  var autoReportDone = false;
+
   var sweeps = 0;
 
-  /* Dump what the scanner is looking at. Console only, and only when asked.
-   *
-   * Every extractor here was tuned against a reconstruction of Facebook's
-   * markup rather than the page itself, because the page is only reachable
-   * from the browser that is signed in. This is what closed that gap, and it
-   * is why engagement reads correctly now.
-   *
-   * It used to fire itself on failure and write tallgrass-page-report.txt
-   * into the user's Downloads folder. That earned its keep during
-   * development and has no business shipping: an extension silently dropping
-   * files on a stranger's machine looks like malware to a Web Store
-   * reviewer, and the report contains the page's markup, which is not
-   * something to write to disk unprompted. Run __outlier.pageReport() from
-   * the console when a page needs diagnosing.
-   */
-  function pageReport() {
+  function maybeAutoReport() {
+    if (autoReportDone) return;
+
+    /* Fires on either failure, and the second one was missing.
+     *
+     * The gate used to require five candidates, so a scan that found NO
+     * posts at all — the case most in need of evidence — never produced a
+     * report. That is exactly the state this spent days in.
+     */
+    var foundNothing = sweeps >= 6 && capturedNothing();
+    var readNothing = STATS.candidates >= 5 && STATS.withEngagement === 0;
+
+    /* Reactions arriving while comments and shares stay at zero is its own
+     * failure, and the report never fired for it — a post recorded as "142
+     * reactions, 0 comments, 0 shares" when it really had 265, 54 and 22
+     * looked healthy enough to the old test. Partial counts are wrong
+     * counts, and wrong counts feed the score.
+     */
+    var readPartially = STATS.withEngagement >= 5 &&
+                        STATS.withComments === 0 && STATS.withShares === 0;
+
+    if (!foundNothing && !readNothing && !readPartially) return;
+
+    autoReportDone = true;
+    logLine("Extraction is failing — saving a report to Downloads.");
+    savePageReport();
+  }
+
+  function capturedNothing() {
+    return STATS.sent === 0 && QUEUE.length === 0;
+  }
+
+  function savePageReport() {
     var lines = [];
     var source = detectSource();
     var version = "?";
@@ -2609,8 +2301,20 @@
       lines.push("");
     }
 
-    console.log(lines.join(String.fromCharCode(10)));
-    return "Report printed above.";
+    var text = lines.join(String.fromCharCode(10));
+    try {
+      var link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      link.download = "tallgrass-page-report.txt";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      logLine("Saved tallgrass-page-report.txt to Downloads");
+    } catch (e) {
+      console.log(text);
+      STATS.lastError = "Could not save the file — the report is in the console (F12).";
+    }
+    renderHud();
   }
 
   function renderHud() {
@@ -2619,7 +2323,7 @@
 
     var source = detectSource();
     hudBody.appendChild(row(
-      source ? SOURCE_LABEL[source.kind] || "Source" : "Page",
+      source ? (source.kind === "group" ? "Group" : "Profile") : "Page",
       source ? source.name.slice(0, 24) : "unsupported",
       source ? "#6ee7b7" : "#e07a5f"
     ));
@@ -2805,9 +2509,6 @@
   // Also what the offline fixture tests drive.
   window.__outlier = {
     detectSource: detectSource,
-    lastSource: function () { return lastKnownSource; },
-    loadHudBox: loadHudBox,
-    clampHudBox: clampHudBox,
     looksLikePost: looksLikePost,
     classify: classify,
     ownQuery: ownQuery,
@@ -2819,16 +2520,12 @@
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,
     extractTimestamp: extractTimestamp,
-    readableTimestamp: readableTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
-    flush: flush,
-    detectSource: detectSource,
-    postOrigin: postOrigin,
     // Not in the UI — a developer tool belongs in the console, not in the
-    // product, and never on the user's disk. Run __outlier.pageReport() if
-    // the extractors need debugging against a real page.
-    pageReport: pageReport,
+    // product. Run __outlier.savePageReport() if the extractors need
+    // debugging against a real page.
+    savePageReport: savePageReport,
     // A function, not the object: STATS is reassigned when the source
     // changes, so a captured reference goes stale and reads as all zeros.
     stats: function () { return STATS; },
