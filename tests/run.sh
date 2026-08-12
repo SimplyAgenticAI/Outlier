@@ -34,6 +34,8 @@ echo "--- scan captures posts ---"
 node tests/scan.test.js
 echo "--- extraction ---"
 node tests/extract.test.js
+echo "--- service worker ---"
+node tests/worker.test.js
 echo "--- self-update ---"
 node tests/updater.test.js
 echo "--- app consistency ---"
