@@ -1018,31 +1018,156 @@
     return "text";
   }
 
-  function parseRelativeTime(label) {
-    var match = label.match(/(\d+)\s*(m|h|d|w|y)\b/i);
-    if (!match) return null;
+  var MS_PER = { m: 6e4, h: 36e5, d: 864e5, w: 6048e5, y: 31536e6 };
 
-    var amount = parseInt(match[1], 10);
-    var unit = match[2].toLowerCase();
-    var msPer = { m: 6e4, h: 36e5, d: 864e5, w: 6048e5, y: 31536e6 };
-    if (!msPer[unit]) return null;
+  var MONTHS = ["january", "february", "march", "april", "may", "june", "july",
+                "august", "september", "october", "november", "december"];
 
-    return new Date(Date.now() - amount * msPer[unit]).toISOString().slice(0, 19);
+  /* Stored in UTC, because that is what reads it.
+   *
+   * outliers._hours_since parses the stored value and stamps it as UTC, so
+   * writing local time here would shift every post by the reader's offset —
+   * a browser four hours behind would record everything four hours early and
+   * nothing would look wrong until the ages were compared with Facebook.
+   * A named date like "August 3 at 10:14 AM" is a local wall clock reading,
+   * and toISOString converts it properly because it was built as local.
+   */
+  function isoOf(date) {
+    if (!date || isNaN(date.getTime())) return null;
+    return date.toISOString().slice(0, 19);
   }
 
+  /* When Facebook says a post was written.
+   *
+   * The old version understood "2h" and nothing else, so every other form
+   * Facebook uses — and it uses several — fell through to a fallback that
+   * stamped the current time. That is why a scan produced a page of posts all
+   * claiming the same age: they were not carrying their own timestamps, they
+   * were carrying the moment they were captured.
+   *
+   * These are the shapes it actually renders, in the compact header and in
+   * the aria-label and title attributes behind it.
+   */
+  function parseRelativeTime(label) {
+    var text = String(label || "").trim();
+    if (!text) return null;
+
+    if (/^(just now|now)\b/i.test(text)) return isoOf(new Date());
+
+    // "2h", "45m", "3d", "1w", "2y" — the compact header form.
+    var compact = text.match(/^(\d+)\s*(m|h|d|w|y)\b/i);
+    if (compact) {
+      return isoOf(new Date(Date.now() -
+        parseInt(compact[1], 10) * MS_PER[compact[2].toLowerCase()]));
+    }
+
+    /* "2 hours ago", "15 minutes ago", "3 days ago".
+     *
+     * The old pattern required a word boundary right after the unit letter,
+     * so every spelled-out unit failed on its own second character — "hours"
+     * is h followed by o, not a boundary. This matches the word instead. */
+    var spelled = text.match(
+      /(\d+)\s*(minute|min|hour|hr|day|week|month|year)s?\s*ago/i);
+    if (spelled) {
+      var word = spelled[2].toLowerCase();
+      var unit = { minute: "m", min: "m", hour: "h", hr: "h", day: "d",
+                   week: "w", year: "y" }[word];
+      var ms = unit ? MS_PER[unit] : 2592e6;          // month
+      return isoOf(new Date(Date.now() - parseInt(spelled[1], 10) * ms));
+    }
+
+    if (/^an?\s+(minute|hour|day|week|month|year)\s+ago/i.test(text)) {
+      var one = text.match(/^an?\s+(minute|hour|day|week|month|year)/i)[1].toLowerCase();
+      var oneMs = { minute: 6e4, hour: 36e5, day: 864e5,
+                    week: 6048e5, month: 2592e6, year: 31536e6 }[one];
+      return isoOf(new Date(Date.now() - oneMs));
+    }
+
+    // "Yesterday at 7:30 PM"
+    if (/^yesterday\b/i.test(text)) {
+      var y = new Date(Date.now() - 864e5);
+      applyClock(y, text);
+      return isoOf(y);
+    }
+    if (/^today\b/i.test(text)) {
+      var t = new Date();
+      applyClock(t, text);
+      return isoOf(t);
+    }
+
+    /* "August 3 at 10:14 AM", "3 August 2025", "August 3, 2025".
+     *
+     * A month with no year means this year — unless that would put the post
+     * in the future, which means it was last year. */
+    var named = text.match(
+      /(?:(\d{1,2})\s+)?([A-Za-z]{3,9})\s+(?:(\d{1,2})\b)?[,]?\s*(\d{4})?/);
+    if (named) {
+      var monthIndex = -1;
+      var name = (named[2] || "").toLowerCase();
+      for (var m = 0; m < MONTHS.length; m++) {
+        if (MONTHS[m].indexOf(name) === 0 && name.length >= 3) { monthIndex = m; break; }
+      }
+      var day = parseInt(named[1] || named[3], 10);
+      if (monthIndex >= 0 && day >= 1 && day <= 31) {
+        var now = new Date();
+        var year = named[4] ? parseInt(named[4], 10) : now.getFullYear();
+        var when = new Date(year, monthIndex, day, 12, 0, 0);
+        if (!named[4] && when.getTime() > now.getTime() + 864e5) {
+          when.setFullYear(year - 1);
+        }
+        applyClock(when, text);
+        return isoOf(when);
+      }
+    }
+
+    return null;                 // unreadable — say so rather than invent one
+  }
+
+  // "... at 10:14 AM" — applied when the text carries a clock time.
+  function applyClock(date, text) {
+    var clock = text.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+    if (!clock) return;
+    var hour = parseInt(clock[1], 10);
+    var meridiem = (clock[3] || "").toUpperCase();
+    if (meridiem === "PM" && hour < 12) hour += 12;
+    if (meridiem === "AM" && hour === 12) hour = 0;
+    date.setHours(hour, parseInt(clock[2], 10), 0, 0);
+  }
+
+  /* The post's own timestamp, or nothing.
+   *
+   * Nothing is a real answer. This used to fall through to the current time,
+   * so a post whose date could not be read was recorded as having been
+   * written at the moment of capture — which is how a whole scan came back
+   * claiming every post was fifteen hours old. A missing time is shown as
+   * missing; an invented one is a number the user cannot tell from a fact.
+   */
   function extractTimestamp(article) {
     var abbr = article.querySelector("abbr[data-utime]");
     if (abbr && abbr.getAttribute("data-utime")) {
-      return new Date(parseInt(abbr.getAttribute("data-utime"), 10) * 1000)
-        .toISOString().slice(0, 19);
+      return isoOf(new Date(parseInt(abbr.getAttribute("data-utime"), 10) * 1000));
     }
-    var links = article.querySelectorAll('a[aria-label], a[href*="/posts/"]');
-    for (var i = 0; i < links.length; i++) {
-      var label = links[i].getAttribute("aria-label") || links[i].textContent || "";
-      var parsed = parseRelativeTime(label.trim());
-      if (parsed) return parsed;
+
+    var bar = findActionBar(article);
+    var candidates = article.querySelectorAll(
+      'a[href*="/posts/"], a[href*="/permalink/"], a[href*="story_fbid"], ' +
+      'a[aria-label], abbr[title], span[title], a[title]'
+    );
+
+    for (var i = 0; i < candidates.length; i++) {
+      var el = candidates[i];
+      // Comments carry their own times, below the action bar. Reading one of
+      // those would date the post by whenever somebody last replied to it.
+      if (isBelowBar(el, bar)) continue;
+
+      var texts = [el.getAttribute("aria-label"), el.getAttribute("title"),
+                   el.textContent];
+      for (var t = 0; t < texts.length; t++) {
+        var parsed = parseRelativeTime((texts[t] || "").trim());
+        if (parsed) return parsed;
+      }
     }
-    return new Date().toISOString().slice(0, 19);
+    return null;
   }
 
   /* ------------------------------------------------------ scan */
@@ -2559,6 +2684,7 @@
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,
     extractTimestamp: extractTimestamp,
+    parseRelativeTime: parseRelativeTime,
     parseCount: parseCount,
     scanPosts: scanPosts,
     flush: flush,
