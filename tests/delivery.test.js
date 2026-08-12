@@ -76,6 +76,40 @@ global.location = new URL("https://www.facebook.com/groups/1234567890/");
 global.window.location = global.location;
 
 console.log();
+console.log("reading an optional field cannot cost the post");
+
+/* Captured climbing while sent stays at zero, with delivery working fine.
+ *
+ * SEEN.add ran before the payload was built, and the last two fields were
+ * still being extracted inside the object literal below it. Those read the
+ * live page, so they can throw — and when one did, the post was marked
+ * captured and never queued. It looked exactly like a delivery failure and
+ * was not one. The payload is built first now, and each optional field falls
+ * back rather than aborting.
+ */
+var brittle = buildPage([{ body: "A post whose date makes the reader throw", likes: 55 }]);
+var brittleApi = runScan(brittle, "/groups/1234567890/");
+
+// The guard itself: a reader that throws yields the fallback, not an
+// exception that unwinds past the queueing.
+var opt = brittleApi.optional;
+check("a throwing reader falls back",
+      opt(function () { throw new Error("boom"); }, null), null);
+check("  and a working one is used",
+      opt(function () { return "photo"; }, "text"), "photo");
+check("  undefined counts as nothing read",
+      opt(function () { return undefined; }, "text"), "text");
+
+brittleApi.scanPosts();
+check("the post is queued", brittleApi.queue().length, 1);
+check("  carrying no date rather than none of the post",
+      brittleApi.queue()[0] && brittleApi.queue()[0].posted_at, null);
+check("  and its engagement intact", brittleApi.queue()[0].likes, 55);
+
+brittleApi.flush();
+check("  and it reaches the dashboard", brittleApi.stats().sent, 1);
+
+console.log();
 console.log("a batch that fails is kept, not lost");
 
 var failed = scanned();

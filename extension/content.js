@@ -476,6 +476,20 @@
   }
 
   // True when `el` sits after the action bar — i.e. in the comments.
+  /* Read a field, and never let reading it cost the post.
+   *
+   * These extractors run against a live page that changes under them. A post
+   * without its type or its date is still worth having; a post that was never
+   * queued because one of them threw is not. */
+  function optional(read, fallback) {
+    try {
+      var value = read();
+      return value === undefined ? fallback : value;
+    } catch (err) {
+      return fallback;
+    }
+  }
+
   function isBelowBar(el, bar) {
     if (!bar || !el) return false;
     return !!(bar.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
@@ -1770,6 +1784,39 @@
       var reads = (prior ? prior.reads : 0) + 1;
       var complete = (engagement.likes > 0 && (hasText || hasMedia)) || reads >= 3;
 
+      /* Built BEFORE the post is counted as captured.
+       *
+       * SEEN.add used to run first, with the last two fields still being
+       * extracted inside the object literal below it. Anything that threw in
+       * there — and these read the live page, so they can — left the post
+       * marked as captured and never queued. That is the captured counter
+       * climbing while sent stays at zero, which is indistinguishable from a
+       * delivery failure and is not one.
+       *
+       * The optional fields are also individually non-fatal now. A post is
+       * worth keeping without its type or its date; it is worth nothing if
+       * reading either can stop it being sent.
+       */
+      var payload = {
+        fb_post_id: source.fb_id + "-" + postId,
+        body: body,
+        permalink: permalink,
+        post_type: optional(function () { return extractPostType(article); }, "text"),
+        posted_at: optional(function () { return extractTimestamp(article); }, null),
+        author_name: author.name,
+        author_url: author.url,
+        likes: engagement.likes,
+        comments: engagement.comments,
+        shares: engagement.shares,
+        video_plays: engagement.video_plays,
+        item_type: "post",
+        image_url: media.image_url,
+        image_count: media.image_count,
+        has_video: media.has_video,
+        body_from_image: bodyFromImage ? 1 : 0,
+        engagement_read: engagementRead ? 1 : 0
+      };
+
       if (prior) {
         // Already in the dashboard. Only worth re-sending if this read is
         // genuinely better than the last one.
@@ -1805,25 +1852,7 @@
               engagement.comments + "c " + engagement.shares + "s  " +
               body.slice(0, 30));
 
-      QUEUE.push({
-        fb_post_id: source.fb_id + "-" + postId,
-        body: body,
-        permalink: permalink,
-        post_type: extractPostType(article),
-        posted_at: extractTimestamp(article),
-        author_name: author.name,
-        author_url: author.url,
-        likes: engagement.likes,
-        comments: engagement.comments,
-        shares: engagement.shares,
-        video_plays: engagement.video_plays,
-        item_type: "post",
-        image_url: media.image_url,
-        image_count: media.image_count,
-        has_video: media.has_video,
-        body_from_image: bodyFromImage ? 1 : 0,
-        engagement_read: engagementRead ? 1 : 0
-      });
+      QUEUE.push(payload);
     }
   }
 
@@ -2685,6 +2714,7 @@
     extractPermalink: extractPermalink,
     extractTimestamp: extractTimestamp,
     parseRelativeTime: parseRelativeTime,
+    optional: optional,
     parseCount: parseCount,
     scanPosts: scanPosts,
     flush: flush,
