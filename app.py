@@ -20,7 +20,25 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "9.6"
+
+def _manifest_version(default="0.0.0"):
+    """The version written in the extension manifest."""
+    path = os.path.join(os.path.dirname(__file__), "extension", "manifest.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            return json.load(handle).get("version", default)
+    except (OSError, json.JSONDecodeError):
+        return default
+
+
+# One version number for the whole product.
+#
+# There used to be two — a constant here and a literal in the manifest — and
+# they drifted apart immediately, because bumping one is a different edit from
+# bumping the other. The manifest wins because Chrome demands a literal there
+# and will not read anything else, so the dashboard takes its version from the
+# same file rather than keeping a second copy to forget about.
+APP_VERSION = _manifest_version("11.1")
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -1159,17 +1177,14 @@ def _is_local_dashboard():
 
 
 def _extension_version():
-    """Read the version straight from the extension manifest on disk.
+    """The version of the extension this dashboard is serving.
 
-    This is what makes self-update work: the file changes whenever the
-    extension does, so the running copy can notice it has fallen behind.
+    Read from disk on each call rather than reused from APP_VERSION, because
+    an extension already loaded in a browser can be older than the copy here —
+    that difference is exactly what the popup reports. On a running server the
+    two are the same file and therefore the same number.
     """
-    path = os.path.join(os.path.dirname(__file__), "extension", "manifest.json")
-    try:
-        with open(path, encoding="utf-8") as handle:
-            return json.load(handle).get("version", "0.0.0")
-    except (OSError, json.JSONDecodeError):
-        return "0.0.0"
+    return _manifest_version(APP_VERSION)
 
 
 @app.route("/api/ping", methods=["GET", "POST", "OPTIONS"])
