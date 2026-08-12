@@ -19,7 +19,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "9.2"
+APP_VERSION = "9.3"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -606,6 +606,117 @@ def library():
         tier_labels=outliers.TIER_LABELS,
         version=APP_VERSION,
         active="library",
+    )
+
+
+def _diagnosis():
+    """Everything needed to answer "is capture actually working right now".
+
+    Built because answering that took a whole day once. Each check reports a
+    state and the thing to do about it, so a scan that is quietly going
+    nowhere is one page away from an explanation instead of a guess.
+    """
+    user = auth.current_user()
+    checks = []
+
+    with db.get_db() as conn:
+        last = conn.execute(
+            """
+            SELECT c.created_at, c.post_count, c.new_count, s.name AS source_name
+            FROM captures c LEFT JOIN sources s ON s.id = c.source_id
+            WHERE c.user_id = ? ORDER BY c.created_at DESC LIMIT 1
+            """, (user["id"],)
+        ).fetchone()
+        week = conn.execute(
+            """
+            SELECT COUNT(*) AS n FROM posts
+            WHERE user_id = ? AND is_demo = 0
+              AND captured_at >= datetime('now', '-7 days')
+            """, (user["id"],)
+        ).fetchone()["n"]
+        total = conn.execute(
+            "SELECT COUNT(*) AS n FROM posts WHERE user_id = ? AND is_demo = 0",
+            (user["id"],),
+        ).fetchone()["n"]
+
+    # An account key exists at all. Without one the extension cannot post,
+    # and the failure surfaces on the page as a bare 401.
+    checks.append({
+        "name": "Account key",
+        "ok": bool(user.get("api_key_prefix")),
+        "detail": ("Issued — the extension picks it up automatically"
+                   if user.get("api_key_prefix")
+                   else "None issued. Open the Capture page while signed in."),
+    })
+
+    # Metering is the quiet one. A capped account is refused at ingest, so the
+    # extension shows posts captured and nothing delivered, with the reason
+    # buried in a panel.
+    allowed, reason = billing.capture_allowed(user)
+    if billing.is_admin(user):
+        meter = "Owner — never metered"
+    elif billing.is_pro(user):
+        meter = "Pro — unlimited capture"
+    else:
+        meter = f"Free — {total:,} of {billing.FREE_LIMITS['posts']:,} posts stored"
+    checks.append({
+        "name": "Plan",
+        "ok": bool(allowed),
+        "detail": reason or meter,
+    })
+
+    # Something arrived, and when. A scan that reports sending while this
+    # stays still is not sending.
+    if last:
+        checks.append({
+            "name": "Last capture received",
+            "ok": True,
+            "detail": (f"{last['post_count']} posts from "
+                       f"{last['source_name'] or 'a source'} — {age_of(last['created_at'])}"),
+        })
+    else:
+        checks.append({
+            "name": "Last capture received",
+            "ok": False,
+            "detail": "Nothing has ever arrived. Run a scan with the extension open.",
+        })
+
+    checks.append({
+        "name": "Storage",
+        "ok": not db.storage_is_ephemeral(),
+        "detail": ("Captures survive restarts"
+                   if not db.storage_is_ephemeral()
+                   else "This host resets on deploy — captures will be lost."),
+    })
+
+    return {"checks": checks, "week": week, "total": total,
+            "endpoint": request.url_root.rstrip("/")}
+
+
+def age_of(stamp):
+    """'4 minutes ago', from a stored UTC timestamp."""
+    if not stamp:
+        return "never"
+    try:
+        then = datetime.fromisoformat(str(stamp).replace("Z", ""))
+    except ValueError:
+        return str(stamp)
+    seconds = max(0, (datetime.utcnow() - then).total_seconds())
+    for limit, div, word in ((60, 1, "second"), (3600, 60, "minute"),
+                             (86400, 3600, "hour")):
+        if seconds < limit:
+            n = int(seconds // div) or 1
+            return f"{n} {word}{'' if n == 1 else 's'} ago"
+    n = int(seconds // 86400)
+    return f"{n} day{'' if n == 1 else 's'} ago"
+
+
+@app.route("/diagnostics")
+@auth.login_required
+def diagnostics():
+    return render_template(
+        "diagnostics.html", version=APP_VERSION, active="diagnostics",
+        **_diagnosis(),
     )
 
 

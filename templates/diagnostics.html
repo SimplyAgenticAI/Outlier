@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Diagnostics — {{ app_name }}{% endblock %}
+
+{% block content %}
+<section>
+  <h1>Diagnostics</h1>
+  <p class="sub">
+    Whether capture is actually working, and what to do when it isn't. Every
+    check here answers a question that is otherwise invisible from the
+    extension's side.
+  </p>
+</section>
+
+<div class="diag-grid">
+  <div class="glass panel reveal">
+    <div class="stat-value" data-count="{{ week }}">{{ "{:,}".format(week) }}</div>
+    <div class="stat-label">posts captured this week</div>
+  </div>
+  <div class="glass panel reveal">
+    <div class="stat-value" data-count="{{ total }}">{{ "{:,}".format(total) }}</div>
+    <div class="stat-label">posts stored in total</div>
+  </div>
+</div>
+
+<div class="glass panel reveal">
+  <h2>Checks</h2>
+  <ul class="diag-list">
+    {% for check in checks %}
+    <li class="diag-item {{ 'good' if check.ok else 'bad' }}">
+      <span class="diag-mark" aria-hidden="true">{{ '✓' if check.ok else '!' }}</span>
+      <span class="diag-body">
+        <b>{{ check.name }}</b>
+        <span class="diag-detail">{{ check.detail }}</span>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+
+<div class="glass panel reveal">
+  <h2>What the extension should be pointed at</h2>
+  <p class="fine">
+    This dashboard is <code>{{ endpoint }}</code>. If the extension's popup
+    shows a different address, captures are going somewhere else — which looks
+    identical to nothing being captured at all.
+  </p>
+  <p class="fine">
+    A scan that shows posts captured while <b>Sent to dashboard</b> stays at
+    zero means the batch is not arriving. The extension panel names the reason;
+    the checks above cover the ones that come from this side.
+  </p>
+</div>
+{% endblock %}
