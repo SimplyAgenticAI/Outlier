@@ -1,5 +1,6 @@
 import io
 import json
+import math
 import os
 import re
 import subprocess
@@ -19,7 +20,7 @@ from demo_data import seed_demo_data
 
 app = Flask(__name__)
 
-APP_VERSION = "9.3"
+APP_VERSION = "9.4"
 
 # The product name lives here and nowhere else. APP_SHORT_NAME is what prose
 # uses on the second mention — spelling out the full name mid-sentence reads
@@ -520,15 +521,69 @@ def group_detail(source_id):
     scored = outliers.score_posts(posts)
     visible = [s for s in scored if (s.get("item_type") or "post") == "post"]
 
+    blades, meadow_width = _meadow(visible)
+
     return render_template(
         "group_detail.html",
         source=dict(source),
         posts=visible,
+        blades=blades,
+        meadow_width=meadow_width,
         stats=outliers.source_stats(posts) if posts else None,
         tier_labels=outliers.TIER_LABELS,
         version=APP_VERSION,
         active="groups",
     )
+
+
+BLADE_STEP = 7          # horizontal gap between stalks
+BLADE_MAX_H = 108       # tallest a blade may grow, inside a 150 tall canvas
+BLADE_MIN_H = 7         # a scored post is never invisible
+
+
+def _meadow(scored):
+    """Turn scored posts into blades of grass standing on the median.
+
+    Height is the multiple on a log scale. Linear would make one 60x post a
+    skyscraper beside a field of stubble, which hides exactly the comparison
+    this is drawn for — how the merely-good posts differ from each other.
+    Doubling the multiple adds a fixed amount of height instead.
+
+    Only posts with a baseline get a blade. Without one there is no multiple,
+    so a stalk would be asserting a height the app cannot stand behind.
+    """
+    ranked = [s for s in scored
+              if s.get("has_baseline") and s.get("outlier_multiple")]
+    if not ranked:
+        return [], 0
+
+    # Oldest on the left, so the field reads left to right like the group did.
+    ranked.sort(key=lambda s: (s.get("posted_at") or "", s["id"]))
+
+    tallest = max(s["outlier_multiple"] for s in ranked)
+    ceiling = math.log2(max(tallest, 2))
+
+    blades = []
+    for i, post in enumerate(ranked):
+        share = math.log2(max(post["outlier_multiple"], 1) + 1) / (ceiling + 1)
+        height = round(BLADE_MIN_H + share * (BLADE_MAX_H - BLADE_MIN_H), 1)
+
+        body = (post.get("body") or "").strip()
+        label = (body[:60] + "…") if len(body) > 60 else (body or "no caption")
+
+        blades.append({
+            "id": post["id"],
+            "x": 6 + i * BLADE_STEP,
+            "height": height,
+            # Alternating lean, so a row of equal posts still looks like grass
+            # rather than a comb.
+            "lean": (2.2 if i % 2 else -2.2) + (0.9 if i % 3 == 0 else 0),
+            "multiple": post["outlier_multiple"],
+            "breakout": post.get("tier") == "breakout",
+            "label": label,
+        })
+
+    return blades, 12 + len(blades) * BLADE_STEP
 
 
 @app.route("/post/<int:post_id>")

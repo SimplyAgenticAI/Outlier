@@ -1,0 +1,61 @@
+{# The whole group as a meadow.
+
+   One blade per post, standing on the median. A post that merely did fine is
+   ankle height; one that broke out is tall grass. The point of the product is
+   that height is relative to THIS group's ground, and that is far easier to
+   see in a field than to read off a number.
+
+   Server-rendered SVG on purpose: no library, no fetch, and nothing to go
+   wrong at runtime. #}
+{% if blades %}
+<div class="glass panel reveal meadow-panel">
+  <div class="meadow-head">
+    <h2>The meadow</h2>
+    <p class="fine">
+      Every scored post in this group, standing on its median. Height is how
+      far past typical it landed — hover a blade to read it.
+    </p>
+  </div>
+
+  <div class="meadow-scroll">
+    <svg class="meadow" viewBox="0 0 {{ meadow_width }} 150" preserveAspectRatio="xMinYMax meet"
+         role="img" aria-label="Each post in this group drawn as a blade of grass above the group median">
+      <defs>
+        <linearGradient id="bladeGrad" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="#10b981" stop-opacity="0.55"/>
+          <stop offset="100%" stop-color="#6ee7b7" stop-opacity="0.95"/>
+        </linearGradient>
+        <linearGradient id="bladeBreak" x1="0" y1="1" x2="0" y2="0">
+          <stop offset="0%" stop-color="#b8933f" stop-opacity="0.6"/>
+          <stop offset="100%" stop-color="#f5d98a" stop-opacity="1"/>
+        </linearGradient>
+      </defs>
+
+      {# The ground. Everything is measured from here, so it is drawn as a
+         line rather than implied by where the blades happen to stop. #}
+      <line class="meadow-ground" x1="0" y1="124" x2="{{ meadow_width }}" y2="124"/>
+
+      {% for blade in blades %}
+      <a href="{{ url_for('post_detail', post_id=blade.id) }}" class="blade-link">
+        <title>{{ blade.multiple }}× the median — {{ blade.label }}</title>
+        {# Quadratic curve: a straight stalk that leans at the tip, which is
+           what makes a rectangle read as grass rather than a bar chart. #}
+        <path class="blade{{ ' is-breakout' if blade.breakout }}"
+              style="--h: {{ blade.height }}px; --i: {{ loop.index0 }};"
+              d="M {{ blade.x }} 124
+                 Q {{ blade.x - 1 }} {{ 124 - blade.height * 0.55 }}
+                   {{ blade.x + blade.lean }} {{ 124 - blade.height }}
+                 Q {{ blade.x + 1.6 }} {{ 124 - blade.height * 0.55 }}
+                   {{ blade.x + 3.2 }} 124 Z"/>
+      </a>
+      {% endfor %}
+    </svg>
+  </div>
+
+  <div class="meadow-key">
+    <span><i class="key-line"></i> the group's median</span>
+    <span><i class="key-blade"></i> a post</span>
+    <span><i class="key-blade is-breakout"></i> broke out</span>
+  </div>
+</div>
+{% endif %}

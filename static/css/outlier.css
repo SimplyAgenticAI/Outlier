@@ -1391,3 +1391,80 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
 .diag-body b { font-size: 14px; color: var(--text); font-weight: 600; }
 .diag-detail { font-size: 13px; color: var(--text-muted); line-height: 1.55; }
 .diag-item.bad .diag-detail { color: #ffb59d; }
+
+/* --------------------------------------------------------------- meadow */
+
+/* The group drawn as a field: one blade per scored post, standing on the
+   median. Height is the multiple, so the outliers are literally the tall
+   grass — which is the whole product in one picture. */
+
+.meadow-panel { margin-top: 18px; }
+.meadow-head h2 { margin-bottom: 4px; }
+.meadow-head .fine { margin: 0 0 14px; }
+
+/* Wide groups scroll sideways rather than squashing every blade together;
+   a field of 300 posts compressed to panel width is a smear. */
+.meadow-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
+.meadow { display: block; height: 150px; min-width: 100%; }
+
+.meadow-ground {
+  stroke: rgba(110, 231, 183, 0.34);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+
+.blade {
+  fill: url(#bladeGrad);
+  transform-box: fill-box;
+  transform-origin: bottom center;
+  /* Grown from nothing on reveal, then left alone. The stagger is by index
+     so the field fills in like wind crossing it rather than all at once. */
+  transform: scaleY(0);
+  animation: blade-grow 0.75s var(--ease) forwards;
+  animation-delay: calc(var(--i) * 9ms);
+}
+.blade.is-breakout { fill: url(#bladeBreak); }
+
+@keyframes blade-grow { to { transform: scaleY(1); } }
+
+/* The sway is deliberately tiny and slow. Anything more turns a chart into a
+   screensaver, and this one is meant to be read. */
+.blade-link:hover .blade {
+  fill: #eafff3;
+  transition: fill 0.15s var(--ease);
+}
+.blade-link { cursor: pointer; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* Both of these drive `transform`, and the later one wins outright — so the
+     sway has to start AFTER the growth has finished, or it overrides it and
+     the blades simply appear at full height. The delay is the grow duration
+     plus that blade's own stagger. */
+  .blade {
+    animation: blade-grow 0.75s var(--ease) forwards,
+               blade-sway 6.5s ease-in-out calc(800ms + var(--i) * 60ms) infinite;
+    animation-delay: calc(var(--i) * 9ms), calc(800ms + var(--i) * 60ms);
+  }
+  @keyframes blade-sway {
+    0%, 100% { transform: scaleY(1) skewX(0deg); }
+    50%      { transform: scaleY(1) skewX(1.6deg); }
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .blade { transform: scaleY(1); animation: none; }
+}
+
+.meadow-key {
+  display: flex; flex-wrap: wrap; gap: 16px; margin-top: 12px;
+  font-size: 12px; color: var(--text-faint);
+}
+.meadow-key span { display: inline-flex; align-items: center; gap: 7px; }
+.key-line {
+  width: 16px; height: 0; border-top: 1px dashed rgba(110, 231, 183, 0.5);
+}
+.key-blade {
+  width: 4px; height: 13px; border-radius: 2px 2px 0 0;
+  background: linear-gradient(to top, #10b981, #6ee7b7);
+}
+.key-blade.is-breakout { background: linear-gradient(to top, #b8933f, #f5d98a); }
