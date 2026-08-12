@@ -638,6 +638,46 @@
            longestTextBlock(article, authorName, null, "div, span, p");
   }
 
+  /* Characters Facebook inserts between letters so text cannot be matched.
+   *
+   * A captured caption came back as 120 characters of which 60 were U+034F
+   * COMBINING GRAPHEME JOINER — one after every visible letter. They render
+   * as nothing and carry no meaning; they exist to break string matching.
+   *
+   * Deliberately NOT stripped: U+200D and U+200C. Those are structural in
+   * real text — a zero-width joiner is what holds an emoji family together,
+   * and removing it turns one glyph into four separate people.
+   */
+  var INVISIBLE_RE = /[͏​‎‏⁠-⁤﻿­]/g;
+
+  function visibleText(value) {
+    return String(value == null ? "" : value).replace(INVISIBLE_RE, "");
+  }
+
+  /* Is this block a decoy rather than a caption?
+   *
+   * Facebook plants text nodes of scrambled characters interleaved with those
+   * joiners. The caption is chosen by length, so a decoy longer than the real
+   * copy wins and the post arrives with gibberish where its words should be —
+   * which is what "a lot of the posts have long numbers and letters next to
+   * them" was.
+   *
+   * The test is the interleaving, not the content. Real writing does not come
+   * one-invisible-character-per-letter; the observed decoys are exactly half
+   * joiners. A fifth is far past anything punctuation or formatting produces,
+   * and well under what a decoy shows.
+   *
+   * This only ever decides WHICH block becomes the caption. A post whose
+   * every block is a decoy is still captured, with no caption — the same as
+   * any post that never had one.
+   */
+  function isDecoyText(raw) {
+    var text = String(raw || "");
+    if (text.length < 12) return false;
+    var hidden = (text.match(/[͏​]/g) || []).length;
+    return hidden / text.length >= 0.2;
+  }
+
   function longestTextBlock(article, authorName, bar, selector) {
     var blocks = article.querySelectorAll(selector);
     var best = "";
@@ -651,7 +691,13 @@
       // "Like Comment Share", and every such post then hashed to the same id.
       if (bar && (el === bar || (bar.contains && bar.contains(el)))) continue;
 
-      var text = el.innerText ? el.innerText.trim() : "";
+      var raw = el.innerText ? el.innerText.trim() : "";
+      // A decoy beats the real caption on length, so it has to be rejected
+      // before length is compared — otherwise it wins and nothing else is
+      // ever considered.
+      if (isDecoyText(raw)) continue;
+
+      var text = visibleText(raw).trim();
       if (!text || text.length <= best.length) continue;
       if (CHROME_RE.test(text)) continue;
       if (isOnlyChrome(text)) continue;
@@ -2714,6 +2760,8 @@
     extractPermalink: extractPermalink,
     extractTimestamp: extractTimestamp,
     parseRelativeTime: parseRelativeTime,
+    visibleText: visibleText,
+    isDecoyText: isDecoyText,
     optional: optional,
     parseCount: parseCount,
     scanPosts: scanPosts,

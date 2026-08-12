@@ -34,6 +34,8 @@ echo "--- scan captures posts ---"
 node tests/scan.test.js
 echo "--- extraction ---"
 node tests/extract.test.js
+echo "--- captions ---"
+node tests/caption.test.js
 echo "--- timestamps ---"
 node tests/timestamp.test.js
 echo "--- capture delivery ---"
