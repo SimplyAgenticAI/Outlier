@@ -353,18 +353,32 @@ def _rebuild_with_scoped_uniqueness(conn):
 
 
 def promote_sole_account():
-    """Give admin to the only account on an install.
+    """Make sure somebody owns this instance, and is not metered by it.
 
-    Accounts created before admin existed were left unflagged, which meters
-    the person who owns the instance. Only applies when there is exactly one
-    account, so it can never silently promote someone on a multi-tenant host.
+    create_user flags the first account as owner, but an install where that
+    never happened — accounts made before admin existed, or a database
+    restored from one — ends up with nobody flagged. Every account is then
+    metered, including the person running the thing, and the free plan's post
+    cap starts rejecting their own captures at ingest. That looks exactly like
+    a broken extension: the scan captures, the dashboard receives nothing, and
+    the only clue is a plan message in a panel nobody reads.
+
+    Restricting it to single-account installs was too narrow, because two
+    accounts are enough to leave the owner metered. It applies whenever NO
+    account is an admin, and promotes the earliest one — which is the account
+    create_user would have flagged. It cannot promote a second person, and it
+    does nothing once an owner exists.
     """
     with get_db() as conn:
-        rows = conn.execute("SELECT id, is_admin FROM users").fetchall()
-        if len(rows) == 1 and not rows[0]["is_admin"]:
-            conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (rows[0]["id"],))
-            return True
-    return False
+        if conn.execute("SELECT COUNT(*) AS n FROM users WHERE is_admin = 1").fetchone()["n"]:
+            return False
+        first = conn.execute(
+            "SELECT id FROM users ORDER BY id LIMIT 1"
+        ).fetchone()
+        if not first:
+            return False
+        conn.execute("UPDATE users SET is_admin = 1 WHERE id = ?", (first["id"],))
+        return True
 
 
 def claim_unowned_data(user_id):

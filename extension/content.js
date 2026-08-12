@@ -33,6 +33,11 @@
   var SEEN = new Set();
   var IMAGES_SEEN = {};   // one post per image; see the note at the assignment
   var QUEUE = [];
+
+  // The last page we could name. Posts are captured while the page is
+  // identifiable and sent a moment later, by which time Facebook may have
+  // pushed a URL we do not recognise.
+  var lastKnownSource = null;
   var enabled = true;
   var autoScrolling = false;
   var scrollTimer = null;
@@ -177,8 +182,25 @@
       };
     }
 
+    /* Facebook's own paths, which are not people.
+     *
+     * The list was short, and everything missing from it became a "profile"
+     * named after the path. A scan that scrolled past a photo pushed
+     * /photo/?fbid=... into the URL, and this returned profile:photo — so
+     * resetForSource saw a new source and wiped the queue, the seen set and
+     * the counters, and whatever did get sent was filed under a group called
+     * "photo". That is posts vanishing mid-scan and a dashboard with no sign
+     * of the group you were actually reading.
+     *
+     * These are the paths a scan genuinely walks through: the photo viewer,
+     * reels, watch, stories and permalinks.
+     */
     var reserved = ["watch", "marketplace", "groups", "home.php", "gaming",
-                    "events", "notifications", "messages", "profile.php", ""];
+                    "events", "notifications", "messages", "profile.php",
+                    "photo", "photo.php", "reel", "reels", "stories",
+                    "story.php", "permalink.php", "video.php", "search",
+                    "bookmarks", "friends", "settings", "privacy", "policies",
+                    "help", "sharer.php", "login.php", "pages", ""];
     var profileMatch = url.match(/facebook\.com\/([^/?#]*)/);
     if (profileMatch && reserved.indexOf(profileMatch[1]) === -1) {
       return {
@@ -1391,6 +1413,7 @@
     if (!enabled) return 0;
 
     var source = detectSource();
+    if (source) lastKnownSource = source;   // remembered for the send, which happens later
     if (!source) {
       STATS.lastError = "Not on a group or profile page";
       renderHud();
@@ -1682,8 +1705,24 @@
   function flush() {
     if (!QUEUE.length) return;
 
-    var source = detectSource();
-    if (!source) { QUEUE = []; return; }
+    /* Never throw the queue away for not knowing where we are.
+     *
+     * This read QUEUE = [] — if detectSource could not name the page at that
+     * instant, every post waiting to be sent was deleted. Not held, not
+     * reported: deleted. Facebook is a single page app and the URL moves
+     * constantly while you scroll, through photo viewers, reels and post
+     * permalinks, and any of those arriving between capture and send
+     * destroyed the batch. Nothing was logged and no error shown, so the
+     * captured counter climbed over an empty queue — which is exactly what a
+     * working scan looks like.
+     *
+     * Every post in the queue was captured while the page WAS identifiable,
+     * so the last source we resolved is the right one to file them under. If
+     * even that is missing they wait rather than die.
+     */
+    var source = detectSource() || lastKnownSource;
+    if (!source) return;
+    lastKnownSource = source;
 
     var batch = QUEUE.splice(0, QUEUE.length);
     STATS.queued = 0;
@@ -2522,6 +2561,9 @@
     extractTimestamp: extractTimestamp,
     parseCount: parseCount,
     scanPosts: scanPosts,
+    flush: flush,
+    detectSource: detectSource,
+    lastSource: function () { return lastKnownSource; },
     // Not in the UI — a developer tool belongs in the console, not in the
     // product. Run __outlier.savePageReport() if the extractors need
     // debugging against a real page.
