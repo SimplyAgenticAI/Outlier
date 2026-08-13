@@ -1375,14 +1375,18 @@
 
   function keepRealPosts(found) {
     var out = [];
-    // When Facebook marks the feed, nothing outside it is a post. This is a
-    // stronger guarantee than any list of things to exclude.
-    var feed = document.querySelector('[role="feed"]');
+    // When Facebook marks the feed, nothing outside it is a post — a stronger
+    // guarantee than any list of things to exclude. But a profile or Page
+    // timeline renders MORE THAN ONE [role="feed"] region (an intro/reels strip
+    // as well as the timeline), so a post must sit inside SOME feed, not inside
+    // the FIRST one. Pinning querySelector to the first feed dropped every
+    // timeline post on those pages and captured nothing from them.
+    var hasFeed = !!document.querySelector('[role="feed"]');
 
     for (var i = 0; i < found.length; i++) {
       var el = found[i];
       try {
-        if (feed && !feed.contains(el)) continue;
+        if (hasFeed && !el.closest('[role="feed"]')) continue;
         if (el.closest(NOT_FEED)) continue;
         if (isChatBubble(el)) continue;
         if (isCommentArticle(el)) continue;
