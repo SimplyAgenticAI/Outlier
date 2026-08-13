@@ -2466,6 +2466,12 @@
     census('links to /permalink/       ', 'a[href*="/permalink/"]');
     census('links with story_fbid      ', 'a[href*="story_fbid"]');
     census('links to /groups/..../user ', 'a[href*="/user/"]');
+    // Feed and page/profile signals — for per-post origin attribution and for
+    // telling a Page (Follow button, /pages/ link) from a personal profile.
+    census('[role="feed"] articles       ', '[role="feed"] div[role="article"]');
+    census('links to /groups/           ', 'a[href*="/groups/"]');
+    census('links to /pages/            ', 'a[href*="/pages/"]');
+    census('aria-label Follow           ', '[aria-label="Follow" i]');
 
     // Elements whose visible text is exactly "Share" — the report showed
     // Share present as text with no aria-label anywhere.
@@ -2531,6 +2537,30 @@
                     ? "" : "   <- NOTHING READ"));
       lines.push("dir=auto   : " +
         article.querySelectorAll('div[dir="auto"], span[dir="auto"]').length);
+
+      /* Where this post came from — the whole point of feed capture.
+       *
+       * On the feed every article has a different origin, shown in its header
+       * as the actor's name and a link (a group link, a page link, a person).
+       * This is what per-post source attribution will read, so the report has
+       * to show exactly what is there. Sponsored and Suggested posts must be
+       * skipped, so those markers are flagged too.
+       */
+      var originLinks = [];
+      var hdrLinks = article.querySelectorAll('a[role="link"], a[href]');
+      for (var h = 0; h < hdrLinks.length && originLinks.length < 8; h++) {
+        var hl = hdrLinks[h];
+        if (!owned(article, hl)) continue;
+        var htxt = (hl.innerText || "").trim().replace(/\s+/g, " ").slice(0, 34);
+        var href = (hl.getAttribute("href") || "").split("?")[0].slice(0, 80);
+        if (!href) continue;
+        originLinks.push((htxt || "(no text)") + "  ->  " + href);
+      }
+      lines.push("origin links:");
+      originLinks.forEach(function (o) { lines.push("   " + o); });
+      var atxt = (article.innerText || "").slice(0, 400);
+      lines.push("sponsored/suggested?: " +
+        /sponsored|suggested for you|people you may know|suggested\s*(?:group|post|for)/i.test(atxt));
 
       /* Exactly what the count extractors are looking at.
        *
