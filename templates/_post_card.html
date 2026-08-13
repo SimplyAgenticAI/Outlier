@@ -110,6 +110,18 @@
       <div class="scale-caption">
         <span><b>{{ post.weighted_engagement }}</b> weighted</span>
         <span class="scale-vs">vs {{ post.baseline | round | int }} typical here</span>
+        {# Opens the shared explainer, filled with this post's own numbers.
+           Only numeric/known values go in the data-* attributes. #}
+        <button type="button" class="score-info" aria-label="How is this scored?"
+                data-score-info
+                data-weighted="{{ post.weighted_engagement }}"
+                data-typical="{{ post.baseline | round | int }}"
+                data-multiple="{{ post.outlier_multiple }}"
+                data-reactions="{{ post.likes }}"
+                data-comments="{{ post.comments }}"
+                data-shares="{{ post.shares }}"
+                data-kind="{{ 'comment' if post.item_type == 'comment' else 'group' }}"
+                data-tier="{{ tier_labels[post.tier] }}">?</button>
       </div>
     </div>
     {% else %}

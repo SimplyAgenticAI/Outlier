@@ -77,6 +77,18 @@
 
 <div class="toast" id="toast"></div>
 
+{# One shared popup explains the score in plain language, filled with the
+   clicked post's own numbers. Lives here so every page that shows a card can
+   open it, and sits before the scripts so it exists when outlier.js runs. #}
+<div class="score-help" id="score-help" hidden>
+  <div class="score-help-scrim" data-score-close></div>
+  <div class="score-help-card glass" role="dialog" aria-modal="true" aria-labelledby="score-help-title">
+    <button class="score-help-x" type="button" data-score-close aria-label="Close">&times;</button>
+    <h3 id="score-help-title">How this score works</h3>
+    <div class="score-help-body" id="score-help-body"></div>
+  </div>
+</div>
+
 <script src="{{ url_for('static', filename='js/field.js') }}"></script>
 <script src="{{ url_for('static', filename='js/outlier.js') }}"></script>
 {% block scripts %}{% endblock %}

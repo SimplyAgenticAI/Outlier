@@ -78,7 +78,21 @@
       {% if post.baseline is not none %}
       <div>
         <span class="d-val">{{ post.baseline | round | int }}</span>
-        <span class="d-lab">{{ 'comment median here' if post.item_type == 'comment' else 'group median' }}</span>
+        <span class="d-lab">
+          {{ 'comment median here' if post.item_type == 'comment' else 'group median' }}
+          {% if post.has_baseline %}
+          <button type="button" class="score-info" aria-label="How is this scored?"
+                  data-score-info
+                  data-weighted="{{ post.weighted_engagement }}"
+                  data-typical="{{ post.baseline | round | int }}"
+                  data-multiple="{{ post.outlier_multiple }}"
+                  data-reactions="{{ post.likes }}"
+                  data-comments="{{ post.comments }}"
+                  data-shares="{{ post.shares }}"
+                  data-kind="{{ 'comment' if post.item_type == 'comment' else 'group' }}"
+                  data-tier="{{ tier_labels[post.tier] }}">?</button>
+          {% endif %}
+        </span>
       </div>
       {% endif %}
       {% else %}

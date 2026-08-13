@@ -892,4 +892,66 @@
 
     output.prepend(wrapper);
   }
+
+  /* ---------------------------------------------------- score explainer */
+
+  // A plain-language popup for the score, filled with the clicked post's own
+  // numbers. Every value comes from data-* attributes the server rendered —
+  // counts and the tier label — so there is no user-authored text to escape.
+  (function () {
+    var modal = document.getElementById("score-help");
+    if (!modal) return;
+    var bodyEl = document.getElementById("score-help-body");
+
+    function commas(n) {
+      var v = parseFloat(n);
+      return isNaN(v) ? String(n) : v.toLocaleString("en-US");
+    }
+
+    function explainHTML(d) {
+      var isComment = d.kind === "comment";
+      var thing = isComment ? "comment" : "post";
+      var place = isComment ? "thread" : "group";
+      var pool = isComment ? "comments in this source" : "posts in this group";
+      var medWord = isComment ? "comment median" : "group median";
+      return (
+        '<p>Every ' + thing + ' is scored against what is <b>normal for its ' + place +
+          '</b> — never a global number, because ' + commas(d.typical) +
+          ' is a lot in a quiet ' + place + ' and little in a busy one.</p>' +
+        '<p class="sh-formula">Weighted = reactions + comments&times;3 + shares&times;5' +
+          '<span>comments and shares take more than a tap, so they count for more</span></p>' +
+        '<p class="sh-math"><b>' + commas(d.reactions) + '</b> + <b>' + commas(d.comments) +
+          '</b>&times;3 + <b>' + commas(d.shares) + '</b>&times;5 = <b>' + commas(d.weighted) +
+          '</b> weighted</p>' +
+        '<p>Typical here — the <b>' + medWord + '</b> — is <b>' + commas(d.typical) +
+          '</b>, the middle score of all ' + pool +
+          '. The median, not the average, so one viral ' + thing + " can't skew it.</p>" +
+        '<p class="sh-multiple"><b>' + commas(d.weighted) + ' &divide; ' + commas(d.typical) +
+          ' = ' + d.multiple + '&times;</b> &middot; ' + (d.tier || "") + "</p>" +
+        '<div class="sh-bar" aria-hidden="true"><div class="sh-bar-fill"></div>' +
+          '<div class="sh-bar-notch"><span>median</span></div></div>' +
+        '<p class="sh-note">On the card, the notch is that median line and the glow is ' +
+          "how far this " + thing + " cleared it.</p>"
+      );
+    }
+
+    function openHelp(d) {
+      bodyEl.innerHTML = explainHTML(d);
+      modal.hidden = false;
+      document.body.classList.add("score-help-open");
+    }
+    function closeHelp() {
+      modal.hidden = true;
+      document.body.classList.remove("score-help-open");
+    }
+
+    document.addEventListener("click", function (event) {
+      var trigger = event.target.closest("[data-score-info]");
+      if (trigger) { event.preventDefault(); openHelp(trigger.dataset); return; }
+      if (event.target.closest("[data-score-close]")) { closeHelp(); }
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape" && !modal.hidden) closeHelp();
+    });
+  })();
 })();
