@@ -157,6 +157,29 @@
     return fallback;
   }
 
+  /* A Page or a personal profile?
+   *
+   * Both are served from facebook.com/<vanity>, so the URL cannot tell them
+   * apart — which is why a Page kept being labelled "profile". Facebook's App
+   * Link meta tag can: a Page points its app link at fb://page/, a person's
+   * timeline at fb://profile/ or fb://timeline/. That tag lives in <head>, so
+   * it is locale-independent, unlike "Follow" vs "Add friend" button text.
+   *
+   * Anything unrecognised stays "profile", the safe default — this only ever
+   * upgrades a clearly-identified Page, and never turns a person into a Page.
+   * The kind is a label; it does not affect capture or scoring.
+   */
+  function detectProfileKind() {
+    var metas = document.querySelectorAll(
+      'meta[property="al:android:url"], meta[property="al:ios:url"], meta[property="al:web:url"]');
+    for (var i = 0; i < metas.length; i++) {
+      var content = metas[i].getAttribute("content") || "";
+      if (/fb:\/\/page\b/i.test(content)) return "page";
+      if (/fb:\/\/(profile|timeline|friends)\b/i.test(content)) return "profile";
+    }
+    return "profile";
+  }
+
   function detectSource() {
     var url = location.href;
 
@@ -204,8 +227,12 @@
     var profileMatch = url.match(/facebook\.com\/([^/?#]*)/);
     if (profileMatch && reserved.indexOf(profileMatch[1]) === -1) {
       return {
+        // fb_id keeps the "profile:" prefix for BOTH profiles and pages — it is
+        // the stable identity key, and changing it to "page:" on the same
+        // vanity would create a second source and split the baseline. Only the
+        // kind label changes, and the server refreshes it on the next scan.
         fb_id: "profile:" + profileMatch[1],
-        kind: "profile",
+        kind: detectProfileKind(),
         name: nameFromTitle(profileMatch[1]),
         url: location.origin + "/" + profileMatch[1]
       };
@@ -2444,6 +2471,14 @@
     lines.push("version : " + version);
     lines.push("url     : " + location.pathname);
     lines.push("source  : " + (source ? source.kind + " / " + source.name : "none"));
+    // The signal detectProfileKind reads — so a mislabel can be diagnosed.
+    var alMeta = [];
+    var alTags = document.querySelectorAll('meta[property^="al:"], meta[property="og:type"]');
+    for (var m = 0; m < alTags.length; m++) {
+      alMeta.push(alTags[m].getAttribute("property") + "=" +
+        (alTags[m].getAttribute("content") || "").slice(0, 70));
+    }
+    lines.push("app-links: " + (alMeta.length ? alMeta.join("  ") : "none"));
     lines.push("articles: " + document.querySelectorAll('div[role="article"]').length);
     lines.push("");
 
