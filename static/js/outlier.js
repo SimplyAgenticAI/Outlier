@@ -25,7 +25,12 @@
         window.location.href = "/login";
         throw new Error("Signed out");
       }
-      return response.json();
+      // A 500 returns an HTML error page, not JSON. Parsing that throws a
+      // useless "Unexpected token <" — surface the status instead so the real
+      // failure is legible rather than swallowed by a generic catch.
+      return response.json().catch(function () {
+        throw new Error("Server error (" + response.status + ")");
+      });
     });
   }
 
@@ -238,17 +243,27 @@
 
       post("/api/source/" + sourceId, undefined, "DELETE")
         .then(function (data) {
-          if (!data.ok) throw new Error("Delete failed");
-          var row = deleteBtn.closest("tr");
-          if (row) {
-            row.style.transition = "opacity 0.25s, transform 0.25s";
-            row.style.opacity = "0";
-            row.style.transform = "translateX(-14px)";
-            setTimeout(function () { row.remove(); }, 260);
+          if (!data.ok) throw new Error(data.error || "Delete failed");
+          // The grid renders each source as a card, not a table row, so remove
+          // the whole card — closest("tr") always missed and left it on screen.
+          var card = deleteBtn.closest(".source-card") || deleteBtn.closest("tr");
+          if (card) {
+            card.style.transition = "opacity 0.25s, transform 0.25s";
+            card.style.opacity = "0";
+            card.style.transform = "translateX(-14px)";
+            setTimeout(function () { card.remove(); }, 260);
           }
           toast("Deleted " + data.deleted + " posts");
         })
-        .catch(function () { toast("Could not delete that source", true); });
+        .catch(function (err) {
+          var msg = (err && err.message) || "Could not delete that source";
+          // A stale page carries an old CSRF token; the cure is a reload, so
+          // say that instead of a dead-end error.
+          if (/csrf|token/i.test(msg)) {
+            msg = "Your session refreshed in another tab — reload this page and try again.";
+          }
+          toast(msg, true);
+        });
     }
   });
 
