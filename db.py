@@ -414,9 +414,11 @@ def upsert_source(conn, fb_id, kind, name, url=None, member_count=None, user_id=
         INSERT INTO sources (user_id, fb_id, kind, name, url, member_count, last_capture)
         VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(user_id, fb_id) DO UPDATE SET
-            -- kind is refreshed so a source first seen as a "profile" (before a
-            -- Page could be told apart) is corrected to "page" on a later scan.
-            kind         = excluded.kind,
+            -- kind is deliberately NOT refreshed here. Auto-detection is
+            -- best-effort (Facebook's SPA hides the page/profile signal on
+            -- in-app navigation), so a later scan must not overwrite a label
+            -- the user has corrected by hand. Kind is set once on insert and
+            -- changed only through the manual control on the source card.
             name         = excluded.name,
             url          = COALESCE(excluded.url, sources.url),
             member_count = COALESCE(excluded.member_count, sources.member_count),

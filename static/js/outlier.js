@@ -267,6 +267,27 @@
     }
   });
 
+  /* ----------------------------------------------------- source kind */
+
+  // Profile vs Page can't always be told apart automatically, so the label is
+  // editable on the source card. The choice is saved straight away and sticks —
+  // a later scan won't overwrite it (see upsert_source).
+  document.addEventListener("change", function (event) {
+    var select = event.target.closest(".kind-select");
+    if (!select) return;
+    var id = select.dataset.sourceId;
+    select.disabled = true;
+    post("/api/source/" + id, { kind: select.value }, "PATCH")
+      .then(function (data) {
+        if (!data.ok) throw new Error(data.error || "Could not update");
+        toast("Marked as " + select.value);
+      })
+      .catch(function (err) {
+        toast((err && err.message) || "Could not update the type", true);
+      })
+      .then(function () { select.disabled = false; });
+  });
+
   /* ------------------------------------------------------------ save */
 
   document.addEventListener("click", function (event) {

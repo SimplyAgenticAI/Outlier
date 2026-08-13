@@ -1375,18 +1375,34 @@ def api_source(source_id):
     """Rename or delete a single source and everything under it."""
     if request.method == "PATCH":
         body = request.get_json(silent=True) or {}
-        name = (body.get("name") or "").strip()
-        if not name:
-            return jsonify({"ok": False, "error": "Name cannot be empty"}), 400
+        fields, values = [], []
+
+        if "name" in body:
+            name = (body.get("name") or "").strip()
+            if not name:
+                return jsonify({"ok": False, "error": "Name cannot be empty"}), 400
+            fields.append("name = ?")
+            values.append(name[:120])
+
+        if "kind" in body:
+            kind = (body.get("kind") or "").strip().lower()
+            if kind not in ("group", "profile", "page"):
+                return jsonify({"ok": False, "error": "Invalid kind"}), 400
+            fields.append("kind = ?")
+            values.append(kind)
+
+        if not fields:
+            return jsonify({"ok": False, "error": "Nothing to update"}), 400
 
         with db.get_db() as conn:
+            values.extend([source_id, _uid()])
             updated = conn.execute(
-                "UPDATE sources SET name = ? WHERE id = ? AND user_id = ?",
-                (name[:120], source_id, _uid()),
+                f"UPDATE sources SET {', '.join(fields)} WHERE id = ? AND user_id = ?",
+                values,
             )
             if not updated.rowcount:
                 return jsonify({"ok": False, "error": "Not found"}), 404
-        return jsonify({"ok": True, "name": name[:120]})
+        return jsonify({"ok": True})
 
     # Captures reference sources, and saved/remix rows reference posts, so the
     # dependents have to go before the source itself or the FK trips.

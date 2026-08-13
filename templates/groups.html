@@ -18,7 +18,19 @@
        data-source-id="{{ source.id }}">
 
     <div class="source-head">
+      {# Groups are detected unambiguously from the URL, so they stay a plain
+         chip. A profile and a Page share the same URL shape and can't always be
+         told apart automatically, so those are editable — pick the right one
+         and it sticks (a later scan won't overwrite your choice). #}
+      {% if source.kind == 'group' or source.is_demo %}
       <span class="kind-chip">{{ source.kind }}</span>
+      {% else %}
+      <select class="kind-chip kind-select" data-source-id="{{ source.id }}"
+              aria-label="Is this a profile or a Page?" title="Profile or Page? Your choice sticks.">
+        <option value="profile"{{ ' selected' if source.kind != 'page' }}>profile</option>
+        <option value="page"{{ ' selected' if source.kind == 'page' }}>page</option>
+      </select>
+      {% endif %}
       {% if source.is_demo %}
         <span class="demo-chip" title="Generated sample content">sample</span>
       {% endif %}
