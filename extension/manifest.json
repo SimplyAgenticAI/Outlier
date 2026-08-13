@@ -1,14 +1,19 @@
 {
   "manifest_version": 3,
   "name": "Tallgrass — by MacRandle Acres",
-  "version": "11.4",
+  "version": "11.5",
   "description": "Captures posts from the Facebook groups and profiles you're viewing and sends them to your Tallgrass dashboard, which ranks each post against the median for its own group.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
   "permissions": [
     "storage",
     "activeTab",
     "alarms"
   ],
-  "comment_hosts": "Chrome match patterns ignore port numbers, so the portless form covers 5050, 5000 and anything else Flask is started on. Pinning :5050 meant a dashboard on any other port silently had no connect script and no way to be reached.",
   "host_permissions": [
     "http://localhost/*",
     "http://127.0.0.1/*",
@@ -34,7 +39,6 @@
       "run_at": "document_idle"
     },
     {
-      "comment": "Runs on the dashboard only, so it can hand the extension its endpoint and key with nothing for the user to type or click.",
       "matches": [
         "http://localhost/*",
         "http://127.0.0.1/*",
@@ -48,6 +52,12 @@
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "Tallgrass"
+    "default_title": "Tallgrass",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
   }
 }

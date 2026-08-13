@@ -7,3 +7,6 @@ data/
 *.db
 *.db-wal
 *.db-shm
+
+# Chrome Web Store upload package (build artifact, rebuilt from extension/)
+tallgrass-extension-*.zip
