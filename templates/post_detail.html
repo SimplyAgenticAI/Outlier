@@ -118,6 +118,19 @@
     <a class="btn btn-ghost" href="{{ post.permalink }}" target="_blank" rel="noopener noreferrer">
       Open on Facebook
     </a>
+    {% elif post.body and post.source_url and post.source_kind == 'group' and not post.is_demo %}
+    {# No permalink, but there is a caption to search on. Facebook hides a post's
+       own link until you hover it, so instead of a guessed link this opens the
+       group's search pre-filled with the caption's first words — it can never
+       land on the wrong post, at worst it shows search results. #}
+    <a class="btn btn-ghost" href="{{ post.source_url.rstrip('/') }}/search/?q={{ post.body.split()[:10] | join(' ') | urlencode }}"
+       target="_blank" rel="noopener noreferrer">
+      Find this post in the group
+    </a>
+    <p class="fine">
+      Facebook only reveals a post's own link on hover, so this opens
+      {{ post.source_name }}'s search with this post's first words instead.
+    </p>
     {% elif post.source_url %}
     <a class="btn btn-ghost" href="{{ post.source_url }}" target="_blank" rel="noopener noreferrer">
       Open {{ post.source_name }} on Facebook

@@ -147,6 +147,18 @@
               stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </a>
+    {% elif post.body and post.source_url and post.source_kind == 'group' and not post.is_demo %}
+    {# Facebook hides a post's own link until you hover it, so rather than guess
+       at a permalink — a guess that could open the WRONG post — this opens the
+       group's search pre-filled with the caption's first words. The worst it
+       can do is show search results; it can never point at the wrong post. #}
+    <a class="icon-btn" href="{{ post.source_url.rstrip('/') }}/search/?q={{ post.body.split()[:10] | join(' ') | urlencode }}"
+       target="_blank" rel="noopener noreferrer" title="Find this post in the group">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/>
+        <path d="M16.5 16.5 21 21" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+    </a>
     {% endif %}
     <a class="icon-btn" href="{{ url_for('post_detail', post_id=post.id) }}" title="Open and remix">
       <svg viewBox="0 0 24 24" aria-hidden="true">
