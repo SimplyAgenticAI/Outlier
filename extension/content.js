@@ -938,7 +938,11 @@
       /([\d][\d.,]*\s*[KMB]?)\s*(?:people\s+)?reacted/i,
       /(?:Like|reaction)s?:?\s*([\d][\d.,]*\s*[KMB]?)/i,
       /([\d][\d.,]*\s*[KMB]?)\s+reactions?/i,
-      /See who reacted[^\d]*([\d][\d.,]*\s*[KMB]?)/i,
+      // [^\d\n] not [^\d]: the labels are joined with newlines into one
+      // haystack, and [^\d]* would skip across that boundary — "…see who
+      // reacted to this\n9,809 views" then read the VIEW count as the reaction
+      // total. Confining the gap to a single line keeps it to this label.
+      /See who reacted[^\d\n]*([\d][\d.,]*\s*[KMB]?)/i,
       /([\d][\d.,]*\s*[KMB]?)\s+likes?\b/i
     ]);
 
@@ -986,16 +990,23 @@
      * were larger than reactions (84), so an unfiltered maximum would have
      * reported the comment count as reactions.
      */
+    /* Views and plays are read BEFORE the reaction total, so the total can
+     * exclude them. On a video or reel the view count is the largest number on
+     * the post by a wide margin — larger than the real reactions — so without
+     * this it won the "largest bare count" contest below and overrode a
+     * correctly-read total. A reel with three likes and 9,809 views was stored
+     * as 9,809 reactions, which then scored it as a huge false outlier.
+     */
+    result.video_plays = bestMatch([
+      /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
+    ]);
+
     var reactionCandidates = bareCounts(article, bar).filter(function (n) {
-      return n !== result.comments && n !== result.shares;
+      return n !== result.comments && n !== result.shares && n !== result.video_plays;
     });
     for (var r = 0; r < reactionCandidates.length; r++) {
       if (reactionCandidates[r] > result.likes) result.likes = reactionCandidates[r];
     }
-
-    result.video_plays = bestMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
-    ]);
 
     // Last resort for reactions: a bare number sitting alone on its own line
     // just above the Like/Comment/Share row.

@@ -242,6 +242,59 @@ check("its caption is read",
 check("the reaction count BELOW the bar is read", rp.likes, 214);
 check("and the comment's own count is not taken", rp.likes !== 1);
 
+/* A video's view count must never be read as its reaction total.
+ *
+ * The reaction total is chosen as the largest bare number left after the
+ * comment and share tallies are removed. A view count is larger than either —
+ * and larger than the real reactions — so it won that contest and OVERRODE a
+ * correctly-read total. A reel with three likes and 9,809 views arrived in the
+ * dashboard showing 9,809 reactions, which then scored it as a huge outlier.
+ * Views are now excluded the same way comments and shares already are.
+ */
+var vid = buildPage([]);
+var VD = vid.doc;
+
+var vBox = VD.el("div");
+vBox.setAttribute("role", "article");
+var vName = VD.el("a");
+vName.setAttribute("role", "link");
+vName.textContent = "Renz Journey";
+vBox.appendChild(vName);
+
+var vCap = VD.el("div");
+vCap.setAttribute("dir", "auto");
+vCap.textContent = "New reel is up, let me know what you think";
+vBox.appendChild(vCap);
+
+// The real reaction summary: only a few.
+var vReact = VD.el("div");
+vReact.setAttribute("aria-label", "3 reactions; see who reacted to this");
+vBox.appendChild(vReact);
+
+// The view count — worded label plus the bare number Facebook renders beside
+// it. The bare number is what used to win the reaction contest.
+var vViewsLabel = VD.el("div");
+vViewsLabel.setAttribute("aria-label", "9,809 views");
+vBox.appendChild(vViewsLabel);
+var vViewsNum = VD.el("div");
+vViewsNum.textContent = "9,809";
+vBox.appendChild(vViewsNum);
+
+var vBar = VD.el("div");
+vBar.setAttribute("role", "button");
+vBar.setAttribute("aria-label", "Like");
+vBar.textContent = "Like Comment Share";
+vBox.appendChild(vBar);
+
+vid.root.appendChild(vBox);
+
+var vidApi = runScan(vid, "/groups/reels");
+vidApi.scanPosts();
+var vp = vidApi.queue()[0] || {};
+check("the reel is captured", !!vp.fb_post_id);
+check("its reactions are the real few, not the view count", vp.likes, 3);
+check("the view count is kept separately as plays", vp.video_plays, 9809);
+
 console.log("a feed of loading skeletons and real posts");
 /* From tallgrass-page-report (1).txt, /groups/665320572142756:
  *   div[role="article"]: 4  — 2 comments, and 2 empty "Loading..." shells
