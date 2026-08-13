@@ -675,7 +675,41 @@
     var text = String(raw || "");
     if (text.length < 12) return false;
     var hidden = (text.match(/[͏​]/g) || []).length;
-    return hidden / text.length >= 0.2;
+    if (hidden / text.length >= 0.2) return true;
+    // A second decoy shape, this one with no joiners at all: a single unbroken
+    // run of mixed-case letters and digits. Facebook plants these too, and on
+    // a post with no real caption to outrank them one becomes the "caption" —
+    // which is how a captionless photo landed with a body of
+    // "Q60yj701njCNjxYWFmTQNtvVn5Dd0JNaaU09jgorkngXF3xsmjN". Detected on shape,
+    // never on content, so it cannot be fooled by what the token happens to spell.
+    return isTokenDecoy(text);
+  }
+
+  /* A joiner-free decoy: one long unbroken alphanumeric token.
+   *
+   * No human caption is a thirty-character word, so length plus the total
+   * absence of whitespace already separates these from real copy. The one
+   * kind of legitimate single-token caption is a link, a handle or a hashtag,
+   * and each is carved out explicitly.
+   *
+   * Requiring all three character classes — an uppercase letter, a lowercase
+   * letter AND a digit — is what keeps a genuinely long word safe: a German
+   * compound runs long but never mixes numbers into its letters, so it is
+   * left alone. A decoy that happened to omit digits would slip through, but
+   * that only leaves the status quo in place; it never removes a real caption.
+   *
+   * Like every other branch here this decides only WHICH block becomes the
+   * caption. A post whose lone text block is a token decoy is still captured,
+   * with no caption — the same as any photo posted without words.
+   */
+  function isTokenDecoy(raw) {
+    var text = String(raw || "").trim();
+    if (text.length < 30) return false;
+    if (/\s/.test(text)) return false;                        // one unbroken run
+    if (/^(?:https?:\/\/|www\.)/i.test(text)) return false;   // a link is real copy
+    if (text.charAt(0) === "@" || text.charAt(0) === "#") return false;  // handle / hashtag
+    if (text.indexOf(".") !== -1 || text.indexOf("/") !== -1) return false;  // domains, paths
+    return /[A-Z]/.test(text) && /[a-z]/.test(text) && /[0-9]/.test(text);
   }
 
   function longestTextBlock(article, authorName, bar, selector) {

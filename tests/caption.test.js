@@ -121,6 +121,60 @@ junkApi.flush();
 check("  and it reaches the dashboard", junkApi.stats().sent, 1);
 
 console.log();
+console.log("the joiner-free token decoy is caught too");
+
+// Both strings are real: copied from captionless photo posts on the live
+// dashboard, where each had become the post's "caption". No joiners at all —
+// which is why the invisible-character test above misses them.
+var TOKEN_A = "geLjcsfp06K3MSozzgloUsnxaHXa4lAU1iK8TZ0crfwx76heGenNPl";
+var TOKEN_B = "Q60yj701njCNjxYWFmTQNtvVn5Dd0JNaaU09jgorkngXF3xsmjN";
+check("first real token is a decoy", api.isDecoyText(TOKEN_A), true);
+check("second real token is a decoy", api.isDecoyText(TOKEN_B), true);
+check("  and it carries no joiners to catch it by",
+      (TOKEN_B.match(/͏/g) || []).length, 0);
+
+console.log();
+console.log("legitimate single-token captions are carved out");
+
+[
+  "https://example.com/aB3xZ9kQ7mNp2wL",                 // a link
+  "www.macrandleacres.com/tallgrass",
+  "@LynetteCunningham",                                   // a handle
+  "#SpiritualAwakening2026",                              // a hashtag
+  "Rindfleischetikettierungsuberwachungsaufgaben",        // a long real word, no digits
+  "SAVE20"                                                // a short promo code
+].forEach(function (real) {
+  check("not a decoy: " + real.slice(0, 34), api.isDecoyText(real), false);
+});
+
+console.log();
+console.log("a real caption still wins over a token decoy");
+
+var mixPage = buildPage([{ body: "Grateful for this community today", likes: 90 }]);
+var mixScan = runScan(mixPage, "/groups/1234567890/");
+var mixArt = global.document.querySelectorAll('div[role="article"]')[0];
+var tokenBlock = mixPage.doc.el("div");
+tokenBlock.setAttribute("dir", "auto");
+tokenBlock.textContent = TOKEN_A;                          // longer than the caption
+mixArt.appendChild(tokenBlock);
+mixScan.scanPosts();
+var mixPost = mixScan.queue()[0];
+check("the post is captured", mixScan.queue().length, 1);
+check("  with its own words, not the token", mixPost && mixPost.body,
+      "Grateful for this community today");
+
+console.log();
+console.log("a captionless post whose only text is a token decoy");
+
+var tokenOnly = buildPage([{ body: TOKEN_B, likes: 1500, comments: 42, shares: 863 }]);
+var tokenApi = runScan(tokenOnly, "/groups/1234567890/");
+tokenApi.scanPosts();
+var tokenPost = tokenApi.queue()[0];
+check("it is still queued", tokenApi.queue().length, 1);
+check("  with its engagement intact", tokenPost && tokenPost.likes, 1500);
+check("  and no token in the caption", tokenPost && (tokenPost.body || ""), "");
+
+console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");
   process.exit(1);
