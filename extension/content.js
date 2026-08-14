@@ -1125,11 +1125,30 @@
       /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
     ]);
 
+    /* A bare number may only correct the reaction total UP to a plausible
+     * multiple of what Facebook labelled in words.
+     *
+     * The bare-count pass exists for one case: Facebook shows the per-reaction
+     * PARTS ("1.7K Likes") and matching read a part instead of the 2.5K total,
+     * which is a bare number nearby. But a real total is at most the sum of its
+     * parts — it is never HUNDREDS of times a value Facebook explicitly wrote
+     * as "33 reactions". Without this cap any large unrelated number on the
+     * post — a group's member count, a nested post's tally, a photo count —
+     * won the "largest bare count" contest and was stored as the reactions. A
+     * post with 33 reactions came back as 9,931. The cap keeps the total-recovery
+     * (2.5K is well within 4x of a 1.7K part) and rejects the garbage (9,931 is
+     * 300x of 33). When nothing was labelled at all (wordedLikes 0) there is no
+     * trustworthy anchor, so the largest bare count is still the last resort.
+     */
+    var wordedLikes = result.likes;
     var reactionCandidates = bareCounts(article, bar).filter(function (n) {
       return n !== result.comments && n !== result.shares && n !== result.video_plays;
     });
     for (var r = 0; r < reactionCandidates.length; r++) {
-      if (reactionCandidates[r] > result.likes) result.likes = reactionCandidates[r];
+      var cand = reactionCandidates[r];
+      if (cand <= result.likes) continue;
+      if (wordedLikes > 0 && cand > wordedLikes * 4) continue;   // implausible: not a reaction total
+      result.likes = cand;
     }
 
     // Last resort for reactions: a bare number sitting alone on its own line

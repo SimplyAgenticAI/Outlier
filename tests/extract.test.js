@@ -605,6 +605,36 @@ check("a larger comment count is not read as reactions", small.likes, 84);
 check("comments unchanged", small.comments, 169);
 check("shares unchanged", small.shares, 8);
 
+console.log();
+console.log("a stray large number never overrides a labelled reaction count");
+
+// The exact shape reported: a group post with 33 reactions came back as 9,931,
+// a stray large number (a member count, a nested tally) that won the bare-count
+// contest. Facebook labelled "33 reactions" in words — that is authoritative.
+var strayPage = buildPage([{ body: "Grateful for this group today", likes: 33 }]);
+var strayApi = runScan(strayPage, "/groups/1234567890/");
+var strayArt = global.document.querySelectorAll('div[role="article"]')[0];
+var strayNum = strayPage.doc.el("div");
+strayNum.setAttribute("dir", "auto");
+strayNum.textContent = "9,931";
+strayArt.appendChild(strayNum);
+strayApi.scanPosts();
+var strayPost = strayApi.queue()[0] || {};
+check("the labelled 33 reactions stands, not the stray 9,931", strayPost.likes, 33);
+
+// The legitimate case the cap must NOT break: a per-type part read instead of
+// the total, with the true total a bare number nearby (2.5K is within 4x).
+var totalPage = buildPage([{ body: "Huge response to this one", likes: 1700 }]);
+var totalApi = runScan(totalPage, "/groups/1234567890/");
+var totalArt = global.document.querySelectorAll('div[role="article"]')[0];
+var totalNum = totalPage.doc.el("div");
+totalNum.setAttribute("dir", "auto");
+totalNum.textContent = "2.5K";
+totalArt.appendChild(totalNum);
+totalApi.scanPosts();
+var totalPost = totalApi.queue()[0] || {};
+check("a plausible bare total still corrects a per-type part", totalPost.likes, 2500);
+
 /* -------------------------------------------------- feed post origins -- */
 
 console.log();
