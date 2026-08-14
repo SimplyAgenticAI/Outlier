@@ -1205,6 +1205,24 @@
     return raw.length >= 40 ? raw.slice(0, 5000) : "";
   }
 
+  /* Is this transcription a screenshot of ANOTHER post, not a caption?
+   *
+   * textFromAlt reads Facebook's OCR of an image so a meme or quote card keeps
+   * its words. But when someone posts a screenshot of someone else's post, that
+   * OCR carries the other post's chrome — a reaction or comment tally, or the
+   * Like/Comment/Share bar. Reading it as the caption made a plain re-share look
+   * like the author had written "... 50K reactions ...". A meme does not contain
+   * a reaction count or the whole action bar, so those two signals are safe to
+   * treat as "this is a picture of a post" and drop. The post is still captured,
+   * with no caption — the honest state for a wordless re-share.
+   */
+  function looksLikePostChrome(text) {
+    var t = String(text || "");
+    if (/\b\d[\d.,]*\s*[KMB]?\s+(?:reactions?|likes?|comments?|shares?)\b/i.test(t)) return true;
+    if (/\blike\b[\s\S]{0,20}\bcomment\b[\s\S]{0,20}\bshare\b/i.test(t)) return true;
+    return false;
+  }
+
   /* -------------------------------------------------------------- media -- */
 
   var MIN_MEDIA_PX = 130;
@@ -1241,10 +1259,13 @@
     var hasVideo = !!(video && !isBelowBar(video, bar)) ||
                    !!article.querySelector('a[href*="/reel/"], a[href*="/videos/"]');
 
-    // Any image's alt may carry the transcription, not only the largest.
+    // Any image's alt may carry the transcription, not only the largest. But
+    // OCR that reads like a post's own chrome is a screenshot of someone else's
+    // post, not this author's caption, so it is skipped.
     var altText = "";
     for (var k = 0; k < found.length && !altText; k++) {
-      altText = textFromAlt(found[k].alt);
+      var transcribed = textFromAlt(found[k].alt);
+      if (transcribed && !looksLikePostChrome(transcribed)) altText = transcribed;
     }
 
     return {
@@ -3018,6 +3039,7 @@
     extractAuthor: extractAuthor,
     extractPostSource: extractPostSource,
     isSponsoredOrSuggested: isSponsoredOrSuggested,
+    looksLikePostChrome: looksLikePostChrome,
     extractEngagement: extractEngagement,
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,

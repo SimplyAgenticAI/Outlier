@@ -197,6 +197,26 @@ check("  with its engagement intact", tokenPost && tokenPost.likes, 1500);
 check("  and no token in the caption", tokenPost && (tokenPost.body || ""), "");
 
 console.log();
+console.log("a screenshot of another post is not read as the caption");
+
+// OCR of someone else's post carries its chrome — these must be recognised.
+check("a reaction tally in the OCR is post chrome",
+      api.looksLikePostChrome("Jane Doe\n50K reactions 2.1K comments\nGreat news everyone"), true);
+check("the transcribed action bar is post chrome",
+      api.looksLikePostChrome("Some text\nLike Comment Share"), true);
+
+console.log();
+console.log("real meme and quote-card text is still kept");
+[
+  "When you finally finish the project and it actually works",
+  "The best time to plant a tree was 20 years ago. The second best time is now.",
+  "SALE ENDS FRIDAY - everything must go",
+  "Monday motivation: keep showing up"
+].forEach(function (real) {
+  check("not post chrome: " + real.slice(0, 34), api.looksLikePostChrome(real), false);
+});
+
+console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");
   process.exit(1);
