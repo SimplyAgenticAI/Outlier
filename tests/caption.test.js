@@ -148,6 +148,28 @@ console.log("legitimate single-token captions are carved out");
 });
 
 console.log();
+console.log("a decoy dressed as a domain is caught");
+
+// Real, from the dashboard: a captionless post arrived reading "Ghgb4e.com".
+check("the fake domain is a decoy", api.isDecoyText("Ghgb4e.com"), true);
+check("  even short and dotted", api.isDecoyText("Xk7Qz.io"), true);
+
+console.log();
+console.log("real links and domains are left alone");
+
+[
+  "mystore.com",              // clean lowercase
+  "MyStore.com",              // brand casing, no digit
+  "promo2024.com",            // worded promo with a digit, no caps
+  "bit.ly",
+  "linktr.ee",
+  "https://example.com/aB3",  // a real URL with a path
+  "www.macrandleacres.com"
+].forEach(function (real) {
+  check("not a decoy: " + real, api.isDecoyText(real), false);
+});
+
+console.log();
 console.log("a real caption still wins over a token decoy");
 
 var mixPage = buildPage([{ body: "Grateful for this community today", likes: 90 }]);

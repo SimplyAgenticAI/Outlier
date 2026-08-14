@@ -700,6 +700,8 @@
    */
   function isDecoyText(raw) {
     var text = String(raw || "");
+    // Domain decoys are short, so this is tested before the length floor below.
+    if (isDomainDecoy(text)) return true;
     if (text.length < 12) return false;
     var hidden = (text.match(/[͏​]/g) || []).length;
     if (hidden / text.length >= 0.2) return true;
@@ -737,6 +739,29 @@
     if (text.charAt(0) === "@" || text.charAt(0) === "#") return false;  // handle / hashtag
     if (text.indexOf(".") !== -1 || text.indexOf("/") !== -1) return false;  // domains, paths
     return /[A-Z]/.test(text) && /[a-z]/.test(text) && /[0-9]/.test(text);
+  }
+
+  /* A decoy dressed as a domain: "Ghgb4e.com".
+   *
+   * The token-decoy test carves out anything with a dot to protect real links,
+   * and Facebook plants exactly that — a short fake domain as the whole caption,
+   * so a captionless post arrives reading "Ghgb4e.com". A domain people actually
+   * type is lowercase; the signature here is a single bare domain (no scheme, no
+   * path) whose label carries BOTH an uppercase letter and a digit, which no
+   * ordinary domain does. Requiring both keeps clean links (mystore.com,
+   * bit.ly), plain brand casing (MyStore.com) and worded promo domains
+   * (promo2024.com) safe. Like every branch here it only decides the caption —
+   * a post whose lone block is one of these is still captured, with none.
+   */
+  function isDomainDecoy(raw) {
+    var text = String(raw || "").trim();
+    if (!text || /\s/.test(text)) return false;                 // a single token only
+    if (/^(?:https?:\/\/|www\.)/i.test(text)) return false;     // a real link
+    if (text.indexOf("/") !== -1) return false;                 // has a path -> a real URL
+    // Bare domain shape: one or more labels then a TLD, nothing else.
+    if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(text)) return false;
+    var withoutTld = text.slice(0, text.lastIndexOf("."));
+    return /[A-Z]/.test(withoutTld) && /[0-9]/.test(withoutTld);
   }
 
   function longestTextBlock(article, authorName, bar, selector) {
