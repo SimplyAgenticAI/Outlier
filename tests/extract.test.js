@@ -605,6 +605,71 @@ check("a larger comment count is not read as reactions", small.likes, 84);
 check("comments unchanged", small.comments, 169);
 check("shares unchanged", small.shares, 8);
 
+/* -------------------------------------------------- feed post origins -- */
+
+console.log();
+console.log("a feed post is filed under its own origin, or skipped");
+
+var feedApi = runScan(buildPage([]), "/");
+check("the home feed is a supported source", feedApi.detectSource().kind, "feed");
+check("  named, not 'unsupported'", feedApi.detectSource().name, "Home feed");
+
+var FD = buildPage([]).doc;
+
+// A group post on the feed: a header link to /groups/<id> carrying the name.
+function feedArticle(build) {
+  var art = FD.el("div");
+  art.setAttribute("role", "article");
+  var nameLink = FD.el("a");
+  nameLink.setAttribute("role", "link");
+  nameLink.textContent = "Renz Journey";
+  nameLink.href = "https://www.facebook.com/renz.journey";
+  nameLink.setAttribute("href", "/renz.journey");
+  art.appendChild(nameLink);
+  build(art);
+  var bar = FD.el("div");
+  bar.setAttribute("role", "button");
+  bar.setAttribute("aria-label", "Like");
+  bar.textContent = "Like Comment Share";
+  art.appendChild(bar);
+  return art;
+}
+
+var groupPost = feedArticle(function (art) {
+  var g = FD.el("a");
+  g.textContent = "Empaths & Old Souls";
+  g.href = "https://www.facebook.com/groups/1234567890";
+  g.setAttribute("href", "/groups/1234567890");
+  art.appendChild(g);
+});
+var gSrc = feedApi.extractPostSource(groupPost, { name: "Renz Journey", url: "https://www.facebook.com/renz.journey" }, feedApi.findActionBar(groupPost));
+check("a group post is filed under the group", gSrc && gSrc.fb_id, "group:1234567890");
+check("  with the group's name", gSrc && gSrc.name, "Empaths & Old Souls");
+
+// A post with no group link is filed under its author (a Page or a person).
+var authorPost = feedArticle(function () {});
+var aSrc = feedApi.extractPostSource(authorPost,
+  { name: "Renz Journey", url: "https://www.facebook.com/renz.journey" },
+  feedApi.findActionBar(authorPost));
+check("otherwise it's filed under the author", aSrc && aSrc.fb_id, "profile:renz.journey");
+
+// No group link and no readable author -> null, so the caller skips it.
+var orphan = feedArticle(function () {});
+var oSrc = feedApi.extractPostSource(orphan, { name: "", url: "" }, feedApi.findActionBar(orphan));
+check("an unreadable origin returns null (skipped, never misfiled)", oSrc, null);
+
+console.log();
+console.log("ads and suggestions are recognised");
+var ad = FD.el("div");
+ad.textContent = "Sponsored\nBuy our thing now";
+check("a Sponsored post is flagged", feedApi.isSponsoredOrSuggested(ad), true);
+var sugg = FD.el("div");
+sugg.textContent = "Suggested for you\nA page you might like";
+check("a Suggested post is flagged", feedApi.isSponsoredOrSuggested(sugg), true);
+var normal = FD.el("div");
+normal.textContent = "Just sharing my morning coffee thoughts";
+check("a normal post is not flagged", feedApi.isSponsoredOrSuggested(normal), false);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

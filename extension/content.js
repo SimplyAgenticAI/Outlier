@@ -205,6 +205,19 @@
       };
     }
 
+    /* The home feed has no single source — every post came from somewhere
+     * different. Returning a marker (rather than null, which reads as
+     * "unsupported") lets the scan run; each post then carries its own origin,
+     * and any post whose origin can't be read is skipped, never filed here. So
+     * this source is only a scan gate — the server never stores a "Home feed"
+     * row because no post is ever attributed to it.
+     */
+    if (location.pathname === "/" || location.pathname === "" ||
+        location.pathname === "/home.php") {
+      return { fb_id: "feed:home", kind: "feed", name: "Home feed",
+               isFeed: true, url: location.origin + "/" };
+    }
+
     /* Facebook's own paths, which are not people.
      *
      * The list was short, and everything missing from it became a "profile"
@@ -239,6 +252,65 @@
     }
 
     return null;
+  }
+
+  /* The reserved paths, hoisted so extractPostSource can reject a feed post
+   * whose "author" link points at one of Facebook's own pages rather than a
+   * person or a Page. Kept in sync with the list inside detectSource. */
+  var RESERVED_PATHS = ["watch", "marketplace", "groups", "home.php", "gaming",
+    "events", "notifications", "messages", "profile.php", "photo", "photo.php",
+    "reel", "reels", "stories", "story.php", "permalink.php", "video.php",
+    "search", "bookmarks", "friends", "settings", "privacy", "policies", "help",
+    "sharer.php", "login.php", "pages", ""];
+
+  /* Where a single FEED post came from — its own origin, not the page's.
+   *
+   * On the home feed every post is from somewhere different, so the source is
+   * read per post rather than from the URL. A group post shows a link to the
+   * group it was posted in; anything else is attributed to its author, which is
+   * the Page or the person who posted it. This is deliberately STRICT: it
+   * returns a source only when one can be read with confidence, and null
+   * otherwise. The caller skips a null rather than guess — filing a post under
+   * the wrong median is the one thing this product must never do, so capturing
+   * fewer feed posts is the correct way to be wrong.
+   */
+  function extractPostSource(article, author, bar) {
+    // A group post: a header link to /groups/<id> that carries the group name.
+    var links = article.querySelectorAll('a[href*="/groups/"]');
+    for (var i = 0; i < links.length; i++) {
+      var link = links[i];
+      if (!owned(article, link)) continue;
+      if (isBelowBar(link, bar)) continue;                 // header, not a comment
+      var href = link.href || link.getAttribute("href") || "";
+      var m = href.match(/\/groups\/([^/?#]+)/);
+      if (!m || m[1] === "feed" || m[1] === "search") continue;
+      var name = (link.innerText || "").trim().replace(/\s+/g, " ");
+      if (!name || name.length > 100 || /^\d+$/.test(name)) continue;  // need a real name
+      return { fb_id: "group:" + m[1], kind: "group", name: name,
+               url: location.origin + "/groups/" + m[1] };
+    }
+
+    // Otherwise the post's author IS the source — a Page or a person's profile.
+    if (author && author.name && author.url) {
+      var pm = author.url.match(/facebook\.com\/([^/?#]+)/);
+      if (pm && pm[1] && RESERVED_PATHS.indexOf(pm[1]) === -1) {
+        return { fb_id: "profile:" + pm[1], kind: "profile",
+                 name: author.name, url: author.url };
+      }
+    }
+    return null;                          // origin unknown — caller skips it
+  }
+
+  /* An ad or an algorithmic suggestion, which must never be captured.
+   *
+   * Facebook obfuscates the "Sponsored" label to defeat blockers, so this is a
+   * best-effort text scan, not a guarantee — the strict source read above is
+   * the real safety net. Bounded to the top of the post so a comment that
+   * happens to say "sponsored" doesn't trip it.
+   */
+  function isSponsoredOrSuggested(article) {
+    var text = (article.innerText || "").slice(0, 400);
+    return /\bsponsored\b|suggested for you|people you may know|suggested\s+(?:group|post|for you)/i.test(text);
   }
 
   /* ------------------------------------------------------ post extraction */
@@ -1816,6 +1888,26 @@
 
       var bar = findActionBar(article);
       var author = extractAuthor(article, bar);
+
+      /* On the home feed each post is filed under its own origin, and posts
+       * whose origin can't be read — or that are ads/suggestions — are skipped
+       * rather than dumped under the feed. effectiveSource is what the post is
+       * attributed to: its own origin on the feed, the page's source elsewhere.
+       */
+      var onFeed = !!(source && source.isFeed);
+      var effectiveSource = source;
+      if (onFeed) {
+        if (isSponsoredOrSuggested(article)) {
+          if (!article.__tallgrassSkipped) { article.__tallgrassSkipped = true; STATS.skipped++; }
+          return;
+        }
+        effectiveSource = extractPostSource(article, author, bar);
+        if (!effectiveSource) {
+          if (!article.__tallgrassSkipped) { article.__tallgrassSkipped = true; STATS.skipped++; }
+          return;
+        }
+      }
+
       var body = extractBody(article, author.name, bar);
       var permalink = extractPermalink(article);
 
@@ -1945,7 +2037,9 @@
        * reading either can stop it being sent.
        */
       var payload = {
-        fb_post_id: source.fb_id + "-" + postId,
+        // Keyed on the post's OWN origin, so the same post captured from its
+        // group directly and from the feed lands on one row, not two.
+        fb_post_id: effectiveSource.fb_id + "-" + postId,
         body: body,
         permalink: permalink,
         post_type: optional(function () { return extractPostType(article); }, "text"),
@@ -1963,6 +2057,15 @@
         body_from_image: bodyFromImage ? 1 : 0,
         engagement_read: engagementRead ? 1 : 0
       };
+
+      // On the feed the server files each post under the origin it carries. Off
+      // the feed there is one page-level source and no per-post source is sent.
+      if (onFeed) {
+        payload.source = {
+          fb_id: effectiveSource.fb_id, kind: effectiveSource.kind,
+          name: effectiveSource.name, url: effectiveSource.url
+        };
+      }
 
       if (prior) {
         // Already in the dashboard. Only worth re-sending if this read is
@@ -2894,6 +2997,8 @@
     isBelowBar: isBelowBar,
     extractBody: extractBody,
     extractAuthor: extractAuthor,
+    extractPostSource: extractPostSource,
+    isSponsoredOrSuggested: isSponsoredOrSuggested,
     extractEngagement: extractEngagement,
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,
