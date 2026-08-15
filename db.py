@@ -165,6 +165,17 @@ def get_db():
     # Under the default rollback journal a capture batch blocks every page
     # load for its duration, which during a scan is most of the time.
     conn.execute("PRAGMA journal_mode = WAL")
+    # NORMAL is the correct durability level under WAL for a web app: it drops a
+    # disk sync on every commit — a large throughput gain for the write-heavy
+    # capture path when many users scan at once — and cannot corrupt the file.
+    # The only exposure is losing the last transaction on a power loss, and
+    # captured posts are re-capturable, so that trade is right.
+    conn.execute("PRAGMA synchronous = NORMAL")
+    # Keep the scoring reads (which scan every post) off disk under load: a
+    # larger page cache, memory-mapped reads, and in-memory temp sorts.
+    conn.execute("PRAGMA cache_size = -16000")        # ~16 MB per connection
+    conn.execute("PRAGMA temp_store = MEMORY")
+    conn.execute("PRAGMA mmap_size = 134217728")      # 128 MB, shared mapping
     # Wait for a held write lock rather than failing instantly.
     conn.execute("PRAGMA busy_timeout = 8000")
     try:
