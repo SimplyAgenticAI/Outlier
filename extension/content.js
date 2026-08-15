@@ -1006,6 +1006,92 @@
     return false;
   }
 
+  /* The reader's own name, learned from the page's furniture.
+   *
+   * Posts in a GROUP were arriving captioned "Jeff" — the operator's name,
+   * on posts the operator did not write. isBareNamePart cannot help there:
+   * it compares against the author, and the author is somebody else. The name
+   * is arriving as viewer chrome — the comment composer, a tag line, a
+   * reaction attribution — and on a caption-less post that lone word is the
+   * longest thing left for the relaxed pass to find.
+   *
+   * Rather than hunt for the element that holds it, which means guessing at
+   * Facebook's markup and has cost this project a day before, the name is
+   * read from where it is unambiguous: the banner and navigation landmarks,
+   * which sit OUTSIDE every article. Whatever a person's name is, Facebook
+   * writes it up there for the account that is signed in.
+   *
+   * Only person-name-shaped strings contribute — two or three capitalised
+   * words — and each of their parts is registered, so a block holding just
+   * the first name is recognised. Nothing else from the chrome is collected:
+   * a caption reading "Marketplace" is odd but it is not this bug, and the
+   * narrower this is, the less real writing it can cost.
+   *
+   * ARIA landmarks are used because this file already relies on them
+   * throughout and they survive Facebook's class-name churn. If neither
+   * landmark exists the set is empty and nothing changes.
+   */
+  var VIEWER_NAMES = null;
+  var VIEWER_NAMES_AT = 0;
+  var PERSON_NAME_RE = /^[A-Z][A-Za-z'’\-]+(?: [A-Z][A-Za-z'’\-]+){1,2}$/;
+
+  function viewerNames() {
+    var now = Date.now();
+    // The navigation does not change mid-scan, and rebuilding this per post
+    // would walk the banner hundreds of times a sweep.
+    if (VIEWER_NAMES && now - VIEWER_NAMES_AT < 60000) return VIEWER_NAMES;
+
+    var set = Object.create(null);
+    try {
+      // Queried one at a time rather than as a group selector: this has to run
+      // against whatever DOM it is handed, and a comma-separated selector is
+      // the first thing a minimal implementation drops.
+      var roots = [];
+      var landmarks = ['[role="banner"]', '[role="navigation"]'];
+      for (var L = 0; L < landmarks.length; L++) {
+        var hits = document.querySelectorAll(landmarks[L]) || [];
+        for (var h = 0; h < hits.length; h++) roots.push(hits[h]);
+      }
+      for (var i = 0; i < roots.length && i < 6; i++) {
+        var els = roots[i].querySelectorAll("a, span, div, img, image");
+        for (var j = 0; j < els.length && j < 500; j++) {
+          var el = els[j];
+          // The name lives in the label or the avatar's alt as often as it
+          // does in visible text, so all three are read.
+          var candidates = [
+            el.getAttribute && el.getAttribute("aria-label"),
+            el.getAttribute && el.getAttribute("alt"),
+            el.innerText
+          ];
+          for (var c = 0; c < candidates.length; c++) {
+            var raw = String(candidates[c] || "").trim().replace(/\s+/g, " ");
+            if (!raw || raw.length > 40 || !PERSON_NAME_RE.test(raw)) continue;
+            set[raw.toLowerCase()] = true;
+            var parts = raw.split(" ");
+            for (var p = 0; p < parts.length; p++) {
+              if (parts[p].length >= 2) set[parts[p].toLowerCase()] = true;
+            }
+          }
+        }
+      }
+    } catch (e) { /* no document, or a locked-down frame */ }
+
+    VIEWER_NAMES = set;
+    VIEWER_NAMES_AT = now;
+    return set;
+  }
+
+  function isViewerName(text) {
+    var body = String(text || "").trim().replace(/\s+/g, " ");
+    if (!body || body.length > 40 || body.indexOf(" ") !== -1) {
+      // Only a single bare word is judged here. A multi-word caption that
+      // happens to contain a name is writing, and the full-name case is
+      // already covered by the author guards.
+      if (!PERSON_NAME_RE.test(body)) return false;
+    }
+    return !!viewerNames()[body.replace(/[.,:;!?]+$/, "").toLowerCase()];
+  }
+
   function longestTextBlock(article, authorName, bar, selector) {
     var blocks = article.querySelectorAll(selector);
     var best = "";
@@ -1035,6 +1121,8 @@
       if (authorName && text.indexOf(authorName) === 0 && text.length < authorName.length + 25) continue;
       // Or one part of it standing alone — a lone first name is a header too.
       if (authorName && isBareNamePart(text, authorName)) continue;
+      // The READER's name, which belongs to no author on the page.
+      if (isViewerName(text)) continue;
 
       // A block whose text is entirely a link is navigation, not post copy.
       var link = el.querySelector('a[role="link"]');
@@ -2214,6 +2302,9 @@
       // to the name and was getting through.
       if (body && body.replace(/\s+/g, " ") === author.name) body = "";
       if (body && isBareNamePart(body, author.name)) body = "";
+      // And the reader's own name, which arrives from Facebook's furniture
+      // rather than from any author on the page.
+      if (body && isViewerName(body)) body = "";
 
       var hasText = !!body && body.length >= 12;
       var hasMedia = !!(media.image_url || media.has_video);
@@ -2944,6 +3035,22 @@
     lines.push("version : " + version);
     lines.push("url     : " + location.pathname);
     lines.push("source  : " + (source ? source.kind + " / " + source.name : "none"));
+    /* What the page taught us about who is reading it.
+     *
+     * If a caption still comes back as the reader's name, the first question
+     * is whether the name was learned at all — an empty set here and a name
+     * in the caption means the banner did not carry it and somewhere else
+     * must be read instead.
+     */
+    try {
+      var learned = Object.keys(viewerNames());
+      lines.push("viewer names: " + (learned.length
+        ? JSON.stringify(learned.slice(0, 8))
+        : "NONE LEARNED  <- banner/nav carried no name"));
+    } catch (e) {
+      lines.push("viewer names: unavailable");
+    }
+
     // The signal detectProfileKind reads — so a mislabel can be diagnosed.
     var alMeta = [];
     var alTags = document.querySelectorAll('meta[property^="al:"], meta[property="og:type"]');
@@ -3362,6 +3469,10 @@
     textFromAlt: textFromAlt,
     sceneFromAlt: sceneFromAlt,
     isBareNamePart: isBareNamePart,
+    isViewerName: isViewerName,
+    // The learned set is cached for a minute, which is right during a scan and
+    // wrong across tests that each stand up their own page.
+    resetViewerNames: function () { VIEWER_NAMES = null; VIEWER_NAMES_AT = 0; },
     extractEngagement: extractEngagement,
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,

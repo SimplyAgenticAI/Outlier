@@ -279,6 +279,38 @@ check("a single initial is too short to spend a caption on",
 check("no author name means no echo", api.isBareNamePart("Jeff", ""), false);
 
 console.log();
+console.log("the READER's own name is chrome, not a caption");
+
+// Real, from the dashboard: scanning a GROUP, posts written by other people
+// arrived captioned "Jeff". The author guards cannot reach that - the author
+// is somebody else - so the name is read from the page's own banner, where
+// Facebook writes it for whoever is signed in.
+var viewerPage = buildPage([{ body: "", likes: 140 }]);
+var viewerApi = runScan(viewerPage, "/groups/1234567890/");
+var banner = viewerPage.doc.el("div");
+banner.setAttribute("role", "banner");
+var acct = viewerPage.doc.el("div");
+acct.setAttribute("aria-label", "Jeff Randle");
+banner.appendChild(acct);
+viewerPage.root.appendChild(banner);
+viewerApi.resetViewerNames();
+
+check("the full name is recognised", viewerApi.isViewerName("Jeff Randle"), true);
+check("  and the first name alone", viewerApi.isViewerName("Jeff"), true);
+check("  and the last name alone", viewerApi.isViewerName("Randle"), true);
+check("  case and punctuation do not matter", viewerApi.isViewerName("jeff."), true);
+check("an unrelated word is not the reader",
+      viewerApi.isViewerName("Congratulations"), false);
+check("a real sentence is not the reader",
+      viewerApi.isViewerName("Jeff has the best takes here"), false);
+
+// With no banner on the page there is nothing to learn, and nothing changes.
+var barePage = buildPage([{ body: "", likes: 5 }]);
+var bareApi = runScan(barePage, "/groups/1234567890/");
+bareApi.resetViewerNames();
+check("no banner means no guessing", bareApi.isViewerName("Jeff"), false);
+
+console.log();
 console.log("what the picture SHOWS is read separately from what it SAYS");
 
 // Facebook writes both into one alt string. The words belong in the body; the
