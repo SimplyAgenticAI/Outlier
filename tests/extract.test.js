@@ -69,11 +69,14 @@ console.log("which surface are we on");
   ["/pages/category/Restaurant/Joes-99887766554", "Joes | Facebook",
    "profile:99887766554", "page"],
 
-  // The ordinary URL for anyone who never set a username. Reserved on the
-  // path alone, which is right, but with ?id= it names exactly one person —
-  // and returning null here stalled the queue the same way a Page did.
-  ["/profile.php?id=61550123456789", "Sam Rivers | Facebook",
-   "profile:61550123456789", "profile"]
+  /* profile.php stays null, deliberately, and this test is here to keep it
+   * that way. V15.1 resolved it to profile:<id> and profiles stopped
+   * capturing: Facebook addresses one person as both /janedoe and
+   * /profile.php?id=..., the source id flipped between them mid-scan, and
+   * resetForSource wipes the queue and stops the scroll on any id change.
+   * One identity per person matters more than naming every URL.
+   */
+  ["/profile.php?id=61550123456789", "Sam Rivers | Facebook", null, null]
 ].forEach(function (c) {
   var scoped = runScan(buildPage([]), c[0]);
   global.document.title = c[1];

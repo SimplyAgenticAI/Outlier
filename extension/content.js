@@ -93,6 +93,20 @@
     var id = source ? source.fb_id : null;
     if (id === currentSourceId) return false;
 
+    /* Send what is already captured before the counters are thrown away.
+     *
+     * This cleared QUEUE outright, so every post read but not yet delivered
+     * died the moment the source id changed — silently, since the counters
+     * reset in the same breath and the panel then looked like a fresh start
+     * rather than a loss. Facebook re-addresses one page by more than one URL
+     * (a Page answers to /p/<name>-<id> and to its vanity), so this fired
+     * without the user going anywhere at all.
+     *
+     * Sent under the OLD source explicitly. These posts were read there, and
+     * the URL already says otherwise by the time this runs.
+     */
+    if (QUEUE.length && lastKnownSource) flush(lastKnownSource);
+
     currentSourceId = id;
     SEEN = new Set();
     IMAGES_SEEN = {};
@@ -308,28 +322,26 @@
       };
     }
 
-    /* A timeline addressed by number rather than by vanity.
+    /* profile.php stays RESERVED. Do not "fix" this again.
      *
-     * profile.php is in the reserved list below, and rightly — the path alone
-     * names nobody. But with ?id= it names exactly one person, and it is the
-     * ordinary URL for anyone who has never set a username. Falling through
-     * to reserved returned null, and a null source stalls the queue the same
-     * way an unreachable Page did.
+     * V15.1 resolved it to profile:<id>, reasoning that with ?id= it names
+     * exactly one person. It does. That was not the problem.
+     *
+     * The problem is that the SAME person is addressed both ways. Facebook
+     * rewrites the URL between /janedoe and /profile.php?id=123 as a scan
+     * scrolls a timeline, so the source id flipped between two values that
+     * mean one thing — and resetForSource wipes the queue and stops the
+     * auto-scroll on any id change. Profiles stopped capturing mid-scan.
+     *
+     * Returning null here is not a gap, it is the design: flush() falls back
+     * to lastKnownSource precisely because the URL moves under a scan that is
+     * still on the same page. A second identity for one person is worse than
+     * no identity at all.
+     *
+     * The cost is that a scan STARTED on a numeric URL has no source until
+     * the user navigates to the vanity one. That is a real limitation and it
+     * is the lesser one.
      */
-    if (/^\/profile\.php$/i.test(location.pathname)) {
-      var timelineId = null;
-      try {
-        timelineId = new URLSearchParams(location.search).get("id");
-      } catch (e) { /* no URLSearchParams — fall through to reserved */ }
-      if (timelineId) {
-        return {
-          fb_id: "profile:" + groupKey(timelineId),
-          kind: detectProfileKind(),
-          name: nameFromTitle(null) || ("Facebook profile " + timelineId),
-          url: location.origin + "/profile.php?id=" + encodeURIComponent(timelineId)
-        };
-      }
-    }
 
     /* Facebook's own paths, which are not people.
      *
@@ -2593,7 +2605,7 @@
     }
   }
 
-  function flush() {
+  function flush(forceSource) {
     if (!QUEUE.length) return;
 
     /* Never throw the queue away for not knowing where we are.
@@ -2611,9 +2623,14 @@
      * so the last source we resolved is the right one to file them under. If
      * even that is missing they wait rather than die.
      */
-    var source = detectSource() || lastKnownSource;
+    /* forceSource is for the one caller that knows better than the URL:
+     * resetForSource, sending what was captured on the page we are leaving.
+     * By the time it runs the URL already names the new source, so asking
+     * again here would file the old page's posts under the new one.
+     */
+    var source = forceSource || detectSource() || lastKnownSource;
     if (!source) return;
-    lastKnownSource = source;
+    if (!forceSource) lastKnownSource = source;
 
     var batch = QUEUE.splice(0, QUEUE.length);
     STATS.queued = 0;
