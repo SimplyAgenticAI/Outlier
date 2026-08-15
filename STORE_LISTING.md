@@ -54,7 +54,7 @@ Tallgrass captures posts from the Facebook groups and profiles the user is viewi
 | `activeTab` | Reads the Facebook tab the user is actively viewing, only while capturing. |
 | `alarms` | Schedules periodic retry of undelivered captures and a background version check. |
 | Host: `*.facebook.com` | The content script reads post content (author, text, engagement, image) from the Facebook pages the user is already viewing, which is the only way this data can be captured — there is no Facebook API for group post engagement. |
-| Host: `*.onrender.com`, `localhost`, `127.0.0.1` | Sends captured posts to the user's own Tallgrass dashboard, which is hosted on Render or run locally. |
+| Host: `tallgrassapp.com`, `*.onrender.com`, `localhost`, `127.0.0.1` | Sends captured posts to the user's own Tallgrass dashboard — the hosted service at tallgrassapp.com, a Render deployment, or a local instance. |
 | Optional host: `https://*/*`, `http://*/*` | **Requested at runtime only, with an explicit user click,** when a user connects a self-hosted dashboard on a custom domain. Never requested or used otherwise. The default flow uses only the scoped hosts above. |
 
 ---
@@ -69,9 +69,8 @@ Tallgrass captures posts from the Facebook groups and profiles the user is viewi
 
 **Privacy policy URL** (required):
 ```
-https://outlier-q7ie.onrender.com/privacy
+https://tallgrassapp.com/privacy
 ```
-*(If you publish on a branded domain later, update this to that domain's `/privacy`.)*
 
 ---
 
