@@ -180,6 +180,20 @@
     return "profile";
   }
 
+  /* One identity for a group however it was reached.
+   *
+   * A group captured from the feed is keyed on the link's id (/groups/<id>);
+   * captured on the group page it is keyed on the URL's own segment. Facebook
+   * URLs are case-insensitive and sometimes carry a trailing slash, so without
+   * normalising, the same group could land as two sources with a split
+   * baseline — the one thing the median must never suffer. (A group reached by
+   * a numeric id one way and a vanity name the other still can't be reconciled
+   * here; that residual case is handled by merging sources on the dashboard.)
+   */
+  function groupKey(id) {
+    return String(id || "").trim().replace(/\/+$/, "").toLowerCase();
+  }
+
   function detectSource() {
     var url = location.href;
 
@@ -198,7 +212,7 @@
       }
 
       return {
-        fb_id: "group:" + slug,
+        fb_id: "group:" + groupKey(slug),
         kind: "group",
         name: name || ("Facebook group " + slug),
         url: location.origin + "/groups/" + slug
@@ -286,7 +300,7 @@
       if (!m || m[1] === "feed" || m[1] === "search") continue;
       var name = (link.innerText || "").trim().replace(/\s+/g, " ");
       if (!name || name.length > 100 || /^\d+$/.test(name)) continue;  // need a real name
-      return { fb_id: "group:" + m[1], kind: "group", name: name,
+      return { fb_id: "group:" + groupKey(m[1]), kind: "group", name: name,
                url: location.origin + "/groups/" + m[1] };
     }
 

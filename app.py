@@ -1617,4 +1617,9 @@ def not_found(_error):
 db.init_db()
 
 if __name__ == "__main__":
-    app.run(debug=True, port=int(os.environ.get("PORT", 5050)))
+    # Debug (and the Werkzeug interactive debugger, which is remote code
+    # execution) is off unless explicitly asked for with FLASK_DEBUG=1. Render
+    # runs under gunicorn and never reaches this line, but a direct
+    # `python app.py` in the wrong place must not expose a console.
+    app.run(debug=os.environ.get("FLASK_DEBUG") == "1",
+            port=int(os.environ.get("PORT", 5050)))

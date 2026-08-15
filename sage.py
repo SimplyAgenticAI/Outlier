@@ -157,11 +157,27 @@ def build_context():
     for post in scored:
         tiers[post["tier"]] = tiers.get(post["tier"], 0) + 1
 
-    top = sorted(
+    by_multiple = sorted(
         [s for s in scored if s["has_baseline"]],
         key=lambda s: s["outlier_multiple"] or 0,
         reverse=True,
-    )[:MAX_POSTS_IN_CONTEXT]
+    )
+    # Sage's job is to analyse the WRITING of the winners, so the context must
+    # not be all captionless posts. The highest-multiple posts in an image-heavy
+    # group are often screenshots and memes with no typed caption — sending only
+    # those left Sage with nothing to read even when text-bearing winners sat
+    # just below the cut. Text-bearing outliers are reserved a place first, then
+    # the highest multiples fill the rest.
+    text_bearing = [s for s in by_multiple if (s.get("body") or "").strip()]
+    chosen, seen = [], set()
+    for s in text_bearing[:MAX_POSTS_IN_CONTEXT] + by_multiple:
+        if s["id"] in seen:
+            continue
+        seen.add(s["id"])
+        chosen.append(s)
+        if len(chosen) >= MAX_POSTS_IN_CONTEXT:
+            break
+    top = sorted(chosen, key=lambda s: s["outlier_multiple"] or 0, reverse=True)
 
     return {
         "empty": False,
@@ -170,6 +186,10 @@ def build_context():
             "real_captured": len(real),
             "sample_generated": len(demo),
             "sources": len(sources),
+            # So Sage can say plainly when the winners are captionless images
+            # rather than implying the writing could not be read.
+            "outliers_scored": len(by_multiple),
+            "outliers_with_caption": len(text_bearing),
         },
         "tier_counts": tiers,
         "sources": sources,
