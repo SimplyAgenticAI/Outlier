@@ -469,12 +469,40 @@ def upsert_author(conn, name, fb_id=None, profile_url=None):
     return row["id"]
 
 
+def _count(value):
+    """A non-negative integer, whatever arrived.
+
+    Counts come from an extension we don't fully control, and /api/capture is
+    reachable directly with an API key, so a count could be a string, negative,
+    or absurd. SQLite would store it verbatim and score_posts — which multiplies
+    and sums these — would then crash on every dashboard load for that account,
+    or produce a garbage baseline. Clamp at the single write path so nothing
+    downstream has to defend against it.
+    """
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return 0
+    if n < 0:
+        return 0
+    return n if n < 1_000_000_000 else 999_999_999
+
+
 def upsert_post(conn, source_id, author_id, post, user_id=None):
     """Insert a post, or update its engagement counts if we've seen it before.
 
     Returns True when the post is new — the caller reports this back to the
     extension so the user can see capture progress.
     """
+    # Normalise attacker-reachable fields before anything is stored.
+    for _field in ("likes", "comments", "shares", "video_plays", "image_count"):
+        post[_field] = _count(post.get(_field, 0))
+    _body = post.get("body")
+    if isinstance(_body, str) and len(_body) > 10000:
+        post["body"] = _body[:10000]
+    elif _body is not None and not isinstance(_body, str):
+        post["body"] = ""
+
     existing = conn.execute(
         "SELECT id FROM posts WHERE user_id IS ? AND fb_post_id = ?",
         (user_id, post["fb_post_id"]),
