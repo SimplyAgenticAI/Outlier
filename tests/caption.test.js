@@ -154,6 +154,11 @@ console.log("a decoy dressed as a domain is caught");
 check("the fake domain is a decoy", api.isDecoyText("Ghgb4e.com"), true);
 check("  even short and dotted", api.isDecoyText("Xk7Qz.io"), true);
 
+// Real, from the dashboard again: requiring a digit alongside the capital
+// missed every decoy that happened not to carry one.
+check("  and with no digit at all", api.isDecoyText("YjDuBghsl.com"), true);
+check("  the giveaway is five consonants", api.isDecoyText("QrtwbNkm.net"), true);
+
 console.log();
 console.log("real links and domains are left alone");
 
@@ -164,7 +169,11 @@ console.log("real links and domains are left alone");
   "bit.ly",
   "linktr.ee",
   "https://example.com/aB3",  // a real URL with a path
-  "www.macrandleacres.com"
+  "www.macrandleacres.com",
+  "TechCrunch.com",           // mixed case, runs to four consonants (chcr)
+  "SHRM.com",                 // an acronym: no lowercase, so not a decoy
+  "HubSpot.com",              // mixed case, pronounceable
+  "StackOverflow.com"
 ].forEach(function (real) {
   check("not a decoy: " + real, api.isDecoyText(real), false);
 });
@@ -195,6 +204,33 @@ var tokenPost = tokenApi.queue()[0];
 check("it is still queued", tokenApi.queue().length, 1);
 check("  with its engagement intact", tokenPost && tokenPost.likes, 1500);
 check("  and no token in the caption", tokenPost && (tokenPost.body || ""), "");
+
+console.log();
+console.log("the platform's own name is not a caption");
+
+// Real, from the dashboard: captionless posts arrived with a body of exactly
+// "Facebook", from an attribution or embed label that nothing outranked.
+var fbOnly = buildPage([{ body: "", likes: 210, comments: 12, shares: 4 }]);
+var fbApi = runScan(fbOnly, "/groups/1234567890/");
+var fbArt = global.document.querySelectorAll('div[role="article"]')[0];
+var fbBlock = fbOnly.doc.el("div");
+fbBlock.setAttribute("dir", "auto");
+fbBlock.textContent = "Facebook";
+fbArt.appendChild(fbBlock);
+fbApi.scanPosts();
+var fbPost = fbApi.queue()[0];
+check("the post is still queued", fbApi.queue().length, 1);
+check("  with its engagement intact", fbPost && fbPost.likes, 210);
+check("  and no platform name as the caption", fbPost && (fbPost.body || ""), "");
+
+// The word is only chrome when it is the whole block; a post that talks about
+// Facebook keeps every word of what it said.
+var fbReal = buildPage([{ body: "Facebook keeps changing the group layout on us", likes: 33 }]);
+var fbRealApi = runScan(fbReal, "/groups/1234567890/");
+fbRealApi.scanPosts();
+check("a caption that mentions it is untouched",
+      fbRealApi.queue()[0] && fbRealApi.queue()[0].body,
+      "Facebook keeps changing the group layout on us");
 
 console.log();
 console.log("a screenshot of another post is not read as the caption");

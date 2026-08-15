@@ -518,7 +518,12 @@
     return { name: "Unknown", url: null };
   }
 
-  var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
+  // "facebook" is in here because a caption-less post was arriving with a body
+  // of exactly "Facebook" — the platform's own name, from an attribution or
+  // embed label, winning the caption slot because nothing else was competing
+  // for it. No post is ever really captioned with that one word alone, and
+  // this only ever matches a block that is nothing but it.
+  var CHROME_RE = /^(like|comment|share|reply|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|facebook|\d+\s*(comments?|shares?|likes?|reactions?)|·|\d+[hdwmy])$/i;
 
   /* The post/comment boundary.
    *
@@ -749,7 +754,7 @@
    * ("Like Comment Share", "See more · Reply") slips through, and the loose
    * caption pass will take it as the post's body when there is no caption.
    */
-  var CHROME_WORDS = /^(like|comment|comments|share|shares|reply|replies|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|·|\||\d+|\d+[hdwmy])$/i;
+  var CHROME_WORDS = /^(like|comment|comments|share|shares|reply|replies|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|facebook|·|\||\d+|\d+[hdwmy])$/i;
 
   function isOnlyChrome(text) {
     var parts = String(text).split(/[\s·|]+/).filter(Boolean);
@@ -883,7 +888,32 @@
    * bit.ly), plain brand casing (MyStore.com) and worded promo domains
    * (promo2024.com) safe. Like every branch here it only decides the caption —
    * a post whose lone block is one of these is still captured, with none.
+   *
+   * Requiring a digit was tuned to that one sample and missed the digit-free
+   * ones: "YjDuBghsl.com" arrived in the dashboard as a caption. So a second
+   * signature sits beside it — a domain nobody could pronounce. Real labels,
+   * invented brand names included, break for a vowel every few letters; five
+   * consonants in a row is a string of random keys, not a word. Both an
+   * uppercase and a lowercase letter are required with it, which is what
+   * keeps an acronym (SHRM.com) out of the net.
    */
+  function longestConsonantRun(label) {
+    // y counts as a vowel here on purpose: it is the vowel in "MyStore", and
+    // treating it as a consonant would make that read as a four-run and cost
+    // a real domain its caption.
+    var run = 0, best = 0;
+    for (var i = 0; i < label.length; i++) {
+      var ch = label.charAt(i).toLowerCase();
+      if (ch >= "a" && ch <= "z" && "aeiouy".indexOf(ch) === -1) {
+        run += 1;
+        if (run > best) best = run;
+      } else {
+        run = 0;      // a vowel, digit or hyphen breaks the run
+      }
+    }
+    return best;
+  }
+
   function isDomainDecoy(raw) {
     var text = String(raw || "").trim();
     if (!text || /\s/.test(text)) return false;                 // a single token only
@@ -892,7 +922,11 @@
     // Bare domain shape: one or more labels then a TLD, nothing else.
     if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(text)) return false;
     var withoutTld = text.slice(0, text.lastIndexOf("."));
-    return /[A-Z]/.test(withoutTld) && /[0-9]/.test(withoutTld);
+    if (/[A-Z]/.test(withoutTld) && /[0-9]/.test(withoutTld)) return true;
+    // Unpronounceable and mixed-case. Five and not four: "TechCrunch" runs to
+    // four (chcr) and is a domain someone might genuinely paste.
+    return /[A-Z]/.test(withoutTld) && /[a-z]/.test(withoutTld) &&
+           longestConsonantRun(withoutTld) >= 5;
   }
 
   function longestTextBlock(article, authorName, bar, selector) {
