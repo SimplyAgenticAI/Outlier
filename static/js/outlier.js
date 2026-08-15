@@ -996,13 +996,42 @@
       block.appendChild(body);
       wrapper.appendChild(block);
 
-      // Turn this variant's hook into a shareable illustration on demand. Image
-      // generation costs more than text, so it never runs until asked.
-      graphic.addEventListener("click", function () {
+      /* Art direction, before anything is generated.
+       *
+       * This used to fire straight at the API off the hook alone, so the only
+       * way to influence the picture was to change the post. Now the button
+       * opens a box first: whatever is typed there outranks the house style,
+       * and an empty box behaves exactly as the old button did.
+       */
+      var direction = document.createElement("div");
+      direction.className = "graphic-direction";
+      direction.hidden = true;
+
+      var brief = document.createElement("textarea");
+      brief.className = "graphic-brief";
+      brief.rows = 2;
+      brief.placeholder =
+        "Optional: describe the image you want — subject, style, colours, " +
+        "mood. Say \"with the text …\" if you want words on it.";
+
+      var go = document.createElement("button");
+      go.type = "button";
+      go.className = "btn btn-ghost graphic-go";
+      go.textContent = "Generate";
+
+      direction.appendChild(brief);
+      direction.appendChild(go);
+      block.appendChild(direction);
+
+      function runGraphic() {
         var label = graphic.textContent;
+        go.disabled = true;
         graphic.disabled = true;
         graphic.textContent = "Generating…";
-        post("/api/graphic", { hook: variant.hook || variant.body || "" })
+        post("/api/graphic", {
+          hook: variant.hook || variant.body || "",
+          instructions: brief.value.trim()
+        })
           .then(function (data) {
             if (!data.ok) throw new Error(data.error || "Could not generate a graphic");
             var old = block.querySelector(".variant-graphic");
@@ -1026,7 +1055,30 @@
             toast(error.message, true);
             graphic.textContent = label;
           })
-          .finally(function () { graphic.disabled = false; });
+          .finally(function () {
+            graphic.disabled = false;
+            go.disabled = false;
+          });
+      }
+
+      // First click opens the brief; the button inside it does the generating.
+      // Nothing is spent until the operator has had the chance to say what
+      // they want, and the box stays filled so a regenerate can be a tweak
+      // rather than a retype.
+      graphic.addEventListener("click", function () {
+        if (direction.hidden) {
+          direction.hidden = false;
+          brief.focus();
+          return;
+        }
+        runGraphic();
+      });
+
+      go.addEventListener("click", runGraphic);
+
+      // Ctrl/Cmd+Enter to fire without reaching for the mouse.
+      brief.addEventListener("keydown", function (event) {
+        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) runGraphic();
       });
     });
 

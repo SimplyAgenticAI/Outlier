@@ -1628,6 +1628,40 @@ body.score-help-open { overflow: hidden; }
 }
 .graphic-dl:hover { text-decoration: underline; }
 
+/* The operator's art direction, opened by the Generate graphic button.
+   Gold rather than emerald, because everything to do with generating an
+   image already reads in gold and the box belongs to that button. */
+.graphic-direction {
+  display: flex; gap: 8px; align-items: flex-start;
+  margin-top: 10px; padding: 10px;
+  border-radius: 10px;
+  background: rgba(217, 180, 95, 0.06);
+  border: 1px solid rgba(217, 180, 95, 0.22);
+}
+.graphic-direction[hidden] { display: none; }
+
+.graphic-brief {
+  flex: 1; min-width: 0; resize: vertical;
+  padding: 8px 10px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  color: var(--text); font-size: 13px; line-height: 1.5;
+  font-family: inherit;
+}
+.graphic-brief::placeholder { color: var(--text-faint); }
+.graphic-brief:focus {
+  outline: none;
+  border-color: rgba(217, 180, 95, 0.55);
+}
+
+.graphic-go { flex-shrink: 0; font-size: 12px; padding: 8px 14px; }
+
+@media (max-width: 560px) {
+  /* Side by side leaves the box too narrow to write a brief in. */
+  .graphic-direction { flex-direction: column; }
+  .graphic-go { width: 100%; }
+}
+
 /* Operator brand profile form. */
 .brand-form { display: grid; gap: 12px; margin: 14px 0; }
 .brand-field { display: flex; flex-direction: column; gap: 4px; }

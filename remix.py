@@ -311,13 +311,42 @@ def graphic_configured():
         return False
 
 
-def generate_graphic(hook):
+# Words that mean the operator WANTS lettering in the picture.
+#
+# The no-text rule below exists because image models render lettering badly,
+# but it is a default, not a law. Somebody who explicitly asks for a headline
+# on the image is not served by a prompt that forbids one, so the ban lifts
+# when the instructions ask for it.
+_WANTS_TEXT_RE = None
+
+
+def _wants_text(instructions):
+    global _WANTS_TEXT_RE
+    if _WANTS_TEXT_RE is None:
+        import re
+        _WANTS_TEXT_RE = re.compile(
+            r"\b(text|words?|lettering|letters|caption|headline|title|typography|"
+            r"type|font|quote|slogan|label|says?|writing|written)\b", re.I
+        )
+    return bool(instructions and _WANTS_TEXT_RE.search(instructions))
+
+
+def generate_graphic(hook, instructions=""):
     """Turn a post's hook into a shareable illustration. Returns (image, error).
 
     `image` is a data: URL (gpt-image-1 returns base64) or an https URL (DALL-E).
-    Text is deliberately kept OUT of the image — image models render lettering
-    as garbage, so the graphic is a clean illustration of the idea, not a card.
+
+    `instructions` is the operator's own direction, and it OUTRANKS everything
+    generated here. Previously there was no way to say anything at all: the
+    prompt was assembled from the hook and the brand profile and the model did
+    whatever it inferred from that, which is fine until it is wrong and then
+    there is no lever to pull. Where the instructions conflict with the house
+    style, the instructions win — that is the whole point of them.
+
+    Text is kept OUT of the image by default, because image models render
+    lettering as garbage. That default lifts if the instructions ask for text.
     """
+    instructions = (instructions or "").strip()[:600]
     key = _openai_key()
     if not key:
         return None, "Add an OpenAI key on the Settings page to generate graphics."
@@ -349,7 +378,31 @@ def generate_graphic(hook):
         ctx.append(f"speaking to {brand['audience']}")
     brand_ctx = (" It is " + ", ".join(ctx) + ".") if ctx else ""
 
+    # The operator's own direction goes FIRST and is named as authoritative.
+    # Buried at the end it reads as an afterthought the model is free to
+    # average against the house style, which is exactly what it did.
+    lead = ""
+    if instructions:
+        lead = (
+            "FOLLOW THESE INSTRUCTIONS FROM THE DESIGNER EXACTLY. Where they "
+            "conflict with anything below, THEY WIN:\n"
+            f"{instructions}\n\n"
+        )
+
+    # Asked for lettering, so the blanket ban would contradict the brief.
+    if _wants_text(instructions):
+        text_rule = (
+            "Any text in the image must be spelled exactly as specified, "
+            "cleanly set and legible. No watermarks, no UI furniture."
+        )
+    else:
+        text_rule = (
+            "ABSOLUTELY NO text, letters, words, numbers, captions, watermarks, "
+            "logos or UI anywhere in the image — a pure, clean visual only."
+        )
+
     prompt = (
+        f"{lead}"
         "Award-winning, high-end social-media graphic with professional art "
         "direction. Crisp and richly detailed, dramatic lighting, one strong "
         "focal point, rule-of-thirds composition with generous negative space, "
@@ -359,8 +412,7 @@ def generate_graphic(hook):
         f"Mood: {mood}.{brand_ctx}\n"
         "Depict a striking, original visual metaphor for this idea: "
         f"{(hook or '').strip()[:400]}.\n"
-        "ABSOLUTELY NO text, letters, words, numbers, captions, watermarks, "
-        "logos or UI anywhere in the image — a pure, clean visual only."
+        f"{text_rule}"
     )
 
     last_err = None
