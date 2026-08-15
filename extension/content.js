@@ -2430,8 +2430,7 @@
       border: "1px solid rgba(110,231,183,0.32)",
       boxShadow: "0 16px 48px rgba(0,0,0,0.6)", color: "#eafff3",
       fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      fontSize: "13px", lineHeight: "1.5",
-      resize: "both"   // native corner grip
+      fontSize: "13px", lineHeight: "1.5"
     });
 
     /* --- draggable header --- */
@@ -2514,6 +2513,59 @@
     document.addEventListener("mouseup", function () {
       if (!dragging) return;
       dragging = false;
+      saveHudBox();
+    });
+
+    // Resize from a grip in the bottom-right corner.
+    //
+    // The native CSS `resize` grip cannot work on this panel. It grows an
+    // element right and down from its top-left, but the panel is pinned by
+    // right/bottom, so the very corner being dragged is the one corner that
+    // is not allowed to move: widening drove the *left* edge outwards while
+    // the grip sat still under the cursor. That is what read as inverted.
+    // Moving the offsets in step with the size keeps the grip under the
+    // pointer instead — drag out to grow, drag in to shrink.
+    var MIN_W = 300, MIN_H = 240;
+
+    var grip = document.createElement("div");
+    grip.title = "Drag to resize";
+    styleEl(grip, {
+      position: "absolute", right: "0", bottom: "0",
+      width: "18px", height: "18px", cursor: "nwse-resize", zIndex: "2",
+      // The two diagonal strokes of a conventional grip. Painted as a
+      // gradient because Facebook's CSP blocks the stylesheet that a ::after
+      // rule would need.
+      background: "linear-gradient(135deg," +
+        "transparent 0 44%, rgba(110,231,183,0.5) 44% 52%," +
+        "transparent 52% 66%, rgba(110,231,183,0.5) 66% 74%, transparent 74%)"
+    });
+
+    var resizing = false, rsX, rsY, rsW, rsH, rsRight, rsBottom;
+    grip.addEventListener("mousedown", function (event) {
+      resizing = true;
+      rsX = event.clientX; rsY = event.clientY;
+      var rect = hud.getBoundingClientRect();
+      rsW = rect.width; rsH = rect.height;
+      rsRight = parseInt(hud.style.right, 10) || 0;
+      rsBottom = parseInt(hud.style.bottom, 10) || 0;
+      event.preventDefault();
+      // The header drag and this share a mousedown path on some layouts.
+      event.stopPropagation();
+    });
+    document.addEventListener("mousemove", function (event) {
+      if (!resizing) return;
+      // Growing past the offset would drive right/bottom negative and slide
+      // the panel off the edge of the screen, so the viewport is the stop.
+      var w = Math.max(MIN_W, Math.min(rsW + (event.clientX - rsX), rsW + rsRight));
+      var h = Math.max(MIN_H, Math.min(rsH + (event.clientY - rsY), rsH + rsBottom));
+      hud.style.width = w + "px";
+      hud.style.height = h + "px";
+      hud.style.right = (rsRight - (w - rsW)) + "px";
+      hud.style.bottom = (rsBottom - (h - rsH)) + "px";
+    });
+    document.addEventListener("mouseup", function () {
+      if (!resizing) return;
+      resizing = false;
       saveHudBox();
     });
     // Resizing was only ever making the box bigger, not the text — which
@@ -2629,6 +2681,7 @@
 
     hud.appendChild(header);
     hud.appendChild(content);
+    hud.appendChild(grip);
     document.body.appendChild(hud);
   }
 
