@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tallgrass — by MacRandle Acres",
-  "version": "13.0",
+  "version": "13.1",
   "description": "Captures posts from the Facebook groups and profiles you're viewing and sends them to your Tallgrass dashboard, which ranks each post against the median for its own group.",
   "icons": {
     "16": "icons/icon16.png",
