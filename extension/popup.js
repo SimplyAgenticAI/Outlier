@@ -100,8 +100,15 @@ function checkConnection() {
     // amount of reloading changes the files — so say what to actually do.
     const latest = response.extension_version;
     if (latest && latest !== running) {
-      el("ext-version").innerHTML =
-        '<span style="color:#d9b45f">v' + running + " → v" + latest + "</span>";
+      // Built with textContent, not innerHTML: `latest` comes off the network
+      // (the dashboard's reported version), and nothing off the network should
+      // ever be parsed as markup, however benign a version string looks.
+      var vspan = document.createElement("span");
+      vspan.style.color = "#d9b45f";
+      vspan.textContent = "v" + running + " → v" + latest;
+      var vhost = el("ext-version");
+      vhost.textContent = "";
+      vhost.appendChild(vspan);
 
       chrome.storage.local.get(["updateStuck"], (state) => {
         if (state.updateStuck === latest) {
