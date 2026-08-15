@@ -60,8 +60,22 @@ do not make it polished.
 - Write the way a person posts, not the way a brand posts."""
 
 
+def _config():
+    """The user's chosen provider and key — the SAME place Sage reads from.
+
+    Remixing used to check os.environ['ANTHROPIC_API_KEY'] only, so a key saved
+    through the app (which lives in settings, not the environment) was never
+    seen and remix reported "not configured" no matter how often it was added.
+    """
+    import sage
+    return sage.get_config()
+
+
 def is_configured():
-    return bool(os.environ.get("ANTHROPIC_API_KEY"))
+    try:
+        return _config()["has_key"]
+    except Exception:                       # no request context, etc.
+        return False
 
 
 def remix_post(post, angles=None, count=3):
@@ -70,13 +84,9 @@ def remix_post(post, angles=None, count=3):
     Returns (result_dict, error_string). Callers show the error inline rather
     than failing the page — a missing key shouldn't take out the post view.
     """
-    if not is_configured():
-        return None, "ANTHROPIC_API_KEY is not set — add it to enable remixing."
-
-    try:
-        import anthropic
-    except ImportError:
-        return None, "The anthropic package is not installed. Run: pip install anthropic"
+    cfg = _config()
+    if not cfg["has_key"]:
+        return None, "Add an AI key on the Settings page to enable remixing."
 
     chosen = angles or list(ANGLES.keys())[:count]
     angle_text = "\n".join(f"- {a}: {ANGLES[a]}" for a in chosen if a in ANGLES)
@@ -101,7 +111,19 @@ Format: {post.get('post_type', 'text')}
 Write one variant for each of these angles:
 {angle_text}"""
 
-    client = anthropic.Anthropic()
+    if cfg["provider"] == "openai":
+        return _remix_openai(cfg, user_content)
+    return _remix_anthropic(cfg, user_content)
+
+
+def _remix_anthropic(cfg, user_content):
+    try:
+        import anthropic
+    except ImportError:
+        return None, "The anthropic package is not installed. Run: pip install anthropic"
+
+    import json
+    client = anthropic.Anthropic(api_key=cfg["key"])
     try:
         response = client.messages.create(
             model=MODEL,
@@ -115,23 +137,60 @@ Write one variant for each of these angles:
             messages=[{"role": "user", "content": user_content}],
         )
     except anthropic.RateLimitError:
-        return None, "Rate limited by the API — try again in a moment."
+        return None, "Rate limited by Anthropic — try again in a moment."
     except anthropic.AuthenticationError:
-        return None, "ANTHROPIC_API_KEY was rejected. Check the key is valid."
+        return None, "That Anthropic key was rejected. Check the key on the Settings page."
     except anthropic.APIStatusError as exc:
-        return None, f"API error ({exc.status_code}): {exc.message}"
+        return None, f"Anthropic error ({exc.status_code}): {exc.message}"
     except anthropic.APIConnectionError:
-        return None, "Could not reach the API — check your network connection."
+        return None, "Could not reach Anthropic — check your network connection."
 
     if response.stop_reason == "refusal":
         return None, "The model declined to rewrite this post."
 
-    import json
-
     text = next((b.text for b in response.content if b.type == "text"), None)
     if not text:
         return None, "The model returned no usable output."
+    try:
+        return json.loads(text), None
+    except json.JSONDecodeError:
+        return None, "Could not parse the model's response."
 
+
+def _remix_openai(cfg, user_content):
+    try:
+        import openai
+    except ImportError:
+        return None, "The openai package is not installed. Run: pip install openai"
+
+    import json
+    client = openai.OpenAI(api_key=cfg["key"])
+    schema_hint = (
+        "Respond ONLY with a JSON object of exactly this shape: "
+        '{"why_it_worked": "<two sentences>", "variants": '
+        '[{"angle": "<name>", "hook": "<opening line>", "body": "<full post copy>"}]}'
+    )
+    try:
+        response = client.chat.completions.create(
+            model=cfg["model"] or "gpt-4o",
+            messages=[
+                {"role": "system", "content": SYSTEM + "\n\n" + schema_hint},
+                {"role": "user", "content": user_content},
+            ],
+            response_format={"type": "json_object"},
+        )
+    except openai.AuthenticationError:
+        return None, "That OpenAI key was rejected. Check the key on the Settings page."
+    except openai.RateLimitError:
+        return None, "Rate limited by OpenAI — try again in a moment."
+    except openai.APIStatusError as exc:
+        return None, f"OpenAI error ({exc.status_code})."
+    except openai.APIConnectionError:
+        return None, "Could not reach OpenAI — check your network connection."
+
+    text = (response.choices[0].message.content or "").strip()
+    if not text:
+        return None, "The model returned no usable output."
     try:
         return json.loads(text), None
     except json.JSONDecodeError:
