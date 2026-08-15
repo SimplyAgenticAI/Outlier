@@ -18,6 +18,7 @@ import hmac
 import os
 import re
 import secrets
+import sqlite3
 import time
 
 from flask import g, jsonify, redirect, request, session, url_for
@@ -122,14 +123,28 @@ def admin_emails():
     return {part.strip().lower() for part in raw.split(",") if part.strip()}
 
 
-def create_user(email, password):
-    """Returns (user_dict, error_message)."""
+def create_user(email, password, username=None):
+    """Returns (user_dict, error_message).
+
+    The username is chosen here rather than later. It is how other accounts
+    see this one, and an account that exists before its name does forces the
+    question at some worse moment — which is what it did: the prompt lived on
+    the feedback board, so people met it in the middle of reporting a bug.
+    """
     email = (email or "").strip().lower()
+    username = (username or "").strip()
 
     if not EMAIL_RE.match(email):
         return None, "That doesn't look like an email address."
     if len(password or "") < MIN_PASSWORD_LENGTH:
         return None, f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+
+    # Validated before anything is written, so a bad name cannot leave an
+    # account half-created.
+    if username:
+        problem = db.username_error(username)
+        if problem:
+            return None, problem
 
     raw_key, prefix, key_hash = generate_api_key()
 
@@ -139,6 +154,12 @@ def create_user(email, password):
         ).fetchone()
         if exists:
             return None, "An account with that email already exists."
+        if username:
+            taken = conn.execute(
+                "SELECT id FROM users WHERE LOWER(username) = LOWER(?)", (username,)
+            ).fetchone()
+            if taken:
+                return None, "That username is taken."
 
         # The first account on an instance is its owner, and any address in
         # ADMIN_EMAILS is too. Admins are never metered — the person running
@@ -146,14 +167,21 @@ def create_user(email, password):
         first_account = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"] == 0
         is_admin = 1 if (first_account or email in admin_emails()) else 0
 
-        conn.execute(
-            """
-            INSERT INTO users (email, password_hash, api_key_prefix, api_key_hash,
-                               is_admin)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            (email, generate_password_hash(password), prefix, key_hash, is_admin),
-        )
+        try:
+            conn.execute(
+                """
+                INSERT INTO users (email, password_hash, api_key_prefix, api_key_hash,
+                                   is_admin, username)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (email, generate_password_hash(password), prefix, key_hash,
+                 is_admin, username or None),
+            )
+        except sqlite3.IntegrityError:
+            # The unique index is the real arbiter. The check above narrows the
+            # window; two people submitting the same name in the same instant
+            # still land here, and they get a message rather than a traceback.
+            return None, "That username is taken."
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
 
     user = dict(row)

@@ -337,33 +337,6 @@
 
   /* --------------------------------------------------------- feedback */
 
-  var claimName = document.getElementById("fb-username-save");
-  if (claimName) {
-    var nameField = document.getElementById("fb-username");
-    function claim() {
-      var value = nameField.value.trim();
-      if (!value) { nameField.focus(); return; }
-      claimName.disabled = true;
-      post("/api/username", { username: value })
-        .then(function (data) {
-          // The server owns the rules — taken, reserved, wrong shape — so the
-          // message shown is the server's, not a guess made here.
-          if (!data.ok) throw new Error(data.error || "Could not set that name");
-          window.sessionStorage.setItem("outlier-reset", "You're " + data.username + " now.");
-          window.location.reload();
-        })
-        .catch(function (error) {
-          toast(error.message, true);
-          claimName.disabled = false;
-          nameField.focus();
-        });
-    }
-    claimName.addEventListener("click", claim);
-    nameField.addEventListener("keydown", function (event) {
-      if (event.key === "Enter") claim();
-    });
-  }
-
   var fbSubmit = document.getElementById("fb-submit");
   if (fbSubmit) {
     fbSubmit.addEventListener("click", function () {
@@ -541,6 +514,32 @@
       .then(function (r) { return r.json(); })
       .then(function (data) { if (data && data.ok) setUnread(data.unread); })
       .catch(function () {});
+  }
+
+  var saveUsername = document.getElementById("save-username");
+  if (saveUsername) {
+    var usernameField = document.getElementById("username-field");
+    function saveName() {
+      var value = usernameField.value.trim();
+      if (!value) { usernameField.focus(); return; }
+      saveUsername.disabled = true;
+      post("/api/username", { username: value })
+        .then(function (data) {
+          // The server owns the rules — taken, reserved, wrong shape — so the
+          // message shown is the server's, not a guess made here.
+          if (!data.ok) throw new Error(data.error || "Could not set that name");
+          toast("You're " + data.username + " now.");
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+          usernameField.focus();
+        })
+        .finally(function () { saveUsername.disabled = false; });
+    }
+    saveUsername.addEventListener("click", saveName);
+    usernameField.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") saveName();
+    });
   }
 
   var saveViewerName = document.getElementById("save-viewer-name");

@@ -19,22 +19,6 @@
   </div>
 </section>
 
-{% if needs_username %}
-{# Asked for where it matters, not buried in Settings — this is the page
-   where other people are about to see you. #}
-<section class="glass panel reveal fb-name">
-  <p class="fine">
-    You'll show up here as <b>{{ my_name }}</b>. Pick a username instead —
-    3–20 characters, letters, numbers, underscore or hyphen.
-  </p>
-  <div class="fb-name-row">
-    <input type="text" id="fb-username" class="fb-input" maxlength="20"
-           placeholder="yourname" autocomplete="off">
-    <button class="btn btn-ghost" id="fb-username-save">Claim it</button>
-  </div>
-</section>
-{% endif %}
-
 <section class="glass panel reveal fb-compose">
   <div class="fb-kind">
     <label><input type="radio" name="fb-kind" value="idea" checked> Idea</label>

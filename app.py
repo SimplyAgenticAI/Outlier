@@ -989,7 +989,9 @@ def register():
         elif password != (request.form.get("password_confirm") or ""):
             error = "Passwords don't match."
         else:
-            user, error = auth.create_user(request.form.get("email"), password)
+            user, error = auth.create_user(
+                request.form.get("email"), password,
+                username=request.form.get("username"))
             if user:
                 auth.record_signup(client_ip())
                 # A pre-existing single-user install would otherwise find its
@@ -1002,6 +1004,8 @@ def register():
 
     return render_template(
         "register.html", error=error, min_length=auth.MIN_PASSWORD_LENGTH,
+        form_email=(request.form.get("email") or "").strip(),
+        form_username=(request.form.get("username") or "").strip(),
         version=APP_VERSION,
     ), (400 if error else 200)
 
@@ -1617,11 +1621,6 @@ def feedback_board():
         sort=sort,
         is_admin=bool(billing.is_admin(user)),
         statuses=db.FEEDBACK_STATUSES,
-        # Shown as a one-line nudge on the board rather than a separate page:
-        # the moment somebody is about to be seen by other people is the
-        # moment picking a name is worth their attention.
-        needs_username=not user.get("username"),
-        my_name=db.display_name(user),
         version=APP_VERSION,
         active="feedback",
     )

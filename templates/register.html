@@ -34,9 +34,27 @@
 
     <form method="post" class="auth-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {# Both fields keep what was typed when the form comes back with an
+         error. "That username is taken" is a likely first outcome, and
+         making somebody retype their address to fix a different field is a
+         punishment for a mistake they did not make. #}
       <label>
         <span>Email</span>
-        <input type="email" name="email" autocomplete="email" required autofocus>
+        <input type="email" name="email" autocomplete="email" required autofocus
+               value="{{ form_email or '' }}">
+      </label>
+      {# Asked for here so an account never exists without a name. It is how
+         other people see you anywhere the app is shared, and it can be
+         changed later in Settings. #}
+      <label>
+        <span>Username</span>
+        <input type="text" name="username" autocomplete="username"
+               minlength="3" maxlength="20" pattern="[A-Za-z0-9_-]{3,20}"
+               placeholder="yourname" required value="{{ form_username or '' }}">
+        <small>
+          3–20 characters — letters, numbers, underscore or hyphen. Shown to
+          other users instead of your email, which nobody else ever sees.
+        </small>
       </label>
       <label>
         <span>Password</span>

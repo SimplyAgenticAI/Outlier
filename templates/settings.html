@@ -212,6 +212,22 @@
   </div>
 
   <div class="glass panel reveal">
+    <h2>Username</h2>
+    <p class="fine">
+      How you appear to other users — on the feedback board and anywhere else
+      the app is shared. Your email is never shown to anyone but you.
+    </p>
+    <div class="brand-form">
+      <label class="brand-field">
+        <span>3–20 characters, letters, numbers, underscore or hyphen</span>
+        <input type="text" id="username-field" maxlength="20" autocomplete="off"
+               placeholder="yourname" value="{{ user.username or '' }}">
+      </label>
+    </div>
+    <button class="btn btn-ghost" id="save-username">Save username</button>
+  </div>
+
+  <div class="glass panel reveal">
     <h2>Your Facebook name</h2>
     <p class="fine">
       Facebook prints your own name all over a group page — the comment box,
