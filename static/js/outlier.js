@@ -335,17 +335,37 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
+  var saveViewerName = document.getElementById("save-viewer-name");
+  if (saveViewerName) {
+    saveViewerName.addEventListener("click", function () {
+      var field = document.getElementById("viewer-name");
+      var value = field ? field.value.trim() : "";
+      saveViewerName.disabled = true;
+      post("/api/viewer-name", { names: value })
+        .then(function (data) {
+          if (!data.ok) throw new Error("Could not save");
+          toast(value
+            ? "Saved. Your name will not be stored as a caption again."
+            : "Cleared — no name is being filtered.");
+        })
+        .catch(function () { toast("Could not save that name", true); })
+        .finally(function () { saveViewerName.disabled = false; });
+    });
+  }
+
   var cleanCaptions = document.getElementById("clean-captions");
   if (cleanCaptions) {
     cleanCaptions.addEventListener("click", function () {
-      // Asked for rather than guessed at. A one-word caption cannot be judged
-      // on its shape — "Jeff" and "Congratulations" look identical — so only
-      // words known to be names are cleared, and the reader's own name is
-      // known to nobody but the reader.
+      // Prefilled from the saved name, so the common path is one click. A
+      // one-word caption cannot be judged on its shape — "Jeff" and
+      // "Congratulations" are identical to a regex — so only words known to
+      // be names are cleared, and the reader is the only one who knows theirs.
+      var saved = document.getElementById("viewer-name");
       var yourName = window.prompt(
         "Your Facebook name, if it has been landing in captions.\n\n" +
         "Only this name and the names of authors already captured will be " +
-        "cleared. Leave blank to skip names and clean link labels only.", "");
+        "cleared. Leave blank to clean link labels only.",
+        (saved && saved.value.trim()) || "");
       if (yourName === null) return;          // cancelled
       toast("Checking stored captions…");
       post("/api/clean-captions", { names: yourName ? [yourName] : [] })

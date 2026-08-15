@@ -525,6 +525,7 @@ def settings():
         anthropic_model=sage.ANTHROPIC_MODEL,
         openai_model=sage.OPENAI_MODEL,
         brand=sage.get_brand(),
+        viewer_names=sage.get_setting(db.VIEWER_NAMES_KEY, ""),
         version=APP_VERSION,
         active="settings",
     )
@@ -1269,9 +1270,25 @@ def api_capture():
         # empty row cluttering /groups that the user never captured.
         source_id = None
 
+        # The operator's own name, stripped here rather than in the extension.
+        #
+        # Every previous attempt at this tried to recognise the reader's name
+        # from Facebook's markup, and every one of them missed. Doing it on
+        # the server means it does not depend on finding the right container,
+        # and it does not depend on which build of the extension is installed
+        # — an old extension that still sends "Jeff" gets it stripped anyway.
+        viewer_parts = db.viewer_name_parts(conn, api_user["id"])
+
         for post in posts:
             if not post.get("fb_post_id"):
                 continue
+
+            # Done before the id matters: the extension already computed
+            # fb_post_id and sent it, so clearing the body here cannot change
+            # the identity of the row or duplicate it on the next scan.
+            if db.is_viewer_name_body(post.get("body"), viewer_parts):
+                post["body"] = ""
+                post["body_from_image"] = 0
 
             # A post captured from the home or groups feed carries its own
             # origin, because the post above it came from somewhere else.
@@ -1489,6 +1506,24 @@ def api_open_folder():
     return jsonify({"ok": True, "path": folder})
 
 
+@app.route("/api/viewer-name", methods=["POST"])
+@auth.login_required
+def api_viewer_name():
+    """Declare the names that belong to the reader, not to any author.
+
+    Stored rather than detected. Detecting it from Facebook's own markup was
+    tried three times and missed every time; the reader is the one party who
+    knows this for certain, so they are asked once and it is applied on every
+    capture from then on.
+    """
+    body = request.get_json(silent=True) or {}
+    raw = (body.get("names") or body.get("name") or "").strip()
+    # Comma separated, capped — this is a name list, not a document.
+    names = [n.strip() for n in raw.split(",") if n.strip()][:5]
+    sage.set_setting(db.VIEWER_NAMES_KEY, ", ".join(names)[:200])
+    return jsonify({"ok": True, "names": names})
+
+
 @app.route("/api/clean-captions", methods=["POST"])
 @auth.login_required
 def api_clean_captions():
@@ -1502,6 +1537,14 @@ def api_clean_captions():
     body = request.get_json(silent=True) or {}
     raw = body.get("names") or body.get("name") or []
     names = [raw] if isinstance(raw, str) else list(raw)[:5]
+    names = [n for n in (str(x).strip() for x in names) if n]
+
+    # Remembered, not just used once. Cleaning the old rows and stopping new
+    # ones are the same problem, and typing the name twice to solve both is a
+    # trap — the second half quietly never gets done.
+    if names:
+        sage.set_setting(db.VIEWER_NAMES_KEY, ", ".join(names)[:200])
+
     result = db.clean_captions(_uid(), names=names)
     return jsonify({"ok": True, **result})
 

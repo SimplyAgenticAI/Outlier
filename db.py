@@ -650,6 +650,60 @@ _BARE_DOMAIN_RE = re.compile(r"^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$
 _LONG_TOKEN_RE = re.compile(r"^\S{20,}$")
 _WORD_RE = re.compile(r"^[A-Za-z][A-Za-z'’‘-]{1,29}$")
 
+# The operator's own name, as they typed it.
+#
+# Three attempts were made to work out where Facebook prints the reader's name
+# and to recognise it from the markup. All three were guesses at a page nobody
+# here can see, and the name kept arriving anyway. This stops guessing: the
+# name is asked for once, stored, and stripped on the way in — which works
+# whatever Facebook renames its containers to, and whatever build of the
+# extension is installed, because it happens on the server after the post has
+# already been sent.
+VIEWER_NAMES_KEY = "viewer_names"
+
+
+def get_viewer_names(conn, user_id):
+    """The names this account has declared as its own. Comma separated."""
+    row = conn.execute(
+        "SELECT value FROM user_settings WHERE user_id = ? AND key = ?",
+        (user_id, VIEWER_NAMES_KEY),
+    ).fetchone()
+    raw = (row["value"] if row else "") or ""
+    return [n.strip() for n in raw.split(",") if n.strip()]
+
+
+def viewer_name_parts(conn, user_id):
+    """Each word of each declared name, lowercased.
+
+    Parts and not just the whole string, because the name lands in a caption
+    as "Jeff" far more often than as "Jeff Randle".
+    """
+    parts = set()
+    for name in get_viewer_names(conn, user_id):
+        # The whole name as well as its pieces: it arrives as "Jeff" most of
+        # the time, but a header echo can carry "Jeff Randle" intact.
+        whole = " ".join(name.split()).strip(".,:;!?'\"’‘").lower()
+        if len(whole) >= 2:
+            parts.add(whole)
+        for part in name.split():
+            part = part.strip(".,:;!?'\"’‘").lower()
+            if len(part) >= 2:
+                parts.add(part)
+    return parts
+
+
+def is_viewer_name_body(body, parts):
+    """Is this whole caption nothing but one of those names?
+
+    Whole-block only, and matched against a closed set of declared names — so
+    a caption that merely contains the name is writing, and is never touched.
+    "Jeff" and "Jeff Randle" go; "Jeff was right about this" stays.
+    """
+    text = " ".join((body or "").split())
+    if not text or not parts:
+        return False
+    return text.strip(".,:;!?'\"’‘").lower() in parts
+
 
 def _name_parts(conn, user_id, names):
     """Every word that is known to be somebody's name, lowercased.
@@ -662,7 +716,9 @@ def _name_parts(conn, user_id, names):
     captured. Anything else is left exactly as it is.
     """
     parts = set()
-    for name in (names or []):
+    # Whatever was typed now, plus whatever was declared earlier — so a
+    # cleanup run without retyping the name still knows it.
+    for name in list(names or []) + get_viewer_names(conn, user_id):
         for part in str(name or "").split():
             part = part.strip(".,:;!?'\"").lower()
             if len(part) >= 2:
