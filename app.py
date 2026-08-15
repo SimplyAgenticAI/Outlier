@@ -1449,9 +1449,12 @@ def api_graphic():
     # The operator's own art direction. Optional — with none supplied the
     # house style applies exactly as it did before.
     instructions = (body.get("instructions") or body.get("prompt") or "").strip()
-    if not hook and not instructions:
+    # The variant's full copy, not just its opening line. A hook describes no
+    # scene, so illustrating one produced pictures unrelated to the post.
+    copy = (body.get("body") or "").strip()
+    if not hook and not instructions and not copy:
         return jsonify({"ok": False, "error": "Nothing to illustrate."}), 400
-    image, error = remix.generate_graphic(hook, instructions=instructions)
+    image, error = remix.generate_graphic(hook, instructions=instructions, body=copy)
     if error:
         return jsonify({"ok": False, "error": error}), 400
     return jsonify({"ok": True, "image": image})

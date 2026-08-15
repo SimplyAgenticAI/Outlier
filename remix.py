@@ -11,12 +11,31 @@ MODEL = "claude-opus-5"
 
 # What actually made the post work varies, so generate across distinct angles
 # rather than N rewrites of the same idea.
+# Three, not five.
+#
+# Contrarian and listicle are gone. Contrarian rewrote the argument rather
+# than reusing the mechanic, so it produced a post about a different thing
+# that happened to share a shape — and picking a fight is not a format, it is
+# a risk the operator has to carry in their own group. Listicle imposed a
+# structure the original did not have; a numbered breakdown of a story is a
+# different post, and it read as filler beside the other three.
+#
+# What is left is the same insight told three ways, which is what a variant
+# set is for.
 ANGLES = {
-    "same_hook": "Keep the hook structure that worked, change the story and specifics entirely.",
-    "contrarian": "Take the opposite position from the original while keeping the same energy.",
-    "personal": "Rewrite as a first-person story with a concrete personal stake.",
-    "listicle": "Restructure the same insight as a numbered list or breakdown.",
-    "question": "Lead with a question that makes the reader want to answer in the comments.",
+    "same_hook": (
+        "Keep the exact hook mechanic that worked — the same opening move, the "
+        "same promise, the same shape of first line — and change the story, the "
+        "specifics and the subject entirely."
+    ),
+    "personal": (
+        "Tell it as a first-person story with one concrete stake and one "
+        "specific detail that could only come from having been there."
+    ),
+    "question": (
+        "Lead with a question the reader answers in their head before they "
+        "finish reading it, and would rather type than not."
+    ),
 }
 
 VARIANT_SCHEMA = {
@@ -90,6 +109,49 @@ def is_configured():
 # Twelve matches the extension's own definition of "this post has text"
 # (content.js: `body.length >= 12`), so the two halves agree on what counts.
 MIN_COPY = 12
+
+
+def _engagement_shape(post):
+    """What the mix of reactions, comments and shares says about the post.
+
+    The numbers were being handed over raw, and a total says only "this did
+    well". The RATIO says what it did: a post carrying unusual comments
+    started an argument or asked something answerable, and a post carrying
+    unusual shares was useful or relatable enough to forward. Those are
+    different mechanics and they call for different variants, so the model is
+    told which one it is looking at rather than left to infer it from three
+    integers.
+    """
+    likes = max(int(post.get("likes") or 0), 0)
+    comments = max(int(post.get("comments") or 0), 0)
+    shares = max(int(post.get("shares") or 0), 0)
+    total = likes + comments + shares
+    if total < 10:
+        return ""
+
+    notes = []
+    # Thresholds are deliberately loose. This is a hint to a writer, not a
+    # measurement, and a wrong hint stated firmly is worse than no hint.
+    if comments >= max(likes * 0.25, 15):
+        notes.append(
+            "It drew an unusual number of COMMENTS for its reaction count — "
+            "people replied rather than just reacting, so the mechanic was "
+            "something answerable: a question, a gap, an opinion worth "
+            "arguing with, or an invitation to share their own version."
+        )
+    if shares >= max(likes * 0.12, 8):
+        notes.append(
+            "It drew an unusual number of SHARES — readers passed it on, which "
+            "means it was useful, validating, or said something they wanted to "
+            "be seen agreeing with. That is a different lever from comments."
+        )
+    if not notes and likes:
+        notes.append(
+            "Reactions dominate, with few comments or shares — it landed as "
+            "something people agreed with on sight rather than something they "
+            "engaged with. The hook did the work."
+        )
+    return "\n".join(notes)
 
 
 def _material(post):
@@ -194,16 +256,24 @@ def remix_post(post, angles=None, count=3):
 
     material = "\n\n".join(sections)
 
+    shape = _engagement_shape(post)
+    shape_block = f"\n\nWhat the numbers say:\n{shape}" if shape else ""
+
     user_content = f"""Here is the post that outperformed.
 
 Posted in: {post.get('source_name', 'a Facebook group')}
 Performance: {engagement}{f" — {multiple}x the median post in that group" if multiple else ""}
-Format: {post.get('post_type', 'text')}
+Format: {post.get('post_type', 'text')}{shape_block}
 
 {material}{thin_note}
 
 Write one variant for each of these angles:
-{angle_text}"""
+{angle_text}
+
+Before writing, decide what the ONE transferable mechanic was — the thing that
+would still work if every noun changed. Name it in why_it_worked, then build
+all three variants on it. Three variants of one mechanic beat three unrelated
+posts that each did something clever."""
 
     if cfg["provider"] == "openai":
         return _remix_openai(cfg, user_content)
@@ -331,7 +401,7 @@ def _wants_text(instructions):
     return bool(instructions and _WANTS_TEXT_RE.search(instructions))
 
 
-def generate_graphic(hook, instructions=""):
+def generate_graphic(hook, instructions="", body=""):
     """Turn a post's hook into a shareable illustration. Returns (image, error).
 
     `image` is a data: URL (gpt-image-1 returns base64) or an https URL (DALL-E).
@@ -401,17 +471,41 @@ def generate_graphic(hook, instructions=""):
             "logos or UI anywhere in the image — a pure, clean visual only."
         )
 
+    # The subject, from the whole post rather than one line.
+    #
+    # This was built from the hook alone, and a hook is a fragment written to
+    # be intriguing — "Nobody tells you this part" describes no scene at all,
+    # so the model invented one, and the result had nothing to do with the post
+    # it was supposed to illustrate. That is the "odd, not aligned" complaint
+    # exactly. The body says what the post is ABOUT; the hook says how it
+    # opens. Both go in, the body first, because subject matters more to a
+    # picture than tone does.
+    subject = " ".join((body or "").split())[:700]
+    opening = " ".join((hook or "").split())[:200]
+    if subject and opening and not subject.startswith(opening[:40]):
+        about = f"{subject}\n(Its opening line is: {opening})"
+    else:
+        about = subject or opening
+
     prompt = (
         f"{lead}"
-        "Award-winning, high-end social-media graphic with professional art "
-        "direction. Crisp and richly detailed, dramatic lighting, one strong "
-        "focal point, rule-of-thirds composition with generous negative space, "
-        "designed to stop the scroll.\n"
+        "A single photographic-quality image for a social post. Award-winning "
+        "art direction: one clear subject, dramatic directional light, shallow "
+        "depth of field, rule-of-thirds composition with room to breathe.\n\n"
+        "THE POST THIS ILLUSTRATES:\n"
+        f"{about}\n\n"
+        # Concrete beats clever. Asking for a "visual metaphor" was inviting
+        # the abstraction that made these look generic — floating shapes and
+        # glowing orbs that could belong to any post ever written. A real scene
+        # a reader recognises does more work than a symbol they must decode.
+        "Show a REAL, SPECIFIC SCENE from the world this post lives in — the "
+        "place, the object, the moment a reader of it would picture. Not an "
+        "abstract symbol, not floating shapes, not glowing orbs, not a collage, "
+        "and not a diagram. If the post is about a person doing something, show "
+        "that being done.\n\n"
         f"Visual style: {style}.\n"
         f"Colour palette: {palette}.\n"
         f"Mood: {mood}.{brand_ctx}\n"
-        "Depict a striking, original visual metaphor for this idea: "
-        f"{(hook or '').strip()[:400]}.\n"
         f"{text_rule}"
     )
 

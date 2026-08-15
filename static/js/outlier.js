@@ -335,6 +335,137 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
+  /* ------------------------------------------------------------ graphics */
+
+  /* One handler for every "Generate graphic" button on the page.
+   *
+   * This used to be built per variant, in a closure, at the moment JavaScript
+   * rendered a fresh remix — so a variant loaded from the database had no
+   * button at all, and leaving the page and coming back lost the option. Both
+   * paths now render the same markup with the hook and body as data
+   * attributes, and this reads them off whichever button was pressed.
+   */
+  document.addEventListener("click", function (event) {
+    if (!event.target.closest) return;
+    var button = event.target.closest(".graphic-btn");
+    if (!button) return;
+
+    var block = button.closest(".variant");
+    if (!block) return;
+
+    // Built on first press and kept afterwards, so a regenerate is a tweak of
+    // what was typed rather than a retype.
+    var direction = block.querySelector(".graphic-direction");
+    if (!direction) {
+      direction = document.createElement("div");
+      direction.className = "graphic-direction";
+
+      var brief = document.createElement("textarea");
+      brief.className = "graphic-brief";
+      brief.rows = 2;
+      brief.placeholder =
+        "Optional: describe the image you want — subject, style, colours, " +
+        "mood. Say \"with the text …\" if you want words on it.";
+
+      var go = document.createElement("button");
+      go.type = "button";
+      go.className = "btn btn-ghost graphic-go";
+      go.textContent = "Generate";
+
+      direction.appendChild(brief);
+      direction.appendChild(go);
+      block.appendChild(direction);
+
+      go.addEventListener("click", function () { runGraphic(button, block); });
+      brief.addEventListener("keydown", function (e) {
+        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) runGraphic(button, block);
+      });
+      brief.focus();
+      return;                       // first press opens the brief, spends nothing
+    }
+    runGraphic(button, block);
+  });
+
+  function runGraphic(button, block) {
+    var brief = block.querySelector(".graphic-brief");
+    var go = block.querySelector(".graphic-go");
+    var label = button.textContent;
+    button.disabled = true;
+    if (go) go.disabled = true;
+    button.textContent = "Generating…";
+
+    // The space the picture will occupy, claimed immediately and shimmering
+    // while it is empty. A button label is too small and too far from where
+    // the eye is to read as anything happening.
+    var old = block.querySelector(".variant-graphic");
+    if (old) old.remove();
+
+    var wrap = document.createElement("div");
+    wrap.className = "variant-graphic is-loading";
+    var skeleton = document.createElement("div");
+    skeleton.className = "graphic-skeleton";
+    var note = document.createElement("div");
+    note.className = "graphic-progress";
+    note.textContent = "Painting your graphic…";
+    wrap.appendChild(skeleton);
+    wrap.appendChild(note);
+    block.appendChild(wrap);
+
+    var started = Date.now();
+    var ticker = window.setInterval(function () {
+      var seconds = Math.round((Date.now() - started) / 1000);
+      note.textContent = "Painting your graphic… " + seconds + "s" +
+        (seconds >= 30 ? " — larger images can take a minute" : "");
+    }, 1000);
+    function stop() { window.clearInterval(ticker); }
+
+    post("/api/graphic", {
+      hook: button.dataset.hook || "",
+      // The body as well as the hook. A hook is a fragment written to intrigue
+      // and describes no scene, which is why the pictures had nothing to do
+      // with the post they illustrated.
+      body: button.dataset.body || "",
+      instructions: brief ? brief.value.trim() : ""
+    })
+      .then(function (data) {
+        if (!data.ok) throw new Error(data.error || "Could not generate a graphic");
+        stop();
+        var img = document.createElement("img");
+        img.alt = "Generated graphic";
+        var dl = document.createElement("a");
+        dl.href = data.image;
+        dl.download = "tallgrass-graphic.png";
+        dl.className = "graphic-dl";
+        dl.textContent = "Download";
+
+        // Held until the bytes decode. Swapping on the response alone leaves a
+        // blank frame where the shimmer was.
+        img.addEventListener("load", function () {
+          wrap.className = "variant-graphic";
+          wrap.textContent = "";
+          wrap.appendChild(img);
+          wrap.appendChild(dl);
+        });
+        img.addEventListener("error", function () {
+          wrap.remove();
+          toast("The image could not be displayed", true);
+        });
+        img.src = data.image;
+        button.textContent = "Regenerate graphic";
+      })
+      .catch(function (error) {
+        stop();
+        wrap.remove();
+        toast(error.message, true);
+        button.textContent = label;
+      })
+      .finally(function () {
+        stop();
+        button.disabled = false;
+        if (go) go.disabled = false;
+      });
+  }
+
   /* ------------------------------------------------------ delete a post */
 
   // Delegated from the document, because post cards appear on the feed, on a
@@ -1230,10 +1361,14 @@
       copy.dataset.copyTarget = id;
       copy.textContent = "Copy";
 
+      // Same markup the server renders for a saved variant, so one delegated
+      // handler drives both. The hook and body ride on the button as data.
       var graphic = document.createElement("button");
       graphic.type = "button";
       graphic.className = "graphic-btn";
       graphic.textContent = "Generate graphic";
+      graphic.dataset.hook = variant.hook || variant.body || "";
+      graphic.dataset.body = variant.body || "";
 
       head.appendChild(angle);
       head.appendChild(copy);
@@ -1248,141 +1383,6 @@
       block.appendChild(body);
       wrapper.appendChild(block);
 
-      /* Art direction, before anything is generated.
-       *
-       * This used to fire straight at the API off the hook alone, so the only
-       * way to influence the picture was to change the post. Now the button
-       * opens a box first: whatever is typed there outranks the house style,
-       * and an empty box behaves exactly as the old button did.
-       */
-      var direction = document.createElement("div");
-      direction.className = "graphic-direction";
-      direction.hidden = true;
-
-      var brief = document.createElement("textarea");
-      brief.className = "graphic-brief";
-      brief.rows = 2;
-      brief.placeholder =
-        "Optional: describe the image you want — subject, style, colours, " +
-        "mood. Say \"with the text …\" if you want words on it.";
-
-      var go = document.createElement("button");
-      go.type = "button";
-      go.className = "btn btn-ghost graphic-go";
-      go.textContent = "Generate";
-
-      direction.appendChild(brief);
-      direction.appendChild(go);
-      block.appendChild(direction);
-
-      function runGraphic() {
-        var label = graphic.textContent;
-        go.disabled = true;
-        graphic.disabled = true;
-        graphic.textContent = "Generating…";
-
-        /* A placeholder the size of the picture, from the moment it is asked
-         * for.
-         *
-         * The only feedback used to be the button's own label, which is small,
-         * sits above where you are looking, and reads as nothing happening for
-         * the twenty to thirty seconds an image takes. So the space the image
-         * will occupy is claimed immediately and shimmers while it is empty,
-         * and the wait is counted out loud — a number that keeps moving is the
-         * difference between "slow" and "broken".
-         */
-        var old = block.querySelector(".variant-graphic");
-        if (old) old.remove();
-
-        var wrap = document.createElement("div");
-        wrap.className = "variant-graphic is-loading";
-        var skeleton = document.createElement("div");
-        skeleton.className = "graphic-skeleton";
-        var note = document.createElement("div");
-        note.className = "graphic-progress";
-        note.textContent = "Painting your graphic…";
-        wrap.appendChild(skeleton);
-        wrap.appendChild(note);
-        block.appendChild(wrap);
-
-        var started = Date.now();
-        var ticker = window.setInterval(function () {
-          var seconds = Math.round((Date.now() - started) / 1000);
-          note.textContent = "Painting your graphic… " + seconds + "s";
-          // Said before they start wondering, not after.
-          if (seconds >= 30) {
-            note.textContent = "Painting your graphic… " + seconds +
-              "s — larger images can take a minute";
-          }
-        }, 1000);
-
-        function stopTicker() {
-          window.clearInterval(ticker);
-        }
-
-        post("/api/graphic", {
-          hook: variant.hook || variant.body || "",
-          instructions: brief.value.trim()
-        })
-          .then(function (data) {
-            if (!data.ok) throw new Error(data.error || "Could not generate a graphic");
-            stopTicker();
-            var img = document.createElement("img");
-            img.alt = "Generated graphic";
-            var dl = document.createElement("a");
-            dl.href = data.image;
-            dl.download = "tallgrass-graphic.png";
-            dl.className = "graphic-dl";
-            dl.textContent = "Download";
-
-            // The skeleton is held until the bytes have actually decoded.
-            // Swapping on the response alone leaves a blank frame where the
-            // shimmer was, which looks worse than the wait it replaced.
-            img.addEventListener("load", function () {
-              wrap.className = "variant-graphic";
-              wrap.textContent = "";
-              wrap.appendChild(img);
-              wrap.appendChild(dl);
-            });
-            img.addEventListener("error", function () {
-              wrap.remove();
-              toast("The image could not be displayed", true);
-            });
-            img.src = data.image;
-            graphic.textContent = "Regenerate graphic";
-          })
-          .catch(function (error) {
-            stopTicker();
-            wrap.remove();
-            toast(error.message, true);
-            graphic.textContent = label;
-          })
-          .finally(function () {
-            stopTicker();
-            graphic.disabled = false;
-            go.disabled = false;
-          });
-      }
-
-      // First click opens the brief; the button inside it does the generating.
-      // Nothing is spent until the operator has had the chance to say what
-      // they want, and the box stays filled so a regenerate can be a tweak
-      // rather than a retype.
-      graphic.addEventListener("click", function () {
-        if (direction.hidden) {
-          direction.hidden = false;
-          brief.focus();
-          return;
-        }
-        runGraphic();
-      });
-
-      go.addEventListener("click", runGraphic);
-
-      // Ctrl/Cmd+Enter to fire without reaching for the mouse.
-      brief.addEventListener("keydown", function (event) {
-        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) runGraphic();
-      });
     });
 
     output.prepend(wrapper);

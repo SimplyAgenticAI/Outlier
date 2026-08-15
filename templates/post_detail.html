@@ -190,10 +190,18 @@
         <div class="remix-result">
           <p class="why"><b>Why it worked:</b> {{ row.parsed.why_it_worked }}</p>
           {% for variant in row.parsed.variants %}
+          {# Identical markup to the freshly-generated version, because the
+             graphic button used to exist only on variants JavaScript had just
+             built — so leaving the page and coming back lost it. The hook and
+             body ride on the button as data, which is what lets one delegated
+             handler serve both paths. #}
           <div class="variant">
             <div class="variant-head">
-              <span class="variant-angle">{{ variant.angle }}</span>
+              <span class="variant-angle">{{ variant.angle.replace('_', ' ') }}</span>
               <button class="copy-btn" data-copy-target="v{{ loop.index }}-{{ row.id }}">Copy</button>
+              <button type="button" class="graphic-btn"
+                      data-hook="{{ variant.hook or variant.body }}"
+                      data-body="{{ variant.body }}">Generate graphic</button>
             </div>
             <p class="variant-body" id="v{{ loop.index }}-{{ row.id }}">{{ variant.body }}</p>
           </div>
