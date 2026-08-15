@@ -2314,7 +2314,18 @@
     renderHud();
 
     scrollTimer = setInterval(function () {
-      var before = window.scrollY;
+      var beforeArts = document.querySelectorAll('div[role="article"]').length;
+
+      // Scrolling the WINDOW does not move a nested feed container, and some
+      // page timelines render inside one — so Facebook never lazy-loads and
+      // capture stalls after the first batch. Scrolling the LAST article into
+      // view moves whichever element actually scrolls, window or nested, so
+      // more posts load. The window scroll stays as a belt-and-braces.
+      var arts = document.querySelectorAll('div[role="article"]');
+      var last = arts[arts.length - 1];
+      if (last && last.scrollIntoView) {
+        try { last.scrollIntoView({ block: "end", behavior: "smooth" }); } catch (e) {}
+      }
       window.scrollBy({ top: Math.round(window.innerHeight * 0.85), behavior: "smooth" });
 
       // Give Facebook a beat to render, then scan what appeared.
@@ -2335,9 +2346,12 @@
           return;
         }
 
-        // Bottom of the feed: scroll position stopped moving and nothing new
-        // came in. Facebook lazy-loads, so allow several idle passes first.
-        if (window.scrollY <= before + 8 && found === 0) {
+        // Bottom of the feed: no new articles RENDERED and nothing new
+        // captured. Counting articles rather than window.scrollY is what makes
+        // this correct when a nested container is what actually scrolled — the
+        // window not moving no longer looks like the end when the feed did move.
+        var afterArts = document.querySelectorAll('div[role="article"]').length;
+        if (afterArts <= beforeArts && found === 0) {
           idleScrolls++;
           if (idleScrolls >= 6) {
             stopAutoScroll(null, "Reached the end — " + SEEN.size + " posts");
