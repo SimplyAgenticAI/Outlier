@@ -1436,6 +1436,43 @@ select.kind-select option { color: initial; }
 .meadow-scroll { overflow-x: auto; overflow-y: hidden; padding-bottom: 6px; }
 .meadow { display: block; height: 150px; min-width: 100%; }
 
+/* The bar sits directly beneath the field, so it is drawn as ground rather
+   than as browser furniture: dark soil, with a thumb filled from the same
+   emerald ramp as the blades standing above it. The default grey slab read
+   as a piece of the browser that had wandered into the picture.
+
+   Both syntaxes are here on purpose — Firefox only understands the two
+   standard properties, and WebKit only repaints through the pseudo-elements,
+   so each engine needs its own. */
+.meadow-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--emerald-dim) rgba(5, 11, 7, 0.55);
+}
+
+.meadow-scroll::-webkit-scrollbar { height: 10px; }
+
+.meadow-scroll::-webkit-scrollbar-track {
+  background: rgba(5, 11, 7, 0.55);
+  border-radius: 6px;
+  /* A lit hairline along the top edge, echoing the dashed median the blades
+     are rooted in, so the bar reads as the floor of the same drawing. */
+  box-shadow: inset 0 1px 0 rgba(110, 231, 183, 0.12);
+}
+
+.meadow-scroll::-webkit-scrollbar-thumb {
+  border-radius: 6px;
+  background: linear-gradient(to right, #10b981, #6ee7b7);
+  /* Transparent border plus padding-box clipping insets the thumb, leaving a
+     margin of track visible around it instead of a bar wedged edge to edge. */
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+
+.meadow-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to right, var(--emerald), #a7f3d0);
+  background-clip: padding-box;
+}
+
 .meadow-ground {
   stroke: rgba(110, 231, 183, 0.34);
   stroke-width: 1;
