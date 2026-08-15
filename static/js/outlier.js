@@ -1028,34 +1028,85 @@
         go.disabled = true;
         graphic.disabled = true;
         graphic.textContent = "Generating…";
+
+        /* A placeholder the size of the picture, from the moment it is asked
+         * for.
+         *
+         * The only feedback used to be the button's own label, which is small,
+         * sits above where you are looking, and reads as nothing happening for
+         * the twenty to thirty seconds an image takes. So the space the image
+         * will occupy is claimed immediately and shimmers while it is empty,
+         * and the wait is counted out loud — a number that keeps moving is the
+         * difference between "slow" and "broken".
+         */
+        var old = block.querySelector(".variant-graphic");
+        if (old) old.remove();
+
+        var wrap = document.createElement("div");
+        wrap.className = "variant-graphic is-loading";
+        var skeleton = document.createElement("div");
+        skeleton.className = "graphic-skeleton";
+        var note = document.createElement("div");
+        note.className = "graphic-progress";
+        note.textContent = "Painting your graphic…";
+        wrap.appendChild(skeleton);
+        wrap.appendChild(note);
+        block.appendChild(wrap);
+
+        var started = Date.now();
+        var ticker = window.setInterval(function () {
+          var seconds = Math.round((Date.now() - started) / 1000);
+          note.textContent = "Painting your graphic… " + seconds + "s";
+          // Said before they start wondering, not after.
+          if (seconds >= 30) {
+            note.textContent = "Painting your graphic… " + seconds +
+              "s — larger images can take a minute";
+          }
+        }, 1000);
+
+        function stopTicker() {
+          window.clearInterval(ticker);
+        }
+
         post("/api/graphic", {
           hook: variant.hook || variant.body || "",
           instructions: brief.value.trim()
         })
           .then(function (data) {
             if (!data.ok) throw new Error(data.error || "Could not generate a graphic");
-            var old = block.querySelector(".variant-graphic");
-            if (old) old.remove();
-            var wrap = document.createElement("div");
-            wrap.className = "variant-graphic";
+            stopTicker();
             var img = document.createElement("img");
-            img.src = data.image;
             img.alt = "Generated graphic";
             var dl = document.createElement("a");
             dl.href = data.image;
             dl.download = "tallgrass-graphic.png";
             dl.className = "graphic-dl";
             dl.textContent = "Download";
-            wrap.appendChild(img);
-            wrap.appendChild(dl);
-            block.appendChild(wrap);
+
+            // The skeleton is held until the bytes have actually decoded.
+            // Swapping on the response alone leaves a blank frame where the
+            // shimmer was, which looks worse than the wait it replaced.
+            img.addEventListener("load", function () {
+              wrap.className = "variant-graphic";
+              wrap.textContent = "";
+              wrap.appendChild(img);
+              wrap.appendChild(dl);
+            });
+            img.addEventListener("error", function () {
+              wrap.remove();
+              toast("The image could not be displayed", true);
+            });
+            img.src = data.image;
             graphic.textContent = "Regenerate graphic";
           })
           .catch(function (error) {
+            stopTicker();
+            wrap.remove();
             toast(error.message, true);
             graphic.textContent = label;
           })
           .finally(function () {
+            stopTicker();
             graphic.disabled = false;
             go.disabled = false;
           });

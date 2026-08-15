@@ -1656,6 +1656,45 @@ body.score-help-open { overflow: hidden; }
 
 .graphic-go { flex-shrink: 0; font-size: 12px; padding: 8px 14px; }
 
+/* The wait for an image, made visible.
+   Square because that is what the API returns (1024x1024), so the picture
+   lands in exactly the space the placeholder was holding and nothing below
+   it jumps when it arrives. */
+/* variantIn is the entrance every other block in a remix already uses, so the
+   placeholder arrives the same way its siblings did rather than snapping in. */
+.variant-graphic.is-loading { animation: variantIn 0.3s var(--ease) both; }
+
+.graphic-skeleton {
+  width: 100%; max-width: 420px; aspect-ratio: 1 / 1;
+  border-radius: 10px;
+  border: 1px solid rgba(217, 180, 95, 0.22);
+  background:
+    linear-gradient(100deg,
+      rgba(217, 180, 95, 0.05) 28%,
+      rgba(217, 180, 95, 0.16) 46%,
+      rgba(217, 180, 95, 0.05) 64%),
+    rgba(11, 29, 19, 0.7);
+  background-size: 280% 100%, auto;
+  animation: graphic-shimmer 1.9s var(--ease) infinite;
+}
+
+@keyframes graphic-shimmer {
+  from { background-position: 160% 0, 0 0; }
+  to   { background-position: -60% 0, 0 0; }
+}
+
+.graphic-progress {
+  margin-top: 8px; font-size: 12px; color: #d9b45f;
+  /* Tabular figures so the second counter does not jitter the line as the
+     digits change width. */
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* The counter still moves, so the wait is still legible without it. */
+  .graphic-skeleton { animation: none; }
+}
+
 @media (max-width: 560px) {
   /* Side by side leaves the box too narrow to write a brief in. */
   .graphic-direction { flex-direction: column; }
