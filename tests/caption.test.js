@@ -134,6 +134,20 @@ check("  and it carries no joiners to catch it by",
       (TOKEN_B.match(/͏/g) || []).length, 0);
 
 console.log();
+console.log("a token decoy under thirty characters is caught too");
+
+// Real, from the dashboard: twenty-six characters, so the old floor of thirty
+// let it straight through into the caption.
+check("twenty-six characters is still a decoy",
+      api.isDecoyText("kzfuqdTwMaj4osRaigGNJeAvHM"), true);
+// Between twenty and thirty the letters must spell nothing as well, so a real
+// run-on caption keeps its place.
+check("a real run-on is not a decoy",
+      api.isDecoyText("iPhone15ProMaxUnlocked"), false);
+check("nor is a long CamelCase phrase",
+      api.isDecoyText("MondayMotivationForEveryone"), false);
+
+console.log();
 console.log("legitimate single-token captions are carved out");
 
 [
@@ -158,6 +172,10 @@ check("  even short and dotted", api.isDecoyText("Xk7Qz.io"), true);
 // missed every decoy that happened not to carry one.
 check("  and with no digit at all", api.isDecoyText("YjDuBghsl.com"), true);
 check("  the giveaway is five consonants", api.isDecoyText("QrtwbNkm.net"), true);
+// Real, from the dashboard a third time: no digit AND no capital either.
+// Caught on the opening cluster - no word begins "mr".
+check("  and with no capital either", api.isDecoyText("mrukbzoeu.com"), true);
+check("  an opening no word has", api.isDecoyText("kzfuqbo.net"), true);
 
 console.log();
 console.log("real links and domains are left alone");
@@ -171,9 +189,14 @@ console.log("real links and domains are left alone");
   "https://example.com/aB3",  // a real URL with a path
   "www.macrandleacres.com",
   "TechCrunch.com",           // mixed case, runs to four consonants (chcr)
-  "SHRM.com",                 // an acronym: no lowercase, so not a decoy
+  "SHRM.com",                 // an acronym: too short to judge on spelling
   "HubSpot.com",              // mixed case, pronounceable
-  "StackOverflow.com"
+  "StackOverflow.com",
+  "nfl.com",                  // three letters, exempt
+  "espn.com",
+  "shopify.com",              // "sh" is an opening words really have
+  "squarespace.com",          // so is "sq"
+  "linktr.ee"
 ].forEach(function (real) {
   check("not a decoy: " + real, api.isDecoyText(real), false);
 });

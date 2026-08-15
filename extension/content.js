@@ -869,12 +869,22 @@
    */
   function isTokenDecoy(raw) {
     var text = String(raw || "").trim();
-    if (text.length < 30) return false;
+    // Twenty, not thirty. "kzfuqdTwMaj4osRaigGNJeAvHM" is twenty-six and was
+    // arriving as a caption. The old floor was set by the length of the first
+    // sample ever seen, not by anything about where real captions stop.
+    if (text.length < 20) return false;
     if (/\s/.test(text)) return false;                        // one unbroken run
     if (/^(?:https?:\/\/|www\.)/i.test(text)) return false;   // a link is real copy
     if (text.charAt(0) === "@" || text.charAt(0) === "#") return false;  // handle / hashtag
     if (text.indexOf(".") !== -1 || text.indexOf("/") !== -1) return false;  // domains, paths
-    return /[A-Z]/.test(text) && /[a-z]/.test(text) && /[0-9]/.test(text);
+    // Mixed case is the shape of all of these; a shout or a slug is not one.
+    if (!/[A-Z]/.test(text) || !/[a-z]/.test(text)) return false;
+    // Thirty and over, a digit alone is damning — that was the original rule
+    // and it never misfired. Between twenty and thirty the letters have to
+    // spell nothing as well, so a real run-on like "iPhone15ProMaxUnlocked"
+    // is not taken for a generated one.
+    if (text.length >= 30 && /[0-9]/.test(text)) return true;
+    return looksRandomLetters(text);
   }
 
   /* A decoy dressed as a domain: "Ghgb4e.com".
@@ -889,29 +899,65 @@
    * (promo2024.com) safe. Like every branch here it only decides the caption —
    * a post whose lone block is one of these is still captured, with none.
    *
-   * Requiring a digit was tuned to that one sample and missed the digit-free
-   * ones: "YjDuBghsl.com" arrived in the dashboard as a caption. So a second
-   * signature sits beside it — a domain nobody could pronounce. Real labels,
-   * invented brand names included, break for a vowel every few letters; five
-   * consonants in a row is a string of random keys, not a word. Both an
-   * uppercase and a lowercase letter are required with it, which is what
-   * keeps an acronym (SHRM.com) out of the net.
+   * Requiring a digit was tuned to that one sample. Casing was the second
+   * guess and was tuned to the second sample. Both missed "mrukbzoeu.com",
+   * which carries neither. The signal is not punctuation or case — it is that
+   * the letters spell nothing. See looksRandomLetters.
    */
-  function longestConsonantRun(label) {
-    // y counts as a vowel here on purpose: it is the vowel in "MyStore", and
-    // treating it as a consonant would make that read as a four-run and cost
-    // a real domain its caption.
-    var run = 0, best = 0;
-    for (var i = 0; i < label.length; i++) {
-      var ch = label.charAt(i).toLowerCase();
-      if (ch >= "a" && ch <= "z" && "aeiouy".indexOf(ch) === -1) {
-        run += 1;
-        if (run > best) best = run;
-      } else {
-        run = 0;      // a vowel, digit or hyphen breaks the run
-      }
+
+  /* Do these letters look typed, or generated?
+   *
+   * Two shapes give a random string away, and neither depends on case, digits
+   * or length alone — which is what the previous two attempts leaned on, and
+   * why each one only caught the sample it was written from.
+   *
+   * FIRST: the opening consonant cluster. Every language a domain gets named
+   * in has a small set of clusters a word may begin with — "str", "ch", "pl".
+   * "mr" is not among them, and neither is "kz". A generator does not know
+   * that, so it produces openings no word has. Short labels are exempt because
+   * acronyms are not words either and are perfectly real: NFL, ESPN, SHRM.
+   *
+   * SECOND: a run of five consonants with no vowel between them. "YjDuBghsl"
+   * has "bghsl". Real names break for a vowel long before that. Five and not
+   * four, because "TechCrunch" runs to four (chcr) and someone might paste it.
+   *
+   * y counts as a vowel throughout: it is the vowel in "MyStore", and calling
+   * it a consonant would cost that real domain its caption.
+   *
+   * This is a heuristic about spelling, so it will never be perfect in either
+   * direction. It is tuned to prefer a blank caption over a fabricated one,
+   * which is the operator's explicit instruction: a post with nothing written
+   * on it should arrive with nothing written on it.
+   */
+  var VALID_ONSETS = {
+    bl: 1, br: 1, ch: 1, chr: 1, cl: 1, cr: 1, dr: 1, dw: 1, fl: 1, fr: 1,
+    gh: 1, gl: 1, gn: 1, gr: 1, kl: 1, kn: 1, kr: 1, kw: 1, ph: 1, phl: 1,
+    phr: 1, pl: 1, pn: 1, pr: 1, ps: 1, qu: 1, rh: 1, sc: 1, sch: 1, scr: 1,
+    sh: 1, shr: 1, sk: 1, sl: 1, sm: 1, sn: 1, sp: 1, sph: 1, spl: 1, spr: 1,
+    sq: 1, squ: 1, st: 1, str: 1, sv: 1, sw: 1, th: 1, thr: 1, tr: 1, ts: 1,
+    tw: 1, vl: 1, wh: 1, wr: 1, zh: 1, zl: 1, zw: 1
+  };
+
+  function isVowel(ch) { return "aeiouy".indexOf(ch) !== -1; }
+
+  function looksRandomLetters(raw) {
+    var letters = String(raw || "").replace(/[^A-Za-z]/g, "").toLowerCase();
+    if (letters.length < 6) return false;   // acronyms and short names are exempt
+
+    // The opening cluster, up to the first vowel.
+    var onset = "";
+    for (var i = 0; i < letters.length && !isVowel(letters.charAt(i)); i++) {
+      onset += letters.charAt(i);
     }
-    return best;
+    if (onset.length >= 2 && !VALID_ONSETS[onset]) return true;
+
+    var run = 0;
+    for (var j = 0; j < letters.length; j++) {
+      if (isVowel(letters.charAt(j))) { run = 0; continue; }
+      run += 1;
+      if (run >= 5) return true;
+    }
+    return false;
   }
 
   function isDomainDecoy(raw) {
@@ -922,11 +968,9 @@
     // Bare domain shape: one or more labels then a TLD, nothing else.
     if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(text)) return false;
     var withoutTld = text.slice(0, text.lastIndexOf("."));
+    // The original signature: a capital and a digit inside the label.
     if (/[A-Z]/.test(withoutTld) && /[0-9]/.test(withoutTld)) return true;
-    // Unpronounceable and mixed-case. Five and not four: "TechCrunch" runs to
-    // four (chcr) and is a domain someone might genuinely paste.
-    return /[A-Z]/.test(withoutTld) && /[a-z]/.test(withoutTld) &&
-           longestConsonantRun(withoutTld) >= 5;
+    return looksRandomLetters(withoutTld);
   }
 
   function longestTextBlock(article, authorName, bar, selector) {
