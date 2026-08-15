@@ -195,3 +195,74 @@ def _remix_openai(cfg, user_content):
         return json.loads(text), None
     except json.JSONDecodeError:
         return None, "Could not parse the model's response."
+
+
+# ------------------------------------------------------------------ graphics
+
+def _openai_key():
+    """The OpenAI key specifically.
+
+    Image generation only exists on OpenAI, so it needs that key regardless of
+    which provider drives the text features — a user on Claude for remixing can
+    still generate graphics if they have also saved an OpenAI key.
+    """
+    import sage
+    return sage.get_setting("ai_key_openai", "") or os.environ.get("OPENAI_API_KEY", "")
+
+
+def graphic_configured():
+    try:
+        return bool(_openai_key())
+    except Exception:
+        return False
+
+
+def generate_graphic(hook):
+    """Turn a post's hook into a shareable illustration. Returns (image, error).
+
+    `image` is a data: URL (gpt-image-1 returns base64) or an https URL (DALL-E).
+    Text is deliberately kept OUT of the image — image models render lettering
+    as garbage, so the graphic is a clean illustration of the idea, not a card.
+    """
+    key = _openai_key()
+    if not key:
+        return None, "Add an OpenAI key on the Settings page to generate graphics."
+
+    try:
+        import openai
+    except ImportError:
+        return None, "The openai package is not installed. Run: pip install openai"
+
+    client = openai.OpenAI(api_key=key)
+    prompt = (
+        "A bold, clean, eye-catching social-media illustration that visually "
+        "captures the idea of this post. Modern, high-contrast, scroll-stopping. "
+        "Do NOT put any text, words, letters or captions in the image. Idea: "
+        + (hook or "").strip()[:400]
+    )
+
+    last_err = None
+    # gpt-image-1 first (best quality, returns base64); fall back to dall-e-3,
+    # which is available without organisation verification.
+    for model in ("gpt-image-1", "dall-e-3"):
+        try:
+            resp = client.images.generate(model=model, prompt=prompt, size="1024x1024", n=1)
+            item = resp.data[0]
+            b64 = getattr(item, "b64_json", None)
+            if b64:
+                return "data:image/png;base64," + b64, None
+            url = getattr(item, "url", None)
+            if url:
+                return url, None
+            last_err = "no image returned"
+        except openai.AuthenticationError:
+            return None, "That OpenAI key was rejected. Check it on the Settings page."
+        except openai.RateLimitError:
+            return None, "Rate limited by OpenAI — try again in a moment."
+        except openai.APIConnectionError:
+            return None, "Could not reach OpenAI — check your network connection."
+        except Exception as exc:                    # model unavailable, content policy, etc.
+            last_err = getattr(exc, "message", None) or str(exc)
+            continue
+
+    return None, f"Could not generate a graphic: {last_err}"

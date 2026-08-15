@@ -1572,3 +1572,21 @@ body.score-help-open { overflow: hidden; }
   font-size: 0.6rem; color: #f5d98a; white-space: nowrap;
 }
 .score-help-body .sh-note { font-size: 0.8rem; color: #90a89c; margin-top: 8px; }
+
+/* Generate-graphic button on each remix variant, and the image it produces. */
+.graphic-btn {
+  font-size: 11px; padding: 3px 9px; border-radius: 5px; cursor: pointer;
+  background: rgba(217, 180, 95, 0.14); border: 1px solid rgba(217, 180, 95, 0.35);
+  color: var(--text-muted);
+}
+.graphic-btn:hover:not(:disabled) { border-color: #d9b45f; color: var(--text); }
+.graphic-btn:disabled { opacity: 0.6; cursor: default; }
+.variant-graphic { margin-top: 10px; }
+.variant-graphic img {
+  max-width: 100%; border-radius: 10px; display: block; border: 1px solid var(--border);
+}
+.graphic-dl {
+  display: inline-block; margin-top: 6px; font-size: 12px;
+  color: #d9b45f; text-decoration: none;
+}
+.graphic-dl:hover { text-decoration: underline; }

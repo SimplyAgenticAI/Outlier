@@ -913,8 +913,14 @@
       copy.dataset.copyTarget = id;
       copy.textContent = "Copy";
 
+      var graphic = document.createElement("button");
+      graphic.type = "button";
+      graphic.className = "graphic-btn";
+      graphic.textContent = "Generate graphic";
+
       head.appendChild(angle);
       head.appendChild(copy);
+      head.appendChild(graphic);
 
       var body = document.createElement("p");
       body.className = "variant-body";
@@ -924,6 +930,39 @@
       block.appendChild(head);
       block.appendChild(body);
       wrapper.appendChild(block);
+
+      // Turn this variant's hook into a shareable illustration on demand. Image
+      // generation costs more than text, so it never runs until asked.
+      graphic.addEventListener("click", function () {
+        var label = graphic.textContent;
+        graphic.disabled = true;
+        graphic.textContent = "Generating…";
+        post("/api/graphic", { hook: variant.hook || variant.body || "" })
+          .then(function (data) {
+            if (!data.ok) throw new Error(data.error || "Could not generate a graphic");
+            var old = block.querySelector(".variant-graphic");
+            if (old) old.remove();
+            var wrap = document.createElement("div");
+            wrap.className = "variant-graphic";
+            var img = document.createElement("img");
+            img.src = data.image;
+            img.alt = "Generated graphic";
+            var dl = document.createElement("a");
+            dl.href = data.image;
+            dl.download = "tallgrass-graphic.png";
+            dl.className = "graphic-dl";
+            dl.textContent = "Download";
+            wrap.appendChild(img);
+            wrap.appendChild(dl);
+            block.appendChild(wrap);
+            graphic.textContent = "Regenerate graphic";
+          })
+          .catch(function (error) {
+            toast(error.message, true);
+            graphic.textContent = label;
+          })
+          .finally(function () { graphic.disabled = false; });
+      });
     });
 
     output.prepend(wrapper);

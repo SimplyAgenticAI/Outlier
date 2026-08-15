@@ -1352,6 +1352,20 @@ def api_remix(post_id):
     return jsonify({"ok": True, "result": result})
 
 
+@app.route("/api/graphic", methods=["POST"])
+@auth.login_required
+def api_graphic():
+    """Turn a remix variant's hook into a shareable illustration (OpenAI)."""
+    body = request.get_json(silent=True) or {}
+    hook = (body.get("hook") or body.get("text") or "").strip()
+    if not hook:
+        return jsonify({"ok": False, "error": "Nothing to illustrate."}), 400
+    image, error = remix.generate_graphic(hook)
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+    return jsonify({"ok": True, "image": image})
+
+
 @app.route("/api/demo", methods=["POST", "DELETE"])
 @auth.login_required
 def api_demo():
