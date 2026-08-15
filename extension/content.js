@@ -170,6 +170,16 @@
    * The kind is a label; it does not affect capture or scoring.
    */
   function detectProfileKind() {
+    /* The URL first, because it is the one signal that survives.
+     *
+     * Facebook serves Pages from /p/<name>-<id>/ and the older /pages/<...>,
+     * and it serves nothing else from either. That makes the path a stronger
+     * signal than the meta tag below, which disappears entirely on in-app
+     * navigation — which is why a Page kept being labelled "profile" no
+     * matter how many times it was scanned.
+     */
+    if (/^\/(p|pages)\//i.test(location.pathname)) return "page";
+
     var metas = document.querySelectorAll(
       'meta[property="al:android:url"], meta[property="al:ios:url"], meta[property="al:web:url"]');
     for (var i = 0; i < metas.length; i++) {
@@ -192,6 +202,26 @@
    */
   function groupKey(id) {
     return String(id || "").trim().replace(/\/+$/, "").toLowerCase();
+  }
+
+  /* What to call whatever is being scanned.
+   *
+   * The panel said "Captured this group" everywhere, including on a Page and
+   * on somebody's timeline, where it is simply the wrong word. The kind is
+   * already resolved for the source being sent, so the label follows it
+   * rather than being written once and hoped over.
+   *
+   * Read live rather than cached: Facebook is a single page app and the
+   * answer changes underneath the panel as you navigate.
+   */
+  function sourceNoun() {
+    var source = detectSource() || lastKnownSource;
+    var kind = source && source.kind;
+    if (kind === "group") return "group";
+    if (kind === "page") return "page";
+    if (kind === "profile") return "profile";
+    if (kind === "feed") return "feed";
+    return "scan";      // nothing identified yet — never claim a kind
   }
 
   function detectSource() {
@@ -230,6 +260,75 @@
         location.pathname === "/home.php") {
       return { fb_id: "feed:home", kind: "feed", name: "Home feed",
                isFeed: true, url: location.origin + "/" };
+    }
+
+    /* Pages, which Facebook serves from their own two prefixes.
+     *
+     * Checked BEFORE the reserved list below, and this is the whole bug: an
+     * old-style Page lives at /pages/<name>/<id>, "pages" was reserved, so
+     * detectSource returned null for it — and flush() holds the queue when it
+     * cannot name the source. Captured climbed, nothing sent, no error. A
+     * Page could not be captured at all.
+     *
+     * The newer /p/<name>-<id>/ form was worse in a quieter way: it fell
+     * through to the vanity branch, which read the first path segment and
+     * called it "p". Every Page on Facebook resolved to one source named p,
+     * sharing a baseline with each other.
+     *
+     * The trailing id is what identifies a Page — Facebook rewrites the name
+     * half freely — so it is preferred as the key when present.
+     */
+    var shortForm = location.pathname.match(/^\/p\/([^/?#]+)/i);
+    var longForm = location.pathname.match(/^\/pages\/(.+)/i);
+    var pageSlug = null;
+    if (shortForm) {
+      pageSlug = shortForm[1];
+    } else if (longForm) {
+      /* The LAST segment, not the first.
+       *
+       * /pages/ takes an optional category before the name —
+       * /pages/category/Restaurant/Joes-99887766554 — and reading the first
+       * segment filed every restaurant on Facebook under one source called
+       * "Restaurant". The name and its id are always last.
+       */
+      var segments = longForm[1].split("/").filter(Boolean);
+      pageSlug = segments.length ? segments[segments.length - 1] : null;
+    }
+    if (pageSlug) {
+      var slug = decodeURIComponent(pageSlug);
+      var trailingId = slug.match(/(\d{6,})$/);
+      return {
+        // Same "profile:" prefix as a personal timeline. It is the identity
+        // key and nothing else; changing it per kind would split an existing
+        // source in two and halve its baseline.
+        fb_id: "profile:" + groupKey(trailingId ? trailingId[1] : slug),
+        kind: "page",
+        name: nameFromTitle(slug.replace(/-\d{6,}$/, "").replace(/-/g, " ")),
+        url: location.origin + location.pathname.replace(/\/+$/, "")
+      };
+    }
+
+    /* A timeline addressed by number rather than by vanity.
+     *
+     * profile.php is in the reserved list below, and rightly — the path alone
+     * names nobody. But with ?id= it names exactly one person, and it is the
+     * ordinary URL for anyone who has never set a username. Falling through
+     * to reserved returned null, and a null source stalls the queue the same
+     * way an unreachable Page did.
+     */
+    if (/^\/profile\.php$/i.test(location.pathname)) {
+      var timelineId = null;
+      try {
+        timelineId = new URLSearchParams(location.search).get("id");
+      } catch (e) { /* no URLSearchParams — fall through to reserved */ }
+      if (timelineId) {
+        return {
+          fb_id: "profile:" + groupKey(timelineId),
+          kind: detectProfileKind(),
+          name: nameFromTitle(null) || ("Facebook profile " + timelineId),
+          url: location.origin + "/profile.php?id=" + encodeURIComponent(timelineId)
+        };
+      }
     }
 
     /* Facebook's own paths, which are not people.
@@ -3312,7 +3411,7 @@
     // the group's size, and "2" was plainly wrong as one.
     hudBody.appendChild(row("Posts on screen", String(STATS.candidates)));
     hudBody.appendChild(row(
-      "Captured this group",
+      "Captured this " + sourceNoun(),
       SEEN.size + " / " + maxPosts,
       SEEN.size >= maxPosts ? "#6ee7b7" : null
     ));

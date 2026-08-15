@@ -47,7 +47,33 @@ console.log("which surface are we on");
   ["/groups/claudeai", "Claude AI Community | Facebook", "group:claudeai", "group"],
   ["/janedoe", "Jane Doe | Facebook", "profile:janedoe", "profile"],
   ["/marketplace", "Marketplace | Facebook", null, null],
-  ["/watch", "Watch | Facebook", null, null]
+  ["/watch", "Watch | Facebook", null, null],
+
+  /* Pages. Both of these returned the wrong thing, and both cost captures.
+   *
+   * /pages/ was in the reserved list, so an old-style Page resolved to null —
+   * and flush() holds the queue when it cannot name the source, so Captured
+   * climbed and nothing was ever sent. The newer /p/ form fell through to the
+   * vanity branch and read the first path segment, filing every Page on
+   * Facebook under one source called "p".
+   *
+   * Keyed on the trailing id where there is one: Facebook rewrites the name
+   * half of these slugs freely, and a key that moves splits a baseline.
+   */
+  ["/p/Rustic-Barn-Co-100063456789/", "Rustic Barn Co | Facebook",
+   "profile:100063456789", "page"],
+  ["/pages/Some-Business/1234567890", "Some Business | Facebook",
+   "profile:1234567890", "page"],
+  // The category form puts the Page LAST, after a category nobody wants as
+  // the source name.
+  ["/pages/category/Restaurant/Joes-99887766554", "Joes | Facebook",
+   "profile:99887766554", "page"],
+
+  // The ordinary URL for anyone who never set a username. Reserved on the
+  // path alone, which is right, but with ?id= it names exactly one person —
+  // and returning null here stalled the queue the same way a Page did.
+  ["/profile.php?id=61550123456789", "Sam Rivers | Facebook",
+   "profile:61550123456789", "profile"]
 ].forEach(function (c) {
   var scoped = runScan(buildPage([]), c[0]);
   global.document.title = c[1];
