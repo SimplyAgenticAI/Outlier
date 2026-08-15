@@ -582,8 +582,53 @@
     var node = el;
     while (node) {
       if (node === article) return true;
-      if (node.getAttribute && isCommentArticle(node)) return false;
+      if (node.getAttribute) {
+        if (isCommentArticle(node)) return false;
+        // A shared post nests the ORIGINAL inside the sharer's article, and its
+        // viral counts must not be read as the sharer's (a share with 3
+        // reactions came back with the original's 6,858 / 29,957). But Facebook
+        // also WRAPS a real post in an outer article, where the nested one IS
+        // the post — the two look identical, so a blanket exclusion drops real
+        // posts. Only the embed identified during engagement reading (the nested
+        // article the OUTER out-reacts) is excluded, and only there.
+        if (engagementExcludeEmbed && node === engagementExcludeEmbed) return false;
+      }
       node = node.parentElement;
+    }
+    return false;
+  }
+
+  // Set only while extractEngagement reads counts: the shared-post embed whose
+  // tallies belong to the original, not to this post. Null the rest of the time
+  // so body, author and discovery still see the whole article.
+  var engagementExcludeEmbed = null;
+
+  /* The nested shared post to ignore when reading THIS post's counts, or null.
+   *
+   * A nested article is an embed to exclude only when the outer post carries
+   * its own reaction summary outside it — that is what separates "I shared a
+   * viral post" (exclude the original's counts) from "Facebook wrapped my post"
+   * (the nested article is the post; read it).
+   */
+  function sharedEmbed(article) {
+    var nested = article.querySelectorAll('div[role="article"]');
+    for (var i = 0; i < nested.length; i++) {
+      var n = nested[i];
+      if (n === article || isCommentArticle(n)) continue;
+      if (outerReactsOutside(article, n)) return n;
+    }
+    return null;
+  }
+
+  // Does the post have its own reaction summary OUTSIDE the given embed? A bare
+  // "Like" button is not a summary; a count-of-reactions or "reacted" is.
+  function outerReactsOutside(article, embed) {
+    var labelled = article.querySelectorAll("[aria-label]");
+    for (var i = 0; i < labelled.length; i++) {
+      var el = labelled[i];
+      if (embed.contains(el) || isCommentArticle(el)) continue;
+      var lab = el.getAttribute("aria-label") || "";
+      if (/reacted|\d[\d.,]*\s*[KMB]?\s+(?:reactions?|likes?)\b/i.test(lab)) return true;
     }
     return false;
   }
@@ -1021,6 +1066,11 @@
   function extractEngagement(article, bar) {
     var result = { likes: 0, comments: 0, shares: 0, video_plays: 0 };
 
+    // A shared post's nested original is scoped out of every count read below
+    // (via owned), so its viral tallies are not mistaken for this post's. Null
+    // again before returning — nothing outside engagement should be affected.
+    engagementExcludeEmbed = sharedEmbed(article);
+
     // Facebook splits counts across text nodes and aria-labels inconsistently
     // between layouts, and often puts the number in an aria-label while the
     // visible text shows only an icon. Searching one combined haystack of
@@ -1038,6 +1088,13 @@
     }
 
     var visible = article.innerText || "";
+    // Drop the shared embed's own text from the haystack too — a "6,858
+    // reactions" rendered as visible text inside it is not this post's count.
+    if (engagementExcludeEmbed) {
+      var embedText = engagementExcludeEmbed.innerText || "";
+      var at = embedText ? visible.indexOf(embedText) : -1;
+      if (at !== -1) visible = visible.slice(0, at) + visible.slice(at + embedText.length);
+    }
     if (bar) {
       // Trim visible text at the action bar too, using the bar's own label as
       // the split point.
@@ -1172,6 +1229,7 @@
       if (loose) result.likes = parseCount(loose[1]);
     }
 
+    engagementExcludeEmbed = null;   // scoped to this read only
     return result;
   }
 

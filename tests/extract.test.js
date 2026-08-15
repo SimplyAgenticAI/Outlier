@@ -701,6 +701,37 @@ normal.textContent = "Just sharing my morning coffee thoughts";
 check("a normal post is not flagged", feedApi.isSponsoredOrSuggested(normal), false);
 
 console.log();
+console.log("a shared post's viral counts do not bleed into the member's share");
+
+// Reported live: a group post reading 6,858 reactions and 29,957 shares when it
+// had 3 and 1. It was a SHARE of a viral post — Facebook renders the original
+// inside the sharer's article as its own role="article", and its counts were
+// being read as the sharer's.
+var shr = buildPage([]);
+var SD = shr.doc;
+var outer = SD.el("div");
+outer.setAttribute("role", "article");
+var oName = SD.el("a"); oName.setAttribute("role", "link"); oName.textContent = "Group Member"; outer.appendChild(oName);
+var oCap = SD.el("div"); oCap.setAttribute("dir", "auto"); oCap.textContent = "Look at this amazing post I found today"; outer.appendChild(oCap);
+var oReact = SD.el("div"); oReact.setAttribute("aria-label", "3 reactions; see who reacted to this"); outer.appendChild(oReact);
+// The nested shared (original) post, carrying its own huge engagement.
+var inner = SD.el("div"); inner.setAttribute("role", "article");
+var iName = SD.el("a"); iName.setAttribute("role", "link"); iName.textContent = "Viral Page"; inner.appendChild(iName);
+var iReact = SD.el("div"); iReact.setAttribute("aria-label", "6,858 reactions; see who reacted to this"); inner.appendChild(iReact);
+var iShares = SD.el("div"); iShares.setAttribute("aria-label", "29,957 shares"); inner.appendChild(iShares);
+var iBare = SD.el("div"); iBare.setAttribute("dir", "auto"); iBare.textContent = "6,858"; inner.appendChild(iBare);
+outer.appendChild(inner);
+var oBar = SD.el("div"); oBar.setAttribute("role", "button"); oBar.setAttribute("aria-label", "Like"); oBar.textContent = "Like Comment Share"; outer.appendChild(oBar);
+shr.root.appendChild(outer);
+
+var shrApi = runScan(shr, "/groups/1234567890/");
+shrApi.scanPosts();
+var sPost = shrApi.queue()[0] || {};
+check("the member's share is captured", !!sPost.fb_post_id);
+check("reactions are the sharer's 3, not the viral 6,858", sPost.likes, 3);
+check("shares are not the viral 29,957", sPost.shares !== 29957, true);
+
+console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");
   process.exit(1);
