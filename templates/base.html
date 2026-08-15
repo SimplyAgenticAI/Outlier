@@ -33,6 +33,7 @@
     <a href="{{ url_for('capture') }}" class="{{ 'active' if active == 'capture' }}">Capture</a>
     <a href="{{ url_for('diagnostics') }}" class="{{ 'active' if active == 'diagnostics' }}">Health</a>
     <a href="{{ url_for('settings') }}" class="{{ 'active' if active == 'settings' }}">Settings</a>
+    <a href="{{ url_for('feedback_board') }}" class="{{ 'active' if active == 'feedback' }}">Feedback</a>
     {% if user and user.is_admin %}
     <a href="{{ url_for('admin') }}" class="{{ 'active' if active == 'admin' }}">Admin</a>
     {% endif %}

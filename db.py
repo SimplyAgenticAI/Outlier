@@ -178,11 +178,38 @@ CREATE TABLE IF NOT EXISTS notifications (
     created_at    TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Bug reports and ideas, written by users about the product.
+--
+-- Deliberately NOT captured Facebook content. Everything here is the author's
+-- own words about the software, which is what makes it safe to show to other
+-- accounts — captured posts belong to strangers in private groups and never
+-- leave the account that captured them.
+CREATE TABLE IF NOT EXISTS feedback (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    kind          TEXT NOT NULL DEFAULT 'idea',   -- bug | idea
+    title         TEXT NOT NULL,
+    body          TEXT,
+    status        TEXT NOT NULL DEFAULT 'open',   -- open | planned | shipped | declined
+    admin_note    TEXT,
+    created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+    updated_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- One vote per person per item, enforced by the key rather than by care.
+CREATE TABLE IF NOT EXISTS feedback_votes (
+    feedback_id   INTEGER NOT NULL REFERENCES feedback(id) ON DELETE CASCADE,
+    user_id       INTEGER NOT NULL,
+    created_at    TEXT DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (feedback_id, user_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source_id);
 CREATE INDEX IF NOT EXISTS idx_posts_captured ON posts(captured_at);
 CREATE INDEX IF NOT EXISTS idx_posts_posted ON posts(posted_at);
 CREATE INDEX IF NOT EXISTS idx_visits_created ON visits(created_at);
 CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read_at);
+CREATE INDEX IF NOT EXISTS idx_feedback_status ON feedback(status, id);
 """
 
 
@@ -901,6 +928,111 @@ def recent_users(limit=25):
                    (SELECT COUNT(*) FROM sources s WHERE s.user_id = u.id) AS sources
             FROM users u ORDER BY u.id DESC LIMIT ?
             """, (int(limit),))]
+
+
+# -------------------------------------------------------------- feedback
+
+FEEDBACK_STATUSES = ("open", "planned", "shipped", "declined")
+
+
+def create_feedback(user_id, kind, title, body=None):
+    """File a bug report or an idea. Returns the new row's id."""
+    kind = kind if kind in ("bug", "idea") else "idea"
+    with get_db() as conn:
+        cur = conn.execute(
+            "INSERT INTO feedback (user_id, kind, title, body) VALUES (?, ?, ?, ?)",
+            (user_id, kind, title.strip()[:160], (body or "").strip()[:4000] or None),
+        )
+        return cur.lastrowid
+
+
+def list_feedback(viewer_id, status=None, sort="top", limit=100):
+    """The board, with each item's vote count and whether the viewer voted.
+
+    Sorted by votes for "top" and by recency for "new". Both are one query —
+    counting votes per row in Python would be a query per item.
+    """
+    where, params = [], []
+    if status in FEEDBACK_STATUSES:
+        where.append("f.status = ?")
+        params.append(status)
+    clause = ("WHERE " + " AND ".join(where)) if where else ""
+    order = "votes DESC, f.id DESC" if sort == "top" else "f.id DESC"
+
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            f"""
+            SELECT f.*,
+                   u.email AS author_email,
+                   (SELECT COUNT(*) FROM feedback_votes v
+                     WHERE v.feedback_id = f.id) AS votes,
+                   (SELECT COUNT(*) FROM feedback_votes v
+                     WHERE v.feedback_id = f.id AND v.user_id = ?) AS voted
+            FROM feedback f
+            LEFT JOIN users u ON u.id = f.user_id
+            {clause}
+            ORDER BY {order}
+            LIMIT ?
+            """, [viewer_id] + params + [int(limit)])]
+
+
+def get_feedback(feedback_id):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM feedback WHERE id = ?", (int(feedback_id),)
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def toggle_vote(feedback_id, user_id):
+    """Vote or take it back. Returns (voted, total).
+
+    A second press removes the vote rather than erroring — a button that can
+    only ever be pressed once is a trap, and the primary key makes double
+    voting impossible regardless of what the interface does.
+    """
+    with get_db() as conn:
+        existing = conn.execute(
+            "SELECT 1 FROM feedback_votes WHERE feedback_id = ? AND user_id = ?",
+            (int(feedback_id), user_id),
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "DELETE FROM feedback_votes WHERE feedback_id = ? AND user_id = ?",
+                (int(feedback_id), user_id),
+            )
+            voted = False
+        else:
+            conn.execute(
+                "INSERT OR IGNORE INTO feedback_votes (feedback_id, user_id) VALUES (?, ?)",
+                (int(feedback_id), user_id),
+            )
+            voted = True
+        total = conn.execute(
+            "SELECT COUNT(*) FROM feedback_votes WHERE feedback_id = ?",
+            (int(feedback_id),),
+        ).fetchone()[0]
+    return voted, total
+
+
+def feedback_voters(feedback_id):
+    """Everyone who backed an item — the people a status change is news to."""
+    with get_db() as conn:
+        return [r["user_id"] for r in conn.execute(
+            "SELECT user_id FROM feedback_votes WHERE feedback_id = ?",
+            (int(feedback_id),))]
+
+
+def set_feedback_status(feedback_id, status, note=None):
+    if status not in FEEDBACK_STATUSES:
+        return False
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE feedback SET status = ?, admin_note = COALESCE(?, admin_note), "
+            "updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+            (status, (note or None), int(feedback_id)),
+        )
+    return True
 
 
 # ----------------------------------------------------------- notifications

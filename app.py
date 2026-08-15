@@ -1584,6 +1584,109 @@ def admin():
     )
 
 
+# -------------------------------------------------------------- feedback
+
+
+def _display_name(email):
+    """The half of an address before the @, and nothing more.
+
+    The board is the one place in this app where one account sees something
+    another account wrote, so the author is shown as a handle rather than a
+    full address. Nobody signed up expecting their email published to other
+    users because they reported a bug.
+    """
+    return (email or "someone").split("@")[0]
+
+
+@app.route("/feedback")
+@auth.login_required
+def feedback_board():
+    user = auth.current_user()
+    status = request.args.get("status")
+    sort = "new" if request.args.get("sort") == "new" else "top"
+    items = db.list_feedback(user["id"], status=status, sort=sort)
+    for item in items:
+        item["author"] = _display_name(item.get("author_email"))
+        item.pop("author_email", None)      # never reaches the template
+    return render_template(
+        "feedback.html",
+        items=items,
+        status=status or "",
+        sort=sort,
+        is_admin=bool(billing.is_admin(user)),
+        statuses=db.FEEDBACK_STATUSES,
+        version=APP_VERSION,
+        active="feedback",
+    )
+
+
+@app.route("/api/feedback", methods=["POST"])
+@auth.login_required
+def api_feedback_create():
+    user = auth.current_user()
+    body = request.get_json(silent=True) or {}
+    title = (body.get("title") or "").strip()
+    if not title:
+        return jsonify({"ok": False, "error": "Give it a one-line summary."}), 400
+
+    kind = body.get("kind") if body.get("kind") in ("bug", "idea") else "idea"
+    fid = db.create_feedback(user["id"], kind, title, body.get("body"))
+
+    # The owner hears about it immediately. This is the entire point of the
+    # feature from their side — a report nobody sees is a report nobody fixes.
+    db.notify_admins(
+        "feedback",
+        ("Bug report: " if kind == "bug" else "Idea: ") + title[:120],
+        body="From " + _display_name(user.get("email")),
+        url="/feedback",
+    )
+    return jsonify({"ok": True, "id": fid})
+
+
+@app.route("/api/feedback/<int:feedback_id>/vote", methods=["POST"])
+@auth.login_required
+def api_feedback_vote(feedback_id):
+    user = auth.current_user()
+    if not db.get_feedback(feedback_id):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    voted, total = db.toggle_vote(feedback_id, user["id"])
+    return jsonify({"ok": True, "voted": voted, "votes": total})
+
+
+@app.route("/api/feedback/<int:feedback_id>/status", methods=["POST"])
+@auth.login_required
+def api_feedback_status(feedback_id):
+    """Owner only. Moving an item tells everyone who backed it."""
+    if not _require_admin():
+        return jsonify({"ok": False, "error": "Not allowed"}), 403
+
+    item = db.get_feedback(feedback_id)
+    if not item:
+        return jsonify({"ok": False, "error": "Not found"}), 404
+
+    body = request.get_json(silent=True) or {}
+    status = (body.get("status") or "").strip()
+    if not db.set_feedback_status(feedback_id, status, body.get("note")):
+        return jsonify({"ok": False, "error": "Unknown status"}), 400
+
+    # Told to everyone who asked for it, not just whoever filed it. Backing
+    # something and then never hearing what happened to it is how a feedback
+    # board turns into a place people stop bothering with.
+    told = set(db.feedback_voters(feedback_id))
+    told.add(item["user_id"])
+    headline = {
+        "planned": "Planned: ",
+        "shipped": "Shipped: ",
+        "declined": "Not planned: ",
+        "open": "Reopened: ",
+    }.get(status, "Updated: ")
+    for uid in told:
+        db.notify(uid, "feedback", headline + item["title"][:120],
+                  body=body.get("note") or None, url="/feedback")
+
+    return jsonify({"ok": True, "status": status, "notified": len(told)})
+
+
 # ----------------------------------------------------------- notifications
 
 

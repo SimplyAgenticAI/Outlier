@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} — Feedback{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div>
+    <h1>Feedback</h1>
+    <p class="sub">
+      Report a bug or ask for something. Vote on what other people have asked
+      for — the most wanted rises to the top, and you'll be told when anything
+      you backed moves.
+    </p>
+  </div>
+  <div class="filters">
+    <a class="filter {{ 'active' if sort == 'top' }}"
+       href="{{ url_for('feedback_board', status=status or None) }}">Most wanted</a>
+    <a class="filter {{ 'active' if sort == 'new' }}"
+       href="{{ url_for('feedback_board', sort='new', status=status or None) }}">Newest</a>
+  </div>
+</section>
+
+<section class="glass panel reveal fb-compose">
+  <div class="fb-kind">
+    <label><input type="radio" name="fb-kind" value="idea" checked> Idea</label>
+    <label><input type="radio" name="fb-kind" value="bug"> Bug</label>
+  </div>
+  <input type="text" id="fb-title" class="fb-input" maxlength="160"
+         placeholder="One line: what do you want, or what went wrong?">
+  <textarea id="fb-body" class="fb-input" rows="3" maxlength="4000"
+            placeholder="Optional. Steps to reproduce, or why it would help."></textarea>
+  <button class="btn btn-ghost" id="fb-submit">Send it</button>
+</section>
+
+<div class="filters fb-statuses">
+  <a class="filter {{ 'active' if not status }}"
+     href="{{ url_for('feedback_board', sort=sort) }}">All</a>
+  {% for s in statuses %}
+  <a class="filter {{ 'active' if status == s }}"
+     href="{{ url_for('feedback_board', status=s, sort=sort) }}">{{ s }}</a>
+  {% endfor %}
+</div>
+
+{% if items %}
+<div class="fb-list">
+  {% for item in items %}
+  <article class="glass panel fb-item" data-id="{{ item.id }}">
+    {# The vote button carries the count, so a press changes one element and
+       the row does not have to be re-rendered. #}
+    <button type="button" class="fb-vote {{ 'is-voted' if item.voted }}"
+            data-id="{{ item.id }}"
+            aria-label="Vote for {{ item.title }}">
+      <span class="fb-vote-arrow">▲</span>
+      <span class="fb-vote-n">{{ item.votes }}</span>
+    </button>
+
+    <div class="fb-main">
+      <div class="fb-head">
+        <span class="fb-kind-tag fb-{{ item.kind }}">{{ item.kind }}</span>
+        <span class="fb-status fb-s-{{ item.status }}">{{ item.status }}</span>
+      </div>
+      <h3 class="fb-title">{{ item.title }}</h3>
+      {% if item.body %}<p class="fb-body">{{ item.body }}</p>{% endif %}
+      {% if item.admin_note %}
+      <p class="fb-note"><b>Reply:</b> {{ item.admin_note }}</p>
+      {% endif %}
+      <p class="fb-meta">{{ item.author }} · {{ (item.created_at or '')[:10] }}</p>
+
+      {% if is_admin %}
+      <div class="fb-admin">
+        {% for s in statuses %}
+        <button type="button" class="fb-set {{ 'active' if item.status == s }}"
+                data-id="{{ item.id }}" data-status="{{ s }}">{{ s }}</button>
+        {% endfor %}
+      </div>
+      {% endif %}
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% else %}
+<section class="glass panel reveal">
+  <p class="fine">Nothing here yet. Be the first — anything above is fine.</p>
+</section>
+{% endif %}
+{% endblock %}

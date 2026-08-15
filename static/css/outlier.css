@@ -1628,6 +1628,94 @@ body.score-help-open { overflow: hidden; }
 }
 .graphic-dl:hover { text-decoration: underline; }
 
+/* ------------------------------------------------------------ feedback */
+
+.fb-compose { display: grid; gap: 10px; margin-bottom: 16px; }
+.fb-kind { display: flex; gap: 16px; font-size: 13px; color: var(--text-muted); }
+.fb-kind label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+
+.fb-input {
+  width: 100%; padding: 10px 12px; border-radius: 9px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+  color: var(--text); font-family: inherit; font-size: 14px; line-height: 1.55;
+  resize: vertical;
+}
+.fb-input::placeholder { color: var(--text-faint); }
+.fb-input:focus { outline: none; border-color: var(--border-lit); }
+.fb-compose .btn { justify-self: start; }
+
+.fb-statuses { margin-bottom: 14px; }
+
+.fb-list { display: grid; gap: 12px; }
+
+.fb-item { display: flex; gap: 14px; align-items: flex-start; }
+
+/* The count lives inside the button, so a vote repaints one element rather
+   than re-rendering the row it sits in. */
+.fb-vote {
+  display: flex; flex-direction: column; align-items: center; gap: 1px;
+  flex-shrink: 0; min-width: 52px; padding: 8px 6px; cursor: pointer;
+  border-radius: 9px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-muted);
+  font-family: inherit;
+  transition: border-color 0.15s var(--ease), color 0.15s var(--ease),
+              background 0.15s var(--ease);
+}
+.fb-vote:hover:not(:disabled) { border-color: var(--border-lit); color: var(--text); }
+.fb-vote:disabled { opacity: 0.55; cursor: default; }
+.fb-vote.is-voted {
+  border-color: rgba(110, 231, 183, 0.5);
+  background: rgba(110, 231, 183, 0.1);
+  color: var(--emerald-bright);
+}
+.fb-vote-arrow { font-size: 11px; line-height: 1; }
+.fb-vote-n { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+.fb-main { flex: 1; min-width: 0; }
+.fb-head { display: flex; gap: 8px; align-items: center; margin-bottom: 5px; }
+
+.fb-kind-tag, .fb-status {
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.05em; padding: 2px 8px; border-radius: 20px;
+}
+.fb-kind-tag.fb-bug  { background: rgba(224, 122, 95, 0.16); color: #e07a5f; }
+.fb-kind-tag.fb-idea { background: rgba(110, 231, 183, 0.13); color: var(--emerald-bright); }
+
+.fb-status { background: rgba(255, 255, 255, 0.05); color: var(--text-faint); }
+.fb-s-planned  { background: rgba(217, 180, 95, 0.16); color: #d9b45f; }
+.fb-s-shipped  { background: rgba(52, 211, 153, 0.16); color: var(--emerald); }
+.fb-s-declined { background: rgba(255, 255, 255, 0.05); color: var(--text-faint); }
+
+.fb-title { margin: 0 0 5px; font-size: 15px; line-height: 1.4; }
+/* User-written text, so it wraps rather than stretching the row. */
+.fb-body {
+  margin: 0 0 6px; font-size: 13px; line-height: 1.6; color: var(--text-muted);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.fb-note {
+  margin: 0 0 6px; padding: 8px 10px; border-radius: 8px;
+  background: rgba(110, 231, 183, 0.06);
+  border-left: 2px solid rgba(110, 231, 183, 0.4);
+  font-size: 13px; line-height: 1.55; color: var(--text-muted);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.fb-meta { margin: 0; font-size: 11px; color: var(--text-faint); }
+
+.fb-admin { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.fb-set {
+  padding: 4px 10px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--border); background: transparent;
+  color: var(--text-faint); font-size: 11px; font-family: inherit;
+}
+.fb-set:hover:not(:disabled) { border-color: var(--border-lit); color: var(--text); }
+.fb-set.active { border-color: rgba(217, 180, 95, 0.5); color: #d9b45f; }
+.fb-set:disabled { opacity: 0.5; cursor: default; }
+
+@media (max-width: 520px) {
+  .fb-vote { flex-direction: row; gap: 7px; min-width: 0; }
+  .fb-item { flex-direction: column; }
+}
+
 /* ------------------------------------------------------- notifications */
 
 .notif { position: relative; display: flex; align-items: center; }

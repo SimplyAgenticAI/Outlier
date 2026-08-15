@@ -335,6 +335,83 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
+  /* --------------------------------------------------------- feedback */
+
+  var fbSubmit = document.getElementById("fb-submit");
+  if (fbSubmit) {
+    fbSubmit.addEventListener("click", function () {
+      var title = document.getElementById("fb-title");
+      var body = document.getElementById("fb-body");
+      var kindEl = document.querySelector('input[name="fb-kind"]:checked');
+      if (!title.value.trim()) {
+        toast("Give it a one-line summary first.", true);
+        title.focus();
+        return;
+      }
+      fbSubmit.disabled = true;
+      post("/api/feedback", {
+        kind: kindEl ? kindEl.value : "idea",
+        title: title.value.trim(),
+        body: body.value.trim()
+      })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not send that");
+          // Reloaded rather than prepended: the board is sorted, and guessing
+          // where a new row belongs is how a list starts lying about its order.
+          window.sessionStorage.setItem("outlier-reset", "Thanks — that's been sent.");
+          window.location.href = "/feedback?sort=new";
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+          fbSubmit.disabled = false;
+        });
+    });
+  }
+
+  // One delegated listener for the whole board, so rows cost nothing to add.
+  var fbList = document.querySelector(".fb-list");
+  if (fbList) {
+    fbList.addEventListener("click", function (event) {
+      var vote = event.target.closest(".fb-vote");
+      if (vote) {
+        vote.disabled = true;
+        post("/api/feedback/" + vote.dataset.id + "/vote", {})
+          .then(function (data) {
+            if (!data.ok) return;
+            vote.classList.toggle("is-voted", !!data.voted);
+            vote.querySelector(".fb-vote-n").textContent = data.votes;
+          })
+          .catch(function () { toast("Could not register that vote", true); })
+          .finally(function () { vote.disabled = false; });
+        return;
+      }
+
+      var set = event.target.closest(".fb-set");
+      if (set) {
+        var note = null;
+        // Only asked for on the outcomes where silence would be rude.
+        if (set.dataset.status === "declined" || set.dataset.status === "shipped") {
+          note = window.prompt(
+            "Optional note to everyone who voted for this:", "");
+          if (note === null) return;
+        }
+        set.disabled = true;
+        post("/api/feedback/" + set.dataset.id + "/status",
+             { status: set.dataset.status, note: note || undefined })
+          .then(function (data) {
+            if (!data.ok) throw new Error(data.error || "Could not update");
+            toast("Marked " + data.status + " — " + data.notified +
+                  " notified.");
+            window.location.reload();
+          })
+          .catch(function (error) {
+            toast(error.message, true);
+            set.disabled = false;
+          });
+      }
+    });
+  }
+
   /* ----------------------------------------------------- notifications */
 
   var notif = document.getElementById("notif");
