@@ -147,9 +147,42 @@ CREATE TABLE IF NOT EXISTS sage_messages (
     created_at    TEXT DEFAULT CURRENT_TIMESTAMP
 );
 
+-- One row per page view, for the owner's own traffic numbers.
+--
+-- Deliberately not an analytics product. There is no third-party script, no
+-- cookie beyond the session that already exists, and no raw address stored:
+-- the visitor column is a salted hash, which is enough to count people twice
+-- as one and not enough to identify anybody.
+CREATE TABLE IF NOT EXISTS visits (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER,               -- NULL for signed-out visitors
+    path          TEXT NOT NULL,
+    visitor       TEXT,                  -- salted hash of address + agent
+    referrer      TEXT,
+    created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Things worth telling somebody about, for the owner and for users alike.
+--
+-- user_id is who it is FOR, never who caused it. A signup notifies every
+-- admin, so one event writes several rows — which is what makes read state
+-- per-person rather than global.
+CREATE TABLE IF NOT EXISTS notifications (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    kind          TEXT NOT NULL,         -- signup | capture | quota | system
+    title         TEXT NOT NULL,
+    body          TEXT,
+    url           TEXT,
+    read_at       TEXT,
+    created_at    TEXT DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source_id);
 CREATE INDEX IF NOT EXISTS idx_posts_captured ON posts(captured_at);
 CREATE INDEX IF NOT EXISTS idx_posts_posted ON posts(posted_at);
+CREATE INDEX IF NOT EXISTS idx_visits_created ON visits(created_at);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, read_at);
 """
 
 
@@ -800,6 +833,136 @@ def clean_captions(user_id, names=None):
 
     counts["total"] = counts["domain"] + counts["token"] + counts["name"]
     return counts
+
+
+# --------------------------------------------------------------- analytics
+
+def record_visit(path, visitor=None, user_id=None, referrer=None):
+    """Log one page view. Never raises — a counter must not break a page."""
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO visits (user_id, path, visitor, referrer) "
+                "VALUES (?, ?, ?, ?)",
+                (user_id, path[:200], visitor, (referrer or "")[:300] or None),
+            )
+    except Exception:
+        pass
+
+
+def traffic_summary(days=30):
+    """Totals the owner actually asks about, in one round trip each.
+
+    "Visitors" counts distinct hashes, so one person reading six pages is one
+    visitor. "Views" counts rows. Both are reported because the ratio is the
+    interesting part.
+    """
+    since = f"-{int(days)} days"
+    with get_db() as conn:
+        def one(sql, *params):
+            row = conn.execute(sql, params).fetchone()
+            return (row[0] if row else 0) or 0
+
+        return {
+            "days": int(days),
+            "views": one("SELECT COUNT(*) FROM visits WHERE created_at >= datetime('now', ?)", since),
+            "visitors": one("SELECT COUNT(DISTINCT visitor) FROM visits WHERE created_at >= datetime('now', ?)", since),
+            "views_today": one("SELECT COUNT(*) FROM visits WHERE date(created_at) = date('now')"),
+            "visitors_today": one("SELECT COUNT(DISTINCT visitor) FROM visits WHERE date(created_at) = date('now')"),
+            "signed_out_views": one(
+                "SELECT COUNT(*) FROM visits WHERE user_id IS NULL "
+                "AND created_at >= datetime('now', ?)", since),
+            "users": one("SELECT COUNT(*) FROM users"),
+            "users_new": one(
+                "SELECT COUNT(*) FROM users WHERE created_at >= datetime('now', ?)", since),
+            "daily": [dict(r) for r in conn.execute(
+                "SELECT date(created_at) AS day, COUNT(*) AS views, "
+                "       COUNT(DISTINCT visitor) AS visitors "
+                "FROM visits WHERE created_at >= datetime('now', ?) "
+                "GROUP BY day ORDER BY day DESC LIMIT 30", (since,))],
+            "top_paths": [dict(r) for r in conn.execute(
+                "SELECT path, COUNT(*) AS views FROM visits "
+                "WHERE created_at >= datetime('now', ?) "
+                "GROUP BY path ORDER BY views DESC LIMIT 10", (since,))],
+        }
+
+
+def recent_users(limit=25):
+    """Who signed up, newest first, with what they have actually done.
+
+    A signup count on its own cannot tell a real user from an empty account,
+    so the post count travels with the row.
+    """
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            """
+            SELECT u.id, u.email, u.plan, u.is_admin, u.created_at,
+                   (SELECT COUNT(*) FROM posts p WHERE p.user_id = u.id) AS posts,
+                   (SELECT COUNT(*) FROM sources s WHERE s.user_id = u.id) AS sources
+            FROM users u ORDER BY u.id DESC LIMIT ?
+            """, (int(limit),))]
+
+
+# ----------------------------------------------------------- notifications
+
+def notify(user_id, kind, title, body=None, url=None):
+    """Leave a message for one person. Never raises."""
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO notifications (user_id, kind, title, body, url) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (user_id, kind, title[:200], (body or None), (url or None)),
+            )
+    except Exception:
+        pass
+
+
+def notify_admins(kind, title, body=None, url=None):
+    """The same message to everyone who owns the place."""
+    try:
+        with get_db() as conn:
+            admins = [r["id"] for r in conn.execute(
+                "SELECT id FROM users WHERE is_admin = 1")]
+    except Exception:
+        return
+    for admin_id in admins:
+        notify(admin_id, kind, title, body, url)
+
+
+def notifications_for(user_id, limit=20, unread_only=False):
+    sql = "SELECT * FROM notifications WHERE user_id = ?"
+    if unread_only:
+        sql += " AND read_at IS NULL"
+    sql += " ORDER BY id DESC LIMIT ?"
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(sql, (user_id, int(limit)))]
+
+
+def unread_count(user_id):
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM notifications WHERE user_id = ? AND read_at IS NULL",
+            (user_id,),
+        ).fetchone()
+    return (row[0] if row else 0) or 0
+
+
+def mark_notifications_read(user_id, notification_id=None):
+    """Mark one as read, or all of them. Scoped to the owner either way."""
+    with get_db() as conn:
+        if notification_id:
+            conn.execute(
+                "UPDATE notifications SET read_at = CURRENT_TIMESTAMP "
+                "WHERE id = ? AND user_id = ? AND read_at IS NULL",
+                (int(notification_id), user_id),
+            )
+        else:
+            conn.execute(
+                "UPDATE notifications SET read_at = CURRENT_TIMESTAMP "
+                "WHERE user_id = ? AND read_at IS NULL", (user_id,),
+            )
+    return unread_count(user_id)
 
 
 def clear_all_captures(user_id):

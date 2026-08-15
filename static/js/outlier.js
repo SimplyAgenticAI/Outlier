@@ -335,6 +335,110 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
+  /* ----------------------------------------------------- notifications */
+
+  var notif = document.getElementById("notif");
+  if (notif) {
+    var bell = document.getElementById("notif-bell");
+    var dot = document.getElementById("notif-dot");
+    var panel = document.getElementById("notif-panel");
+    var list = document.getElementById("notif-list");
+    var clearBtn = document.getElementById("notif-clear");
+    var loaded = false;
+
+    function renderNotifications(data) {
+      list.textContent = "";
+      var items = (data && data.items) || [];
+      if (!items.length) {
+        var empty = document.createElement("p");
+        empty.className = "notif-empty";
+        empty.textContent = "Nothing yet.";
+        list.appendChild(empty);
+        return;
+      }
+      items.forEach(function (item) {
+        // A link when there is somewhere to go, a plain block when there is
+        // not — an anchor to nowhere is a promise the panel cannot keep.
+        var row = document.createElement(item.url ? "a" : "div");
+        row.className = "notif-item" + (item.read_at ? "" : " is-unread");
+        if (item.url) row.href = item.url;
+
+        var title = document.createElement("span");
+        title.className = "notif-title";
+        title.textContent = item.title || "";
+        row.appendChild(title);
+
+        if (item.body) {
+          var body = document.createElement("span");
+          body.className = "notif-body";
+          body.textContent = item.body;
+          row.appendChild(body);
+        }
+        var when = document.createElement("span");
+        when.className = "notif-when";
+        when.textContent = (item.created_at || "").slice(0, 16);
+        row.appendChild(when);
+
+        list.appendChild(row);
+      });
+    }
+
+    function setUnread(n) {
+      dot.hidden = !n;
+      dot.textContent = n > 9 ? "9+" : String(n || "");
+    }
+
+    function loadNotifications() {
+      return fetch("/api/notifications", { headers: { "X-CSRF-Token": CSRF } })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (!data || !data.ok) return;
+          setUnread(data.unread);
+          renderNotifications(data);
+          loaded = true;
+        })
+        .catch(function () { /* a badge is not worth an error */ });
+    }
+
+    bell.addEventListener("click", function (event) {
+      event.stopPropagation();
+      var opening = panel.hidden;
+      panel.hidden = !opening;
+      if (!opening) return;
+
+      if (!loaded) loadNotifications();
+      // Opening the panel is reading them. The badge clears on open rather
+      // than making anyone hunt for a button to say they have looked. The
+      // rows keep their own unread styling for this view, so what is new is
+      // still visible after the count goes.
+      if (!dot.hidden) {
+        post("/api/notifications/read", {})
+          .then(function (data) { setUnread(data && data.unread); })
+          .catch(function () {});
+      }
+    });
+
+    clearBtn.addEventListener("click", function (event) {
+      event.stopPropagation();
+      post("/api/notifications/read", {})
+        .then(function () { return loadNotifications(); })
+        .catch(function () {});
+    });
+
+    document.addEventListener("click", function (event) {
+      if (!panel.hidden && !notif.contains(event.target)) panel.hidden = true;
+    });
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") panel.hidden = true;
+    });
+
+    // The badge only. The list itself waits until the panel is opened.
+    fetch("/api/notifications", { headers: { "X-CSRF-Token": CSRF } })
+      .then(function (r) { return r.json(); })
+      .then(function (data) { if (data && data.ok) setUnread(data.unread); })
+      .catch(function () {});
+  }
+
   var saveViewerName = document.getElementById("save-viewer-name");
   if (saveViewerName) {
     saveViewerName.addEventListener("click", function () {

@@ -887,6 +887,59 @@ def enforce_csrf():
     return render_template("403.html", version=APP_VERSION), 403
 
 
+# ------------------------------------------------------------------ visits
+
+# Paths that are machinery rather than pages. Counting these would drown the
+# real numbers: the extension polls /api/ constantly, and a page pulling four
+# assets would read as five visits.
+_VISIT_SKIP = ("/static/", "/api/", "/favicon", "/health")
+
+
+def _visitor_hash():
+    """A stable, non-reversible handle for one browser.
+
+    Address and agent, salted with the app's own secret and truncated. It
+    survives long enough to tell six page views by one person from six people,
+    and it cannot be turned back into an address — which is the whole design.
+    There is no third-party analytics script anywhere in this app.
+    """
+    import hashlib
+    forwarded = request.headers.get("X-Forwarded-For", "")
+    address = (forwarded.split(",")[0].strip() or request.remote_addr or "?")
+    raw = f"{address}|{request.headers.get('User-Agent', '')}|{app.secret_key}"
+    return hashlib.sha256(raw.encode("utf-8", "replace")).hexdigest()[:32]
+
+
+@app.after_request
+def track_visit(response):
+    """Count real page views, after the page has already been produced.
+
+    In after_request rather than before, so a counter can never be the reason
+    a page fails to render, and only for HTML that actually succeeded — a 404
+    or a redirect is not a visit.
+    """
+    try:
+        if request.method != "GET":
+            return response
+        if response.status_code != 200:
+            return response
+        if not (response.content_type or "").startswith("text/html"):
+            return response
+        if any(request.path.startswith(p) for p in _VISIT_SKIP):
+            return response
+
+        user = auth.current_user()
+        db.record_visit(
+            request.path,
+            visitor=_visitor_hash(),
+            user_id=user["id"] if user else None,
+            referrer=request.referrer,
+        )
+    except Exception:
+        pass                                # never break a page over a metric
+    return response
+
+
 # ---------------------------------------------------------------- accounts
 
 
@@ -1504,6 +1557,55 @@ def api_open_folder():
         return jsonify({"ok": False, "error": f"Could not open it: {exc}"}), 500
 
     return jsonify({"ok": True, "path": folder})
+
+
+def _require_admin():
+    """The owner, or nothing. Returns the user or None."""
+    user = auth.current_user()
+    return user if (user and billing.is_admin(user)) else None
+
+
+@app.route("/admin")
+@auth.login_required
+def admin():
+    """Traffic and signups, for whoever owns the install."""
+    if not _require_admin():
+        return render_template("403.html", version=APP_VERSION), 403
+
+    days = request.args.get("days", type=int) or 30
+    days = max(1, min(days, 365))
+    return render_template(
+        "admin.html",
+        traffic=db.traffic_summary(days),
+        users=db.recent_users(50),
+        days=days,
+        version=APP_VERSION,
+        active="admin",
+    )
+
+
+# ----------------------------------------------------------- notifications
+
+
+@app.route("/api/notifications")
+@auth.login_required
+def api_notifications():
+    user = auth.current_user()
+    return jsonify({
+        "ok": True,
+        "unread": db.unread_count(user["id"]),
+        "items": db.notifications_for(user["id"], limit=20),
+    })
+
+
+@app.route("/api/notifications/read", methods=["POST"])
+@auth.login_required
+def api_notifications_read():
+    """Mark one as read, or all of them if no id is given."""
+    user = auth.current_user()
+    body = request.get_json(silent=True) or {}
+    unread = db.mark_notifications_read(user["id"], body.get("id"))
+    return jsonify({"ok": True, "unread": unread})
 
 
 @app.route("/api/viewer-name", methods=["POST"])

@@ -1,0 +1,125 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} — Admin{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div>
+    <h1>Admin</h1>
+    <p class="sub">
+      Traffic and accounts for this install. Visitor counts come from the app's
+      own request log — no third-party analytics, no cookies beyond the session,
+      and no addresses stored.
+    </p>
+  </div>
+  <div class="filters">
+    {% for option in [7, 30, 90] %}
+    <a class="filter {{ 'active' if days == option }}"
+       href="{{ url_for('admin', days=option) }}">{{ option }} days</a>
+    {% endfor %}
+  </div>
+</section>
+
+<div class="admin-stats">
+  <div class="glass panel admin-stat">
+    <span class="admin-stat-n">{{ '{:,}'.format(traffic.visitors) }}</span>
+    <span class="admin-stat-label">Visitors</span>
+    <span class="fine">{{ '{:,}'.format(traffic.visitors_today) }} today</span>
+  </div>
+  <div class="glass panel admin-stat">
+    <span class="admin-stat-n">{{ '{:,}'.format(traffic.views) }}</span>
+    <span class="admin-stat-label">Page views</span>
+    <span class="fine">{{ '{:,}'.format(traffic.views_today) }} today</span>
+  </div>
+  <div class="glass panel admin-stat">
+    <span class="admin-stat-n">{{ '{:,}'.format(traffic.users) }}</span>
+    <span class="admin-stat-label">Accounts</span>
+    <span class="fine">{{ '{:,}'.format(traffic.users_new) }} new in {{ days }} days</span>
+  </div>
+  <div class="glass panel admin-stat">
+    <span class="admin-stat-n">{{ '{:,}'.format(traffic.signed_out_views) }}</span>
+    <span class="admin-stat-label">Signed-out views</span>
+    {# The people who have not made an account yet — the only number here
+       that says anything about whether the front door is working. #}
+    <span class="fine">visitors who aren't users yet</span>
+  </div>
+</div>
+
+<section class="glass panel reveal">
+  <h2>Accounts</h2>
+  {% if users %}
+  <div class="admin-scroll">
+    <table class="admin-table">
+      <thead>
+        <tr>
+          <th>Email</th><th>Joined</th><th>Plan</th>
+          <th class="num">Groups</th><th class="num">Posts</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+        <tr>
+          <td>
+            {{ u.email }}
+            {% if u.is_admin %}<span class="admin-badge">owner</span>{% endif %}
+          </td>
+          <td class="fine">{{ (u.created_at or '')[:16] }}</td>
+          <td class="fine">{{ u.plan or 'free' }}</td>
+          {# Posts captured is what separates an account that is being used
+             from one that was opened and abandoned. #}
+          <td class="num">{{ u.sources }}</td>
+          <td class="num">{{ '{:,}'.format(u.posts) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="fine">No accounts yet.</p>
+  {% endif %}
+</section>
+
+<div class="admin-split">
+  <section class="glass panel reveal">
+    <h2>By day</h2>
+    {% if traffic.daily %}
+    <div class="admin-scroll">
+      <table class="admin-table">
+        <thead><tr><th>Day</th><th class="num">Visitors</th><th class="num">Views</th></tr></thead>
+        <tbody>
+          {% for d in traffic.daily %}
+          <tr>
+            <td class="fine">{{ d.day }}</td>
+            <td class="num">{{ '{:,}'.format(d.visitors) }}</td>
+            <td class="num">{{ '{:,}'.format(d.views) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="fine">Nothing recorded yet. Counting starts from this version.</p>
+    {% endif %}
+  </section>
+
+  <section class="glass panel reveal">
+    <h2>Most visited</h2>
+    {% if traffic.top_paths %}
+    <div class="admin-scroll">
+      <table class="admin-table">
+        <thead><tr><th>Page</th><th class="num">Views</th></tr></thead>
+        <tbody>
+          {% for p in traffic.top_paths %}
+          <tr>
+            <td class="fine">{{ p.path }}</td>
+            <td class="num">{{ '{:,}'.format(p.views) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <p class="fine">Nothing recorded yet.</p>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

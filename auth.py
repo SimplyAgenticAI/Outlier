@@ -158,6 +158,21 @@ def create_user(email, password):
 
     user = dict(row)
     user["api_key"] = raw_key      # shown once, never retrievable again
+
+    # Tell the owner somebody arrived. Outside the transaction above and
+    # swallowed on failure, because a notification that cannot be written is
+    # not a reason to fail a signup the user has already completed.
+    if not first_account:
+        try:
+            db.notify_admins(
+                "signup",
+                "New account: " + email,
+                body="Signed up just now.",
+                url="/admin",
+            )
+        except Exception:
+            pass
+
     return user, None
 
 

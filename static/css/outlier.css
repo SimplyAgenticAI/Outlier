@@ -1628,6 +1628,111 @@ body.score-help-open { overflow: hidden; }
 }
 .graphic-dl:hover { text-decoration: underline; }
 
+/* ------------------------------------------------------- notifications */
+
+.notif { position: relative; display: flex; align-items: center; }
+
+.notif-bell {
+  position: relative; display: flex; align-items: center; justify-content: center;
+  width: 32px; height: 32px; padding: 0; cursor: pointer;
+  border-radius: 9px; border: 1px solid var(--border);
+  background: transparent; color: var(--text-muted);
+  transition: color 0.15s var(--ease), border-color 0.15s var(--ease);
+}
+.notif-bell:hover { color: var(--text); border-color: var(--border-lit); }
+
+/* Sits on the bell's shoulder. Emerald rather than red: nothing in this app
+   is an emergency, and a red dot on a dashboard trains people to dread it. */
+.notif-dot {
+  position: absolute; top: -5px; right: -5px;
+  min-width: 16px; height: 16px; padding: 0 4px;
+  border-radius: 8px; background: var(--emerald);
+  color: #04170e; font-size: 10px; font-weight: 700; line-height: 16px;
+  text-align: center;
+}
+
+.notif-panel {
+  position: absolute; top: calc(100% + 10px); right: 0; z-index: 60;
+  width: min(340px, calc(100vw - 32px));
+  border-radius: 12px; overflow: hidden;
+  background: var(--glass-solid); border: 1px solid var(--border-lit);
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.55);
+  animation: sh-pop 0.18s var(--ease) both;
+}
+.notif-panel[hidden] { display: none; }
+
+.notif-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 13px; border-bottom: 1px solid var(--border);
+  font-size: 12px; color: var(--text-muted);
+}
+.notif-clear {
+  background: none; border: none; cursor: pointer; padding: 0;
+  color: var(--emerald); font-size: 12px;
+}
+.notif-clear:hover { text-decoration: underline; }
+
+.notif-list { max-height: 60vh; overflow-y: auto; }
+
+.notif-item {
+  display: block; padding: 11px 13px; text-decoration: none;
+  border-bottom: 1px solid rgba(110, 231, 183, 0.07);
+  color: var(--text);
+}
+.notif-item:last-child { border-bottom: none; }
+a.notif-item:hover { background: rgba(110, 231, 183, 0.06); }
+
+/* A line down the edge rather than a wash of colour, so a panel of unread
+   items still reads as a list instead of a warning. */
+.notif-item.is-unread { box-shadow: inset 2px 0 0 var(--emerald); }
+
+.notif-title { display: block; font-size: 13px; font-weight: 600; }
+.notif-body  { display: block; font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.notif-when  { display: block; font-size: 11px; color: var(--text-faint); margin-top: 4px; }
+.notif-empty { margin: 0; padding: 18px 13px; font-size: 12px; color: var(--text-faint); }
+
+/* ------------------------------------------------------------- admin */
+
+.admin-stats {
+  display: grid; gap: 14px; margin-bottom: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+}
+.admin-stat { display: flex; flex-direction: column; gap: 3px; }
+.admin-stat-n {
+  font-size: 30px; font-weight: 700; line-height: 1.1; color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.admin-stat-label { font-size: 12px; color: var(--text-muted); }
+
+.admin-split {
+  display: grid; gap: 18px; margin-top: 18px;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+}
+
+/* Tables are the one thing here that genuinely cannot reflow, so they scroll
+   inside their own panel rather than widening the page. */
+.admin-scroll { overflow-x: auto; }
+
+.admin-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.admin-table th {
+  text-align: left; padding: 8px 10px; font-size: 11px; font-weight: 600;
+  color: var(--text-faint); text-transform: uppercase; letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.admin-table td {
+  padding: 9px 10px; border-bottom: 1px solid rgba(110, 231, 183, 0.06);
+  white-space: nowrap;
+}
+.admin-table tr:last-child td { border-bottom: none; }
+.admin-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.admin-badge {
+  margin-left: 7px; padding: 1px 7px; border-radius: 20px;
+  font-size: 10px; font-weight: 700; text-transform: uppercase;
+  background: rgba(217, 180, 95, 0.16); color: #d9b45f;
+}
+
 /* The operator's art direction, opened by the Generate graphic button.
    Gold rather than emerald, because everything to do with generating an
    image already reads in gold and the box belongs to that button. */
