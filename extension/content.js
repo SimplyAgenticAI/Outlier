@@ -3435,6 +3435,36 @@
     hudBody.appendChild(row("Sent to dashboard", String(STATS.sent)));
     hudBody.appendChild(row("New (not duplicates)", String(STATS.added), "#6ee7b7"));
 
+    /* Waiting, and where it would go.
+     *
+     * "Captured 7, nothing arrived" is two completely different faults wearing
+     * one number, and the panel could not tell them apart:
+     *
+     *   waiting 7 — the posts were read and delivery is failing.
+     *   waiting 0 — they were delivered, or were never captured, and the
+     *               problem is upstream in the scan.
+     *
+     * Filed under is the other half. flush() refuses to send when it cannot
+     * name the source, so a blank here IS the explanation for a queue that
+     * never drains — and that state was previously invisible.
+     *
+     * Both are shown only when there is something to say, so a healthy scan
+     * is not made noisier by diagnostics for a problem it does not have.
+     */
+    if (QUEUE.length) {
+      hudBody.appendChild(row(
+        "Waiting to send", String(QUEUE.length),
+        QUEUE.length >= 5 ? "#d9b45f" : null
+      ));
+    }
+    if (QUEUE.length || STATS.lastError) {
+      hudBody.appendChild(row(
+        "Filed under",
+        currentSourceId || "NOT IDENTIFIED",
+        currentSourceId ? null : "#e07a5f"
+      ));
+    }
+
     if (autoScrolling) {
       var elapsed = Math.round((Date.now() - scanStartedAt) / 60000 * 10) / 10;
       hudBody.appendChild(row("Elapsed", elapsed + " / " + maxMinutes + " min"));
