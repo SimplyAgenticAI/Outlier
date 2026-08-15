@@ -234,11 +234,39 @@ def generate_graphic(hook):
         return None, "The openai package is not installed. Run: pip install openai"
 
     client = openai.OpenAI(api_key=key)
+
+    # Art-directed and brand-aware. A one-line "make it nice" prompt is why the
+    # first version looked generic; this gives the model real direction and,
+    # when the operator has filled in a brand profile, steers it to their look.
+    import sage
+    brand = sage.get_brand()
+    style = brand.get("visual") or (
+        "modern editorial illustration — bold shapes, dramatic depth and "
+        "lighting, confident cinematic composition, tasteful texture"
+    )
+    palette = brand.get("colors") or "a cohesive, high-contrast, tasteful palette"
+    mood = brand.get("voice") or "premium, confident, aspirational"
+    ctx = []
+    if brand.get("name"):
+        ctx.append(f"for the brand {brand['name']}")
+    if brand.get("offer"):
+        ctx.append(f"which is about {brand['offer']}")
+    if brand.get("audience"):
+        ctx.append(f"speaking to {brand['audience']}")
+    brand_ctx = (" It is " + ", ".join(ctx) + ".") if ctx else ""
+
     prompt = (
-        "A bold, clean, eye-catching social-media illustration that visually "
-        "captures the idea of this post. Modern, high-contrast, scroll-stopping. "
-        "Do NOT put any text, words, letters or captions in the image. Idea: "
-        + (hook or "").strip()[:400]
+        "Award-winning, high-end social-media graphic with professional art "
+        "direction. Crisp and richly detailed, dramatic lighting, one strong "
+        "focal point, rule-of-thirds composition with generous negative space, "
+        "designed to stop the scroll.\n"
+        f"Visual style: {style}.\n"
+        f"Colour palette: {palette}.\n"
+        f"Mood: {mood}.{brand_ctx}\n"
+        "Depict a striking, original visual metaphor for this idea: "
+        f"{(hook or '').strip()[:400]}.\n"
+        "ABSOLUTELY NO text, letters, words, numbers, captions, watermarks, "
+        "logos or UI anywhere in the image — a pure, clean visual only."
     )
 
     last_err = None

@@ -90,6 +90,50 @@
 </section>
 
 <section class="glass panel reveal">
+  <h2>Your brand profile</h2>
+  <p class="sub">
+    Tell Sage who you are. It makes Sage advise in your voice for your audience,
+    and steers the graphic generator toward your look. Every field is optional —
+    the more you add, the more on-brand the output.
+  </p>
+
+  <div class="brand-form">
+    <label class="brand-field">
+      <span>Brand / business name</span>
+      <input type="text" id="brand-name" value="{{ brand.name }}"
+             placeholder="e.g. MacRandle Acres">
+    </label>
+    <label class="brand-field">
+      <span>What you do or sell</span>
+      <textarea id="brand-offer" rows="2"
+                placeholder="What you offer and what makes it different">{{ brand.offer }}</textarea>
+    </label>
+    <label class="brand-field">
+      <span>Who you're trying to reach</span>
+      <textarea id="brand-audience" rows="2"
+                placeholder="Your ideal audience or customer">{{ brand.audience }}</textarea>
+    </label>
+    <label class="brand-field">
+      <span>Your voice and tone</span>
+      <textarea id="brand-voice" rows="2"
+                placeholder="e.g. warm, plain-spoken, no corporate fluff">{{ brand.voice }}</textarea>
+    </label>
+    <label class="brand-field">
+      <span>Visual style you like</span>
+      <textarea id="brand-visual" rows="2"
+                placeholder="e.g. earthy and cinematic, warm light, minimal">{{ brand.visual }}</textarea>
+    </label>
+    <label class="brand-field">
+      <span>Brand colours</span>
+      <input type="text" id="brand-colors" value="{{ brand.colors }}"
+             placeholder="e.g. forest green, gold, cream">
+    </label>
+  </div>
+  <button class="btn btn-primary" id="save-brand">Save brand</button>
+  <div class="msg-line" id="brand-msg"></div>
+</section>
+
+<section class="glass panel reveal">
   <div class="panel-head">
     <h2>Your sources</h2>
     <span class="sub">Rename or delete any of them individually.</span>

@@ -636,6 +636,36 @@
     });
   }
 
+  /* --------------------------------------------------------- brand profile */
+
+  var saveBrand = document.getElementById("save-brand");
+  if (saveBrand) {
+    var brandMsg = document.getElementById("brand-msg");
+    saveBrand.addEventListener("click", function () {
+      function val(id) {
+        var el = document.getElementById(id);
+        return el ? el.value.trim() : "";
+      }
+      var payload = {
+        name: val("brand-name"), offer: val("brand-offer"),
+        audience: val("brand-audience"), voice: val("brand-voice"),
+        visual: val("brand-visual"), colors: val("brand-colors"),
+      };
+      brandMsg.className = "msg-line";
+      brandMsg.textContent = "Saving…";
+      post("/api/brand", payload)
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Save failed");
+          brandMsg.className = "msg-line ok";
+          brandMsg.textContent = "Saved. Sage and your graphics will use this now.";
+        })
+        .catch(function (error) {
+          brandMsg.className = "msg-line error";
+          brandMsg.textContent = error.message;
+        });
+    });
+  }
+
 
   /* ------------------------------------------------------------ account */
 

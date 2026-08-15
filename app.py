@@ -500,6 +500,14 @@ def api_sage_config():
     })
 
 
+@app.route("/api/brand", methods=["POST"])
+@auth.login_required
+def api_brand():
+    """Save the operator's brand profile — used by Sage and the graphic prompt."""
+    sage.set_brand(request.get_json(silent=True) or {})
+    return jsonify({"ok": True, "has_brand": sage.has_brand()})
+
+
 @app.route("/settings")
 @auth.login_required
 def settings():
@@ -516,6 +524,7 @@ def settings():
         sage_config=sage.get_config(),
         anthropic_model=sage.ANTHROPIC_MODEL,
         openai_model=sage.OPENAI_MODEL,
+        brand=sage.get_brand(),
         version=APP_VERSION,
         active="settings",
     )
