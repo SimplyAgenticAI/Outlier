@@ -1486,6 +1486,23 @@ def api_open_folder():
     return jsonify({"ok": True, "path": folder})
 
 
+@app.route("/api/clean-captions", methods=["POST"])
+@auth.login_required
+def api_clean_captions():
+    """Blank captions on stored posts that were never captions.
+
+    The capture-side fixes only change rows written after them, so a dashboard
+    full of posts titled with a name or a link-card domain stays that way
+    forever without this. Deliberately not a reset: no post is deleted, no
+    number moves, no baseline shifts.
+    """
+    body = request.get_json(silent=True) or {}
+    raw = body.get("names") or body.get("name") or []
+    names = [raw] if isinstance(raw, str) else list(raw)[:5]
+    result = db.clean_captions(_uid(), names=names)
+    return jsonify({"ok": True, **result})
+
+
 @app.route("/api/reset", methods=["POST"])
 @auth.login_required
 def api_reset():

@@ -178,25 +178,32 @@ check("  and with no capital either", api.isDecoyText("mrukbzoeu.com"), true);
 check("  an opening no word has", api.isDecoyText("kzfuqbo.net"), true);
 
 console.log();
-console.log("real links and domains are left alone");
+console.log("every bare domain goes, because the well-spelled ones are the same thing");
+
+// These are link-preview card labels, not the author's copy. Real domains are
+// dropped alongside invented ones on purpose: a caption that is one bare
+// domain is chrome whichever way it spells.
+[
+  "KJYAC.com",                // five letters - slipped all three earlier rules
+  "mystore.com",              // clean lowercase, and still not a caption
+  "MyStore.com",
+  "TechCrunch.com",
+  "SHRM.com",
+  "nfl.com",
+  "bit.ly",
+  "linktr.ee"
+].forEach(function (dom) {
+  check("a bare domain is not a caption: " + dom, api.isDecoyText(dom), true);
+});
+
+console.log();
+console.log("real links, and writing that mentions a domain, are left alone");
 
 [
-  "mystore.com",              // clean lowercase
-  "MyStore.com",              // brand casing, no digit
-  "promo2024.com",            // worded promo with a digit, no caps
-  "bit.ly",
-  "linktr.ee",
-  "https://example.com/aB3",  // a real URL with a path
-  "www.macrandleacres.com",
-  "TechCrunch.com",           // mixed case, runs to four consonants (chcr)
-  "SHRM.com",                 // an acronym: too short to judge on spelling
-  "HubSpot.com",              // mixed case, pronounceable
-  "StackOverflow.com",
-  "nfl.com",                  // three letters, exempt
-  "espn.com",
-  "shopify.com",              // "sh" is an opening words really have
-  "squarespace.com",          // so is "sq"
-  "linktr.ee"
+  "https://example.com/aB3",       // an explicit link with a path
+  "www.macrandleacres.com",        // an explicit link
+  "Check out mystore.com",         // writing that contains one
+  "We just launched KJYAC.com today"
 ].forEach(function (real) {
   check("not a decoy: " + real, api.isDecoyText(real), false);
 });

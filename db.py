@@ -640,6 +640,112 @@ def clear_demo_data(user_id=None):
             conn.execute("DELETE FROM sources WHERE id = ?", (source_id,))
 
 
+# Shapes that were never the author's writing, for rows already stored.
+#
+# Every capture-side fix for these only changes what gets written afterwards.
+# The dashboard kept showing the old rows, which is the version actually being
+# looked at — four fixes shipped and the screen did not change once. Cleaning
+# the stored rows is the half that was missing.
+_BARE_DOMAIN_RE = re.compile(r"^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$")
+_LONG_TOKEN_RE = re.compile(r"^\S{20,}$")
+_WORD_RE = re.compile(r"^[A-Za-z][A-Za-z'’‘-]{1,29}$")
+
+
+def _name_parts(conn, user_id, names):
+    """Every word that is known to be somebody's name, lowercased.
+
+    A one-word caption cannot be judged on its shape — "Jeff" and
+    "Congratulations" are the same shape, and clearing every capitalised word
+    would delete real one-word captions with no way to get them back short of
+    re-scanning. So only words that are demonstrably names are cleared: the
+    ones the operator supplies, and every part of every author name already
+    captured. Anything else is left exactly as it is.
+    """
+    parts = set()
+    for name in (names or []):
+        for part in str(name or "").split():
+            part = part.strip(".,:;!?'\"").lower()
+            if len(part) >= 2:
+                parts.add(part)
+
+    for row in conn.execute(
+        "SELECT DISTINCT name FROM authors WHERE user_id IS ?", (user_id,)
+    ):
+        for part in str(row["name"] or "").split():
+            part = part.strip(".,:;!?'\"").lower()
+            if len(part) >= 2:
+                parts.add(part)
+    return parts
+
+
+def clean_captions(user_id, names=None):
+    """Blank stored bodies that are chrome rather than writing.
+
+    Never deletes a post, never touches engagement, never changes a score. A
+    post with a bad caption is still a real post with real numbers; clearing
+    the body puts it in exactly the state a genuinely caption-less post has
+    always been in.
+
+    Scoped to one owner, like everything else that touches posts.
+    """
+    if user_id is None:
+        raise ValueError("clean_captions requires a user_id")
+
+    counts = {"domain": 0, "token": 0, "name": 0}
+    with get_db() as conn:
+        known_names = _name_parts(conn, user_id, names)
+        rows = conn.execute(
+            "SELECT id, body, body_from_image FROM posts "
+            "WHERE user_id IS ? AND body IS NOT NULL AND body != ''",
+            (user_id,),
+        ).fetchall()
+
+        for row in rows:
+            body = (row["body"] or "").strip()
+            # Anything with a space is writing and is never touched here.
+            if not body or " " in body:
+                continue
+
+            # An explicit link is something a person chose to post. Only a
+            # BARE domain is a preview-card label.
+            low = body.lower()
+            if "/" in body or low.startswith("www.") or low.startswith("http"):
+                continue
+
+            # Words read out of a graphic are the author's own, whatever shape
+            # they take. A quote card transcribed as one long unbroken run of
+            # capitals is real copy and must survive this.
+            from_image = bool(row["body_from_image"])
+
+            kind = None
+            if _BARE_DOMAIN_RE.match(body):
+                kind = "domain"
+            elif (not from_image
+                  and _LONG_TOKEN_RE.match(body)
+                  and body[0] not in "@#"
+                  # Mixed case is the signature. All-caps is a shout or a
+                  # transcription, never one of these.
+                  and re.search(r"[A-Z]", body) and re.search(r"[a-z]", body)):
+                kind = "token"
+            elif (not from_image
+                  and _WORD_RE.match(body)
+                  and body.strip(".,:;!?").lower() in known_names):
+                kind = "name"
+
+            if not kind:
+                continue
+
+            conn.execute(
+                "UPDATE posts SET body = '', body_from_image = 0 "
+                "WHERE id = ? AND user_id IS ?",
+                (row["id"], user_id),
+            )
+            counts[kind] += 1
+
+    counts["total"] = counts["domain"] + counts["token"] + counts["name"]
+    return counts
+
+
 def clear_all_captures(user_id):
     """Delete every source, post and capture belonging to one account.
 

@@ -960,17 +960,36 @@
     return false;
   }
 
+  /* A caption that is nothing but a bare domain is not a caption.
+   *
+   * Three rules were written before this one, each catching the sample in
+   * front of it and missing the next: a digit in the label (Ghgb4e.com), then
+   * mixed case (YjDuBghsl.com), then unpronounceable spelling
+   * (mrukbzoeu.com). KJYAC.com went through all three, and at that point the
+   * pattern is the tell — the premise was wrong, not the thresholds.
+   *
+   * These are not random strings that happen to look like domains. They are
+   * domains: the label Facebook prints on a link-preview card. That is why
+   * they keep arriving, why they are always a lone token, and why no amount
+   * of spelling analysis ever caught them all — some of them are real,
+   * ordinary, well-spelled domain names.
+   *
+   * A card's domain label is never what the author wrote. Neither is a lone
+   * URL sitting where copy should be. So the whole shape goes, real domains
+   * included: a post captioned only "mystore.com" now arrives with no
+   * caption, which is the operator's stated preference — a post with nothing
+   * written on it should show nothing rather than something invented.
+   *
+   * Only a token ALONE is affected. "Check out mystore.com" has whitespace,
+   * so it is writing, and it is kept whole.
+   */
   function isDomainDecoy(raw) {
     var text = String(raw || "").trim();
     if (!text || /\s/.test(text)) return false;                 // a single token only
-    if (/^(?:https?:\/\/|www\.)/i.test(text)) return false;     // a real link
-    if (text.indexOf("/") !== -1) return false;                 // has a path -> a real URL
+    if (text.indexOf("/") !== -1) return false;                 // a real URL with a path
+    if (/^(?:https?:\/\/|www\.)/i.test(text)) return false;     // an explicit link
     // Bare domain shape: one or more labels then a TLD, nothing else.
-    if (!/^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(text)) return false;
-    var withoutTld = text.slice(0, text.lastIndexOf("."));
-    // The original signature: a capital and a digit inside the label.
-    if (/[A-Z]/.test(withoutTld) && /[0-9]/.test(withoutTld)) return true;
-    return looksRandomLetters(withoutTld);
+    return /^[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}$/.test(text);
   }
 
   /* Is this "caption" just a piece of the author's name?

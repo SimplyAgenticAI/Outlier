@@ -335,6 +335,41 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
+  var cleanCaptions = document.getElementById("clean-captions");
+  if (cleanCaptions) {
+    cleanCaptions.addEventListener("click", function () {
+      // Asked for rather than guessed at. A one-word caption cannot be judged
+      // on its shape — "Jeff" and "Congratulations" look identical — so only
+      // words known to be names are cleared, and the reader's own name is
+      // known to nobody but the reader.
+      var yourName = window.prompt(
+        "Your Facebook name, if it has been landing in captions.\n\n" +
+        "Only this name and the names of authors already captured will be " +
+        "cleared. Leave blank to skip names and clean link labels only.", "");
+      if (yourName === null) return;          // cancelled
+      toast("Checking stored captions…");
+      post("/api/clean-captions", { names: yourName ? [yourName] : [] })
+        .then(function (data) {
+          var n = (data && data.total) || 0;
+          if (!n) {
+            toast("Nothing to clear — every stored caption looks like writing.");
+            return;
+          }
+          // Broken down, because "cleared 12" gives no way to tell a fix that
+          // worked from one that ate real captions.
+          var parts = [];
+          if (data.name) parts.push(data.name + " name" + (data.name === 1 ? "" : "s"));
+          if (data.domain) parts.push(data.domain + " link label" + (data.domain === 1 ? "" : "s"));
+          if (data.token) parts.push(data.token + " random token" + (data.token === 1 ? "" : "s"));
+          window.sessionStorage.setItem("outlier-reset",
+            "Cleared " + n + " caption" + (n === 1 ? "" : "s") +
+            (parts.length ? " — " + parts.join(", ") + "." : "."));
+          window.location.href = "/";
+        })
+        .catch(function () { toast("Could not clear captions", true); });
+    });
+  }
+
   var resetAll = document.getElementById("reset-all");
   if (resetAll) {
     resetAll.addEventListener("click", function () {
