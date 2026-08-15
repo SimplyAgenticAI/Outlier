@@ -256,6 +256,36 @@ check("a caption that mentions it is untouched",
       "Facebook keeps changing the group layout on us");
 
 console.log();
+console.log("what the picture SHOWS is read separately from what it SAYS");
+
+// Facebook writes both into one alt string. The words belong in the body; the
+// scene description never does - a machine's account of a photo is not
+// something the author wrote - but it is what remix needs to know the subject.
+check("the transcription is the words on the graphic",
+      api.textFromAlt("May be an image of 2 people, ocean and text that says 'SALE ENDS FRIDAY'"),
+      "SALE ENDS FRIDAY");
+check("  and the scene is read from the same string",
+      api.sceneFromAlt("May be an image of 2 people, ocean and text that says 'SALE ENDS FRIDAY'"),
+      "2 people, ocean");
+
+check("a wordless photo still yields a subject",
+      api.sceneFromAlt("May be an image of 3 people and outdoors"),
+      "3 people and outdoors");
+check("  where the transcription is correctly empty",
+      api.textFromAlt("May be an image of 3 people and outdoors"), "");
+
+check("a dangling 'and text' is trimmed",
+      api.sceneFromAlt("May be an image of one person and text"), "one person");
+
+// The scene reader must stay off anything that is not Facebook's own phrasing.
+check("alt a person wrote is not a scene description",
+      api.sceneFromAlt("Our new storefront on opening day, finally finished"), "");
+check("no description available yields nothing",
+      api.sceneFromAlt("No photo description available."), "");
+check("an avatar yields nothing", api.sceneFromAlt("Emma Clarke profile picture"), "");
+check("an empty alt yields nothing", api.sceneFromAlt(""), "");
+
+console.log();
 console.log("a screenshot of another post is not read as the caption");
 
 // OCR of someone else's post carries its chrome — these must be recognised.

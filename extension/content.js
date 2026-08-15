@@ -1355,6 +1355,45 @@
     return raw.length >= 40 ? raw.slice(0, 5000) : "";
   }
 
+  /* What the graphic DEPICTS, as opposed to what is written on it.
+   *
+   * Facebook generates a scene description for screen readers — "May be an
+   * image of 2 people, ocean and text" — and textFromAlt deliberately throws
+   * it away, correctly: it feeds the post BODY, and a machine's description of
+   * a photo is not something the author wrote. Putting it there would invent a
+   * caption for a post that has none.
+   *
+   * But remixing a photo post with no words was being done blind, off a body
+   * that was empty or a single name, so the model had nothing to work from and
+   * filled the gap itself. This is the cheapest possible fix for that: the
+   * description already exists in the DOM, costs no API call to obtain, and
+   * says roughly what the picture is about.
+   *
+   * Kept strictly separate from image_text and never allowed to become the
+   * body. It is labelled as a machine description everywhere it is used, so
+   * nothing downstream can mistake it for the author's own words.
+   */
+  function sceneFromAlt(alt) {
+    var raw = String(alt || "").trim();
+    if (!raw) return "";
+    if (/^no photo description available/i.test(raw)) return "";
+    if (/profile picture|avatar/i.test(raw)) return "";
+
+    // Only Facebook's own generated form is a scene description. Alt text a
+    // person wrote is not one, and is left to textFromAlt.
+    if (!ALT_PREAMBLE_RE.test(raw)) return "";
+
+    var scene = raw.replace(ALT_PREAMBLE_RE, "").trim();
+    // "2 people, ocean and text that says 'SALE'" — the transcription is
+    // textFromAlt's job, so the description stops where it begins.
+    scene = scene.replace(/\s*(?:,|and)?\s*text that says[:\s][\s\S]*$/i, "").trim();
+    // A trailing ", and text" with nothing transcribed is a dangling fragment.
+    scene = scene.replace(/[\s,]*(?:and\s+)?text$/i, "").trim();
+    scene = scene.replace(/^[\s,]+|[\s,.]+$/g, "").trim();
+
+    return scene.length >= 3 ? scene.slice(0, 500) : "";
+  }
+
   /* Is this transcription a screenshot of ANOTHER post, not a caption?
    *
    * textFromAlt reads Facebook's OCR of an image so a meme or quote card keeps
@@ -1418,11 +1457,17 @@
       if (transcribed && !looksLikePostChrome(transcribed)) altText = transcribed;
     }
 
+    // The scene description is read from the largest image only. On an album
+    // the biggest render is the one on display, and concatenating a
+    // description of every thumbnail would describe a collage nobody saw.
+    var scene = found.length ? sceneFromAlt(found[0].alt) : "";
+
     return {
       image_url: found.length ? found[0].src : null,
       image_count: found.length,
       has_video: hasVideo,
-      image_text: altText
+      image_text: altText,
+      image_desc: scene
     };
   }
 
@@ -2244,6 +2289,11 @@
         image_url: media.image_url,
         image_count: media.image_count,
         has_video: media.has_video,
+        // Both were being computed and thrown away. They are what lets the
+        // dashboard say something true about a photo post that carries no
+        // typed words, instead of remixing off an empty body.
+        image_text: (media.image_text || "").slice(0, 5000),
+        image_desc: (media.image_desc || "").slice(0, 500),
         body_from_image: bodyFromImage ? 1 : 0,
         engagement_read: engagementRead ? 1 : 0
       };
@@ -3257,6 +3307,8 @@
     extractPostSource: extractPostSource,
     isSponsoredOrSuggested: isSponsoredOrSuggested,
     looksLikePostChrome: looksLikePostChrome,
+    textFromAlt: textFromAlt,
+    sceneFromAlt: sceneFromAlt,
     extractEngagement: extractEngagement,
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,

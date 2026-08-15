@@ -220,6 +220,16 @@ def _migrate(conn):
         # 1 = a count was actually found, 0 = none were. NULL for rows captured
         # before the flag existed, whose provenance genuinely isn't known.
         ("engagement_read", "INTEGER"),
+        # Words rendered INTO the graphic, from Facebook's own OCR. Kept even
+        # when the post also has a typed caption, which the body cannot do —
+        # body holds one or the other, and a meme with a caption used to lose
+        # its lettering entirely.
+        ("image_text", "TEXT"),
+        # What the graphic DEPICTS, from Facebook's generated alt description.
+        # A machine's words, never the author's, so this must never be shown
+        # or used as the body. It exists so remixing a wordless photo post has
+        # something true to work from instead of an empty string.
+        ("image_desc", "TEXT"),
     ):
         if column not in post_cols:
             conn.execute(f"ALTER TABLE posts ADD COLUMN {column} {ddl}")
@@ -342,6 +352,8 @@ def _rebuild_with_scoped_uniqueness(conn):
             has_video     INTEGER DEFAULT 0,
             body_from_image INTEGER DEFAULT 0,
             engagement_read INTEGER,
+            image_text    TEXT,
+            image_desc    TEXT,
             UNIQUE(user_id, fb_post_id)
         );
         INSERT INTO posts_new (id, user_id, fb_post_id, source_id, author_id, body,
@@ -502,6 +514,14 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
         post["body"] = _body[:10000]
     elif _body is not None and not isinstance(_body, str):
         post["body"] = ""
+    # Both arrive from scraped alt attributes, so they are attacker-reachable
+    # in exactly the way the body is and get the same treatment.
+    for _field, _cap in (("image_text", 5000), ("image_desc", 500)):
+        _value = post.get(_field)
+        if isinstance(_value, str):
+            post[_field] = _value[:_cap]
+        elif _value is not None:
+            post[_field] = ""
 
     existing = conn.execute(
         "SELECT id FROM posts WHERE user_id IS ? AND fb_post_id = ?",
@@ -516,6 +536,11 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
                 body = COALESCE(NULLIF(?, ''), body),
                 image_url = COALESCE(image_url, ?),
                 image_count = MAX(image_count, ?),
+                -- Filled in by a later scan if the first one missed them, but
+                -- never blanked: a re-read that fails to find the alt text
+                -- should not delete what an earlier read did find.
+                image_text = COALESCE(NULLIF(?, ''), image_text),
+                image_desc = COALESCE(NULLIF(?, ''), image_desc),
                 engagement_read = CASE
                     WHEN ? = 1 THEN 1 ELSE engagement_read END,
                 body_from_image = CASE
@@ -532,6 +557,8 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
                 post.get("body", ""),
                 post.get("image_url"),
                 post.get("image_count", 0),
+                post.get("image_text") or "",
+                post.get("image_desc") or "",
                 1 if post.get("engagement_read") else 0,
                 post.get("body", ""),
                 1 if post.get("body_from_image") else 0,
@@ -547,8 +574,8 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
             user_id, fb_post_id, source_id, author_id, body, permalink, post_type,
             posted_at, likes, comments, shares, video_plays, is_demo,
             item_type, parent_fb_id, image_url, image_count, has_video,
-            body_from_image, engagement_read
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            body_from_image, engagement_read, image_text, image_desc
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -572,6 +599,8 @@ def upsert_post(conn, source_id, author_id, post, user_id=None):
             1 if post.get("body_from_image") else 0,
             None if post.get("engagement_read") is None
                  else (1 if post.get("engagement_read") else 0),
+            post.get("image_text") or "",
+            post.get("image_desc") or "",
         ),
     )
     return True
