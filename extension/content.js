@@ -2998,15 +2998,20 @@
    * kept reading as zero and each fix was a guess. One click, one file in
    * Downloads, nothing sent anywhere.
    */
-  /* Write the report once, on its own, when extraction has clearly failed.
+  /* Say when extraction looks wrong. Do not save anything.
    *
-   * Asking the user to press a button and send a file has failed repeatedly —
-   * reasonably, since it is the developer's problem, not theirs. So the
-   * extension decides for itself: if a scan has looked at a real number of
-   * posts and read engagement from none of them, something is wrong with the
-   * extractors and the evidence is written to Downloads automatically.
+   * This used to write the report straight to Downloads, unasked, on the
+   * theory that debugging is the developer's problem rather than the user's.
+   * The theory was fine and the execution was not: the tests below are
+   * guesses, and one of them is wrong often. readPartially fires whenever
+   * reactions are read but comments and shares are not — which is the normal
+   * state of a group whose posts genuinely have no comments or shares. So a
+   * perfectly healthy scan produced a file, on every single scan, into
+   * somebody's Downloads folder.
    *
-   * Once per page load, and never when things are working.
+   * A diagnostic that fires on a guess and litters the user's disk is worse
+   * than no diagnostic. The report is still one console call away and the HUD
+   * now says so, once, instead of saving anything.
    */
   var autoReportDone = false;
 
@@ -3036,8 +3041,8 @@
     if (!foundNothing && !readNothing && !readPartially) return;
 
     autoReportDone = true;
-    logLine("Extraction is failing — saving a report to Downloads.");
-    savePageReport();
+    logLine("Some posts may be reading wrong on this page.");
+    logLine("For a report: press F12, then run __outlier.savePageReport()");
   }
 
   function capturedNothing() {
