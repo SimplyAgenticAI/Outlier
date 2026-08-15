@@ -1587,15 +1587,16 @@ def admin():
 # -------------------------------------------------------------- feedback
 
 
-def _display_name(email):
-    """The half of an address before the @, and nothing more.
+def _display_name(user):
+    """What one account is called when another account sees it.
 
-    The board is the one place in this app where one account sees something
-    another account wrote, so the author is shown as a handle rather than a
-    full address. Nobody signed up expecting their email published to other
-    users because they reported a bug.
+    This used to split the email at the @, which for most people publishes
+    their actual name — jeffrandle@gmail.com reads as "jeffrandle" — and made
+    two people called jeff at different providers into one handle. It is
+    db.display_name now: the name they chose, or a member number, and never
+    anything reconstructed out of an address.
     """
-    return (email or "someone").split("@")[0]
+    return db.display_name(user)
 
 
 @app.route("/feedback")
@@ -1606,8 +1607,9 @@ def feedback_board():
     sort = "new" if request.args.get("sort") == "new" else "top"
     items = db.list_feedback(user["id"], status=status, sort=sort)
     for item in items:
-        item["author"] = _display_name(item.get("author_email"))
-        item.pop("author_email", None)      # never reaches the template
+        item["author"] = db.display_name(
+            {"username": item.get("author_username"), "id": item.get("user_id")})
+        item.pop("author_username", None)   # never reaches the template
     return render_template(
         "feedback.html",
         items=items,
@@ -1615,9 +1617,25 @@ def feedback_board():
         sort=sort,
         is_admin=bool(billing.is_admin(user)),
         statuses=db.FEEDBACK_STATUSES,
+        # Shown as a one-line nudge on the board rather than a separate page:
+        # the moment somebody is about to be seen by other people is the
+        # moment picking a name is worth their attention.
+        needs_username=not user.get("username"),
+        my_name=db.display_name(user),
         version=APP_VERSION,
         active="feedback",
     )
+
+
+@app.route("/api/username", methods=["POST"])
+@auth.login_required
+def api_username():
+    user = auth.current_user()
+    body = request.get_json(silent=True) or {}
+    ok, error = db.set_username(user["id"], body.get("username"))
+    if not ok:
+        return jsonify({"ok": False, "error": error}), 400
+    return jsonify({"ok": True, "username": (body.get("username") or "").strip()})
 
 
 @app.route("/api/feedback", methods=["POST"])
@@ -1637,7 +1655,7 @@ def api_feedback_create():
     db.notify_admins(
         "feedback",
         ("Bug report: " if kind == "bug" else "Idea: ") + title[:120],
-        body="From " + _display_name(user.get("email")),
+        body="From " + _display_name(user),
         url="/feedback",
     )
     return jsonify({"ok": True, "id": fid})

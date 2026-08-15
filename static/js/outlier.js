@@ -337,6 +337,33 @@
 
   /* --------------------------------------------------------- feedback */
 
+  var claimName = document.getElementById("fb-username-save");
+  if (claimName) {
+    var nameField = document.getElementById("fb-username");
+    function claim() {
+      var value = nameField.value.trim();
+      if (!value) { nameField.focus(); return; }
+      claimName.disabled = true;
+      post("/api/username", { username: value })
+        .then(function (data) {
+          // The server owns the rules — taken, reserved, wrong shape — so the
+          // message shown is the server's, not a guess made here.
+          if (!data.ok) throw new Error(data.error || "Could not set that name");
+          window.sessionStorage.setItem("outlier-reset", "You're " + data.username + " now.");
+          window.location.reload();
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+          claimName.disabled = false;
+          nameField.focus();
+        });
+    }
+    claimName.addEventListener("click", claim);
+    nameField.addEventListener("keydown", function (event) {
+      if (event.key === "Enter") claim();
+    });
+  }
+
   var fbSubmit = document.getElementById("fb-submit");
   if (fbSubmit) {
     fbSubmit.addEventListener("click", function () {

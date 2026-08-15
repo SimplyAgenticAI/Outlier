@@ -1630,6 +1630,12 @@ body.score-help-open { overflow: hidden; }
 
 /* ------------------------------------------------------------ feedback */
 
+.fb-name { margin-bottom: 14px; }
+.fb-name .fine { margin: 0 0 10px; }
+.fb-name-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.fb-name-row .fb-input { flex: 1; min-width: 180px; }
+.fb-name-row .btn { flex-shrink: 0; }
+
 .fb-compose { display: grid; gap: 10px; margin-bottom: 16px; }
 .fb-kind { display: flex; gap: 16px; font-size: 13px; color: var(--text-muted); }
 .fb-kind label { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }

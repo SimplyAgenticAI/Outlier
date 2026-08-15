@@ -262,6 +262,24 @@ def _migrate(conn):
     exists, so anything added later has to be applied here or an upgraded
     install breaks on the first query that mentions it.
     """
+    # A name the user picks for themselves.
+    #
+    # The feedback board needed something to show beside an item, and it was
+    # deriving one from the email's local part. For a great many people that
+    # IS their name — jeffrandle@gmail.com reads as "jeffrandle" — so the
+    # board was publishing a thin disguise of an address nobody agreed to
+    # share. It also collides: two people called jeff at different providers
+    # were one handle. Until a name is chosen the display falls back to a
+    # number, which is nobody's anything.
+    if "username" not in _columns(conn, "users"):
+        conn.execute("ALTER TABLE users ADD COLUMN username TEXT")
+    # Case-insensitive uniqueness, in the index rather than in a check that
+    # has to be remembered at every call site.
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username "
+        "ON users(LOWER(username)) WHERE username IS NOT NULL"
+    )
+
     post_cols = _columns(conn, "posts")
 
     if "item_type" not in post_cols:
@@ -930,6 +948,74 @@ def recent_users(limit=25):
             """, (int(limit),))]
 
 
+# -------------------------------------------------------------- usernames
+
+# Letters, numbers, underscore and hyphen. No spaces, no dots, no unicode
+# lookalikes — a name that can be typed back exactly is worth more here than
+# a name that can be decorated.
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_-]{3,20}$")
+
+# Words that would let a name impersonate the product or a role. Checked
+# lowercased, so Admin and ADMIN are covered by "admin".
+RESERVED_USERNAMES = {
+    "admin", "administrator", "owner", "root", "staff", "team", "support",
+    "help", "moderator", "mod", "system", "official", "tallgrass",
+    "macrandle", "macrandleacres", "sage", "null", "undefined", "anonymous",
+    "me", "you", "everyone", "here", "all",
+}
+
+
+def display_name(user):
+    """What to show other people. Never derived from the address.
+
+    A member number until they choose otherwise: unhelpful, but it belongs to
+    nobody and reveals nothing, which beats a handle assembled out of somebody
+    else's email.
+    """
+    if not user:
+        return "someone"
+    name = (user.get("username") if isinstance(user, dict) else user["username"])
+    if name:
+        return name
+    uid = user["id"] if not isinstance(user, dict) else user.get("id")
+    return "member-" + str(uid or "?")
+
+
+def username_error(name):
+    """Why this name cannot be used, or None if it can."""
+    name = (name or "").strip()
+    if not name:
+        return "Pick a username."
+    if not USERNAME_RE.match(name):
+        return ("3–20 characters, letters, numbers, underscore or hyphen only.")
+    if name.lower() in RESERVED_USERNAMES:
+        return "That name is reserved."
+    # A name that is only digits reads as the member-<id> fallback and could
+    # be used to pass as somebody else's account number.
+    if name.isdigit():
+        return "Usernames need at least one letter."
+    return None
+
+
+def set_username(user_id, name):
+    """Claim a name. Returns (ok, error).
+
+    Uniqueness is the index's job — checking first and inserting after is a
+    race between two people picking the same name at the same moment, and the
+    loser should see a message rather than a stack trace.
+    """
+    name = (name or "").strip()
+    problem = username_error(name)
+    if problem:
+        return False, problem
+    try:
+        with get_db() as conn:
+            conn.execute("UPDATE users SET username = ? WHERE id = ?", (name, user_id))
+    except sqlite3.IntegrityError:
+        return False, "That username is taken."
+    return True, None
+
+
 # -------------------------------------------------------------- feedback
 
 FEEDBACK_STATUSES = ("open", "planned", "shipped", "declined")
@@ -963,7 +1049,7 @@ def list_feedback(viewer_id, status=None, sort="top", limit=100):
         return [dict(r) for r in conn.execute(
             f"""
             SELECT f.*,
-                   u.email AS author_email,
+                   u.username AS author_username,
                    (SELECT COUNT(*) FROM feedback_votes v
                      WHERE v.feedback_id = f.id) AS votes,
                    (SELECT COUNT(*) FROM feedback_votes v
