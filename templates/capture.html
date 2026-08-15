@@ -58,6 +58,25 @@
 
 </section>
 
+{# A capture-time filter, on the page about capture. It was in Settings,
+   where it read as a personal detail rather than as a scanning rule. #}
+<section class="glass panel reveal">
+  <h2>Your own name</h2>
+  <p class="fine">
+    Facebook prints your name all over a group page — the comment box, tag
+    lines, reaction summaries — and on a post with no caption of its own it can
+    end up stored as the caption. Tell it your name once and it is never saved
+    as a post's words again. Only removed when it is the <em>entire</em>
+    caption, so a post that talks about you keeps every word. Comma-separate if
+    you go by more than one.
+  </p>
+  <div class="key-row">
+    <input type="text" id="viewer-name" placeholder="Jeff Randle"
+           value="{{ viewer_names or '' }}">
+    <button class="btn btn-primary" id="save-viewer-name">Save</button>
+  </div>
+</section>
+
 {% if recent_captures %}
 <section class="glass capture-log reveal">
   <h2>Recent captures</h2>

@@ -4,8 +4,8 @@
 {% block content %}
 <section class="feed-head">
   <div>
-    <h1>Settings &amp; data</h1>
-    <p class="sub">Everything in your database, and every control for managing it.</p>
+    <h1>Settings</h1>
+    <p class="sub">How the app works for you — your AI, your brand, your sample data.</p>
   </div>
 </section>
 
@@ -133,71 +133,6 @@
   <div class="msg-line" id="brand-msg"></div>
 </section>
 
-<section class="glass panel reveal">
-  <div class="panel-head">
-    <h2>Your sources</h2>
-    <span class="sub">Rename or delete any of them individually.</span>
-  </div>
-
-  {% if sources %}
-  <table class="data-table">
-    <thead>
-      <tr><th>Source</th><th>Posts</th><th>Engagement read</th><th>Baseline</th><th></th></tr>
-    </thead>
-    <tbody>
-      {% for source in sources %}
-      <tr data-source-id="{{ source.id }}">
-        <td>
-          <div class="src-name-wrap">
-            <span class="src-name" data-source-id="{{ source.id }}">{{ source.name }}</span>
-            {% if source.is_demo %}
-              <span class="demo-badge">sample</span>
-            {% else %}
-              <span class="real-badge">captured</span>
-            {% endif %}
-          </div>
-          <div class="src-meta">{{ source.fb_id }}</div>
-        </td>
-        <td>{{ source.post_count }}</td>
-        <td>
-          {# Same measured_pct the groups page shows. This column used to read
-             a separately-computed engagement_pct and could disagree with it. #}
-          {% if source.is_demo or not source.stats %}
-            <span class="muted">—</span>
-          {% elif source.stats.measured_pct >= 60 %}
-            <span class="ok-tone">{{ source.stats.measured_pct }}%</span>
-          {% else %}
-            <span class="warn-tone">{{ source.stats.measured_pct }}%</span>
-          {% endif %}
-        </td>
-        <td>
-          {% if not source.stats %}
-            <span class="muted">no posts</span>
-          {% elif not source.stats.blocker %}
-            <span class="ok-tone">ready</span>
-          {% elif source.stats.blocker == 'unreadable' %}
-            <span class="warn-tone" title="Engagement counts could not be read from most of these — re-scan">counts unreadable</span>
-          {% elif source.stats.blocker == 'low-baseline' %}
-            <span class="warn-tone" title="Median engagement too near zero to divide by">baseline too low</span>
-          {% else %}
-            <span class="muted">needs {{ min_sample - source.stats.measured_count }} more</span>
-          {% endif %}
-        </td>
-        <td class="row-actions">
-          <button class="mini-btn rename-source" data-source-id="{{ source.id }}">Rename</button>
-          <button class="mini-btn danger delete-source"
-                  data-source-id="{{ source.id }}"
-                  data-source-name="{{ source.name }}">Delete</button>
-        </td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-  {% else %}
-  <p class="muted">No sources yet. Capture a group to get started.</p>
-  {% endif %}
-</section>
-
 <section class="settings-grid">
   <div class="glass panel reveal">
     <h2>Sample data</h2>
@@ -210,74 +145,23 @@
       <button class="btn btn-ghost danger" id="clear-demo">Remove sample data</button>
     </div>
   </div>
-
-  <div class="glass panel reveal">
-    <h2>Username</h2>
-    <p class="fine">
-      How you appear to other users — on the feedback board and anywhere else
-      the app is shared. Your email is never shown to anyone but you.
-    </p>
-    <div class="brand-form">
-      <label class="brand-field">
-        <span>3–20 characters, letters, numbers, underscore or hyphen</span>
-        <input type="text" id="username-field" maxlength="20" autocomplete="off"
-               placeholder="yourname" value="{{ user.username or '' }}">
-      </label>
-    </div>
-    <button class="btn btn-ghost" id="save-username">Save username</button>
-  </div>
-
-  <div class="glass panel reveal">
-    <h2>Your Facebook name</h2>
-    <p class="fine">
-      Facebook prints your own name all over a group page — the comment box,
-      tag lines, reaction summaries — and on a post with no caption of its own
-      it can end up stored as the caption. Tell it your name once and it will
-      never be saved as a post's words again. Comma-separate if you go by more
-      than one. It is only ever removed when it is the <em>entire</em> caption,
-      so a post that talks about you keeps every word.
-    </p>
-    <div class="brand-form">
-      <label class="brand-field">
-        <span>Name as it appears on Facebook</span>
-        <input type="text" id="viewer-name" placeholder="Jeff Randle"
-               value="{{ viewer_names or '' }}">
-      </label>
-    </div>
-    <button class="btn btn-ghost" id="save-viewer-name">Save name</button>
-  </div>
-
-  <div class="glass panel reveal">
-    <h2>Tidy up captions</h2>
-    <p class="fine">
-      Some posts were stored with a caption that was never the author's writing
-      — a name read out of the page, or the domain label off a link preview.
-      Newer captures no longer do this, but posts already saved keep whatever
-      they were saved with. This clears those captions and nothing else: every
-      post stays, every number stays, no score moves.
-    </p>
-    <button class="btn btn-ghost" id="clean-captions">Clear bad captions</button>
-  </div>
-
-  <div class="glass panel reveal">
-    <h2>Danger zone</h2>
-    <p class="fine">
-      Deletes every post, source, saved item, and remix. Use this when captures
-      were recorded with an older extension — posts carrying zeroed engagement
-      distort every baseline they sit in, and re-capturing has to start clean.
-    </p>
-    <button class="btn btn-ghost danger" id="reset-all">Delete everything</button>
-  </div>
 </section>
 
+{# Where the rest of this page went, so nobody hunts for it.
+
+   This page was called "Settings & data" and was doing both jobs badly:
+   nine panels, one of which reproduced the Groups page in full. Each thing
+   now sits where it is already being thought about. #}
 <section class="glass panel reveal">
-  <h2>Export</h2>
-  <p class="fine">Download everything for use elsewhere — or to hand to an AI tool.</p>
-  <div class="demo-actions">
-    <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='json') }}">JSON</a>
-    <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='csv') }}">CSV</a>
-    <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='markdown') }}">Markdown</a>
-  </div>
+  <h2>Looking for something else?</h2>
+  <ul class="settings-pointers">
+    <li><b>Your groups, pages and profiles</b>, exports, and deleting captured
+      data — <a href="{{ url_for('groups') }}">Groups</a></li>
+    <li><b>Username, plan, password and your extension key</b> —
+      <a href="{{ url_for('account') }}">Account</a></li>
+    <li><b>How scanning behaves</b>, including your own Facebook name —
+      <a href="{{ url_for('capture') }}">Capture</a></li>
+  </ul>
 </section>
 
 {% endblock %}

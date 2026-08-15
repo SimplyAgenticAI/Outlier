@@ -1628,6 +1628,22 @@ body.score-help-open { overflow: hidden; }
 }
 .graphic-dl:hover { text-decoration: underline; }
 
+/* Signposts to the things that used to be on Settings. */
+.settings-pointers {
+  margin: 0; padding-left: 18px;
+  font-size: 13px; line-height: 1.9; color: var(--text-muted);
+}
+.settings-pointers b { color: var(--text); font-weight: 600; }
+.settings-pointers a { color: var(--emerald); text-decoration: none; }
+.settings-pointers a:hover { text-decoration: underline; }
+
+/* The data operations, below the sources they operate on. */
+.data-tools { margin-top: 22px; }
+
+/* Destructive, so it stays quiet until the card is hovered rather than
+   sitting bright red on every row of the feed. */
+.delete-post:hover { color: var(--ember); }
+
 /* ------------------------------------------------------------ feedback */
 
 .fb-compose { display: grid; gap: 10px; margin-bottom: 16px; }

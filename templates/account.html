@@ -112,6 +112,22 @@
 
 </section>
 
+{# Identity, next to the email and password it belongs with. It was in
+   Settings, which is where preferences live, and it is not a preference. #}
+<section class="glass panel reveal">
+  <h2>Username</h2>
+  <p class="fine">
+    How you appear to other users — on the feedback board and anywhere else the
+    app is shared. Your email is never shown to anyone but you.
+  </p>
+  <div class="key-row">
+    <input type="text" id="username-field" maxlength="20" autocomplete="off"
+           placeholder="yourname" value="{{ user.username or '' }}">
+    <button class="btn btn-primary" id="save-username">Save</button>
+  </div>
+  <p class="fine">3–20 characters — letters, numbers, underscore or hyphen.</p>
+</section>
+
 <section class="glass panel reveal">
   <h2>Change password</h2>
   <div class="key-row">

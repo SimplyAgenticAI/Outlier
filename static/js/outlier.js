@@ -335,6 +335,39 @@
   var clearDemo = document.getElementById("clear-demo");
   if (clearDemo) clearDemo.addEventListener("click", demoRequest("DELETE", "Clearing sample data"));
 
+  /* ------------------------------------------------------ delete a post */
+
+  // Delegated from the document, because post cards appear on the feed, on a
+  // group page and in the library, and every one of them carries this button.
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest && event.target.closest(".delete-post");
+    if (!button) return;
+
+    var card = button.closest("[data-post-id]");
+    if (!window.confirm("Delete this post?\n\nIt is removed from your dashboard " +
+                        "and stops counting toward the group's baseline. " +
+                        "Re-scanning the group will capture it again.")) return;
+
+    button.disabled = true;
+    post("/api/post/" + button.dataset.postId, undefined, "DELETE")
+      .then(function (data) {
+        if (!data.ok) throw new Error(data.error || "Could not delete that post");
+        // Faded out rather than removed outright, so the row does not vanish
+        // from under the cursor with no sign of what happened.
+        if (card) {
+          card.style.transition = "opacity 0.25s var(--ease), transform 0.25s var(--ease)";
+          card.style.opacity = "0";
+          card.style.transform = "scale(0.98)";
+          window.setTimeout(function () { card.remove(); }, 260);
+        }
+        toast("Post deleted.");
+      })
+      .catch(function (error) {
+        toast(error.message, true);
+        button.disabled = false;
+      });
+  });
+
   /* --------------------------------------------------------- feedback */
 
   var fbSubmit = document.getElementById("fb-submit");
@@ -563,19 +596,11 @@
   var cleanCaptions = document.getElementById("clean-captions");
   if (cleanCaptions) {
     cleanCaptions.addEventListener("click", function () {
-      // Prefilled from the saved name, so the common path is one click. A
-      // one-word caption cannot be judged on its shape — "Jeff" and
-      // "Congratulations" are identical to a regex — so only words known to
-      // be names are cleared, and the reader is the only one who knows theirs.
-      var saved = document.getElementById("viewer-name");
-      var yourName = window.prompt(
-        "Your Facebook name, if it has been landing in captions.\n\n" +
-        "Only this name and the names of authors already captured will be " +
-        "cleared. Leave blank to clean link labels only.",
-        (saved && saved.value.trim()) || "");
-      if (yourName === null) return;          // cancelled
+      // No prompt any more. The name is saved on the Capture page and the
+      // server reads it from there, so asking again here was making somebody
+      // type a thing the app already knew.
       toast("Checking stored captions…");
-      post("/api/clean-captions", { names: yourName ? [yourName] : [] })
+      post("/api/clean-captions", {})
         .then(function (data) {
           var n = (data && data.total) || 0;
           if (!n) {

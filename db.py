@@ -1183,6 +1183,24 @@ def mark_notifications_read(user_id, notification_id=None):
     return unread_count(user_id)
 
 
+def delete_post(post_id, user_id):
+    """Remove one post outright. Returns True if a row went.
+
+    The whole row, not just its caption. A post the user has looked at and
+    rejected should not go on setting the median every other post in that
+    group is measured against — leaving it in with the text blanked would keep
+    it in the baseline, which is the part that actually matters.
+
+    Scoped to the owner: a post id from another account matches nothing.
+    """
+    with get_db() as conn:
+        cur = conn.execute(
+            "DELETE FROM posts WHERE id = ? AND user_id IS ?",
+            (int(post_id), user_id),
+        )
+        return cur.rowcount > 0
+
+
 def clear_all_captures(user_id):
     """Delete every source, post and capture belonging to one account.
 

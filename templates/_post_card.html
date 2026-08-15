@@ -178,6 +178,17 @@
               stroke-linecap="round" stroke-linejoin="round"/>
       </svg>
     </a>
+    {# Delete the post that is wrong, from the post that is wrong. A row with a
+       bad caption used to mean going to Settings and running a bulk job over
+       everything; this is the one you are already looking at. #}
+    <button class="icon-btn delete-post" data-post-id="{{ post.id }}"
+            title="Delete this post">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 7h16M10 11v6M14 11v6M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M9 7V4h6v3"
+              fill="none" stroke="currentColor" stroke-width="2"
+              stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </button>
   </div>
 
 </article>

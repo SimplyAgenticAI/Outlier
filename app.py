@@ -512,6 +512,8 @@ def api_brand():
 @auth.login_required
 def settings():
     sources = _sources_with_stats()
+    # `sources` still feeds the counters at the top of the page; the table
+    # that listed them lives on Groups, which is the page about sources.
     return render_template(
         "settings.html",
         sources=sources,
@@ -825,6 +827,9 @@ def capture():
         extension_version=_extension_version(),
         is_local=_is_local_dashboard(),
         has_data=db.has_any_posts(_uid()),
+        # The name filter moved here from Settings: it is a rule about how
+        # scanning behaves, not a personal detail.
+        viewer_names=sage.get_setting(db.VIEWER_NAMES_KEY, ""),
         version=APP_VERSION,
         active="capture",
     )
@@ -1744,6 +1749,15 @@ def api_viewer_name():
     names = [n.strip() for n in raw.split(",") if n.strip()][:5]
     sage.set_setting(db.VIEWER_NAMES_KEY, ", ".join(names)[:200])
     return jsonify({"ok": True, "names": names})
+
+
+@app.route("/api/post/<int:post_id>", methods=["DELETE"])
+@auth.login_required
+def api_delete_post(post_id):
+    """Delete one captured post, from the card it is on."""
+    if not db.delete_post(post_id, _uid()):
+        return jsonify({"ok": False, "error": "Not found"}), 404
+    return jsonify({"ok": True, "deleted": post_id})
 
 
 @app.route("/api/clean-captions", methods=["POST"])
