@@ -973,6 +973,39 @@
     return looksRandomLetters(withoutTld);
   }
 
+  /* Is this "caption" just a piece of the author's name?
+   *
+   * The full-name check catches a header block reading "Jeff Randle". It does
+   * not catch one reading "Jeff", because that is not the author's name — it
+   * is part of it. Facebook renders the first name alone in several places
+   * (the header on a narrow layout, tag lines, the composer), and on a post
+   * with no caption of its own a lone first name is the longest thing left
+   * standing, so it wins the caption slot and the post arrives titled with
+   * somebody's name.
+   *
+   * Only exact, whole-name-part matches count. A caption that merely CONTAINS
+   * the name is real copy — "Jeff was right about this" is a post — so this
+   * compares the entire block against each part and nothing less.
+   *
+   * A name part under two characters is ignored: an initial is too close to
+   * ordinary text to spend a caption on.
+   */
+  function isBareNamePart(text, authorName) {
+    var body = String(text || "").trim().replace(/\s+/g, " ");
+    var name = String(authorName || "").trim();
+    if (!body || !name) return false;
+    if (body.indexOf(" ") !== -1) return false;      // one word only
+
+    var stripped = body.replace(/[.,:;!?'"“”‘’]+$/, "");
+    var parts = name.split(/\s+/);
+    for (var i = 0; i < parts.length; i++) {
+      var part = parts[i].replace(/[.,]+$/, "");
+      if (part.length < 2) continue;
+      if (part.toLowerCase() === stripped.toLowerCase()) return true;
+    }
+    return false;
+  }
+
   function longestTextBlock(article, authorName, bar, selector) {
     var blocks = article.querySelectorAll(selector);
     var best = "";
@@ -1000,6 +1033,8 @@
       // The header block is just the author's name, sometimes with a timestamp.
       if (authorName && text.replace(/\s+/g, " ") === authorName) continue;
       if (authorName && text.indexOf(authorName) === 0 && text.length < authorName.length + 25) continue;
+      // Or one part of it standing alone — a lone first name is a header too.
+      if (authorName && isBareNamePart(text, authorName)) continue;
 
       // A block whose text is entirely a link is navigation, not post copy.
       var link = el.querySelector('a[role="link"]');
@@ -2174,8 +2209,11 @@
       }
 
       // "Text" that is only the author's name echoed out of the header is a
-      // header, not a caption.
+      // header, not a caption. Checked against the whole name and against each
+      // part of it, because a block holding only the first name is not equal
+      // to the name and was getting through.
       if (body && body.replace(/\s+/g, " ") === author.name) body = "";
+      if (body && isBareNamePart(body, author.name)) body = "";
 
       var hasText = !!body && body.length >= 12;
       var hasMedia = !!(media.image_url || media.has_video);
@@ -3005,6 +3043,20 @@
         (bar.getAttribute("aria-label") || bar.textContent || "").slice(0, 40)) : "NOT FOUND"));
       lines.push("author     : " + (author.name || "NOT READ"));
       lines.push("caption    : " + (body ? body.length + " chars" : "NOT READ"));
+      /* A short caption is printed in full, because the length alone cannot
+       * say what is wrong with it.
+       *
+       * Posts kept arriving titled with a bare first name and the report said
+       * only "caption : 4 chars", which is consistent with a working extractor
+       * and with a broken one. Anything this short is not private writing —
+       * it is a name, a label or a fragment of Facebook's own furniture — and
+       * seeing the actual characters is the difference between fixing the
+       * cause and guessing at it. Real copy stays redacted to its length.
+       */
+      if (body && body.length <= 40) {
+        lines.push("  caption text: " + JSON.stringify(body));
+        lines.push("  name echo?  : " + (isBareNamePart(body, author.name) ? "YES" : "no"));
+      }
       lines.push("engagement : " + engagement.likes + "r " + engagement.comments +
                  "c " + engagement.shares + "s" +
                  (engagement.likes || engagement.comments || engagement.shares
@@ -3309,6 +3361,7 @@
     looksLikePostChrome: looksLikePostChrome,
     textFromAlt: textFromAlt,
     sceneFromAlt: sceneFromAlt,
+    isBareNamePart: isBareNamePart,
     extractEngagement: extractEngagement,
     extractPostType: extractPostType,
     extractPermalink: extractPermalink,

@@ -256,6 +256,29 @@ check("a caption that mentions it is untouched",
       "Facebook keeps changing the group layout on us");
 
 console.log();
+console.log("a lone piece of the author's name is a header, not a caption");
+
+// Real, from the dashboard: posts arriving titled "Jeff". The full-name guard
+// could not catch it, because "Jeff" is not the author's name - it is part of
+// it, and on a caption-less post it was the longest thing left standing.
+check("the first name alone is an echo", api.isBareNamePart("Jeff", "Jeff Randle"), true);
+check("so is the last name alone", api.isBareNamePart("Randle", "Jeff Randle"), true);
+check("  case does not matter", api.isBareNamePart("jeff", "Jeff Randle"), true);
+check("  nor does trailing punctuation", api.isBareNamePart("Jeff.", "Jeff Randle"), true);
+check("a middle name counts too",
+      api.isBareNamePart("Marie", "Anna Marie Fitzgerald"), true);
+
+// Real copy that merely mentions the name is a post, and keeps every word.
+check("a sentence about them is real copy",
+      api.isBareNamePart("Jeff was right about this", "Jeff Randle"), false);
+check("  even two words", api.isBareNamePart("Jeff rocks", "Jeff Randle"), false);
+check("an unrelated word is untouched",
+      api.isBareNamePart("Congratulations", "Jeff Randle"), false);
+check("a single initial is too short to spend a caption on",
+      api.isBareNamePart("J", "J Randle"), false);
+check("no author name means no echo", api.isBareNamePart("Jeff", ""), false);
+
+console.log();
 console.log("what the picture SHOWS is read separately from what it SAYS");
 
 // Facebook writes both into one alt string. The words belong in the body; the
