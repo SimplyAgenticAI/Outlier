@@ -770,6 +770,60 @@ def viewer_name_parts(conn, user_id):
     return parts
 
 
+def repeated_caption_bodies(conn, user_id, min_authors=2):
+    """Short captions that appear under more than one author's name.
+
+    The evidence nobody had to configure. "Jeff" arrived as the caption on a
+    post by Doug Hensley and on a post by Kaylee Merry, in the same group, on
+    the same scan — and two different people did not write the same one-word
+    post. Anything Facebook prints on every post lands like this, whoever it
+    belongs to, which is what makes the shape detectable without knowing whose
+    name it is or where on the page it came from.
+
+    Deliberately narrow. A single token only, which is what keeps it safe:
+    real captions that genuinely repeat across authors have spaces in them.
+    "Happy Birthday!" from three different people in a group is ordinary and
+    is never touched; "Jeff" from two is not a coincidence worth protecting.
+
+    Two authors rather than three, because this runs over stored rows where
+    the evidence is already complete, and the ingest-time check has usually
+    blanked the later copies by the time anyone presses the button — leaving
+    exactly the early stragglers this needs to catch.
+    """
+    return [r["body"] for r in conn.execute(
+        """
+        SELECT body
+        FROM posts
+        WHERE user_id IS ?
+          AND body IS NOT NULL AND body != ''
+          AND LENGTH(body) <= 30
+          AND body NOT LIKE '% %'
+          AND author_id IS NOT NULL
+        GROUP BY body
+        HAVING COUNT(DISTINCT author_id) >= ?
+        """, (user_id, int(min_authors)))]
+
+
+def caption_seen_under_other_authors(conn, user_id, body, author_id, minimum=2):
+    """Has this exact one-word caption already appeared under other authors?
+
+    The ingest-time half of the rule above. Only asked about a caption short
+    enough and plain enough to be furniture, so the ordinary case — a post
+    with real writing in it — never reaches the query at all.
+    """
+    text = (body or "").strip()
+    if not text or " " in text or len(text) > 30:
+        return False
+    row = conn.execute(
+        """
+        SELECT COUNT(DISTINCT author_id) AS n FROM posts
+        WHERE user_id IS ? AND body = ? AND author_id IS NOT NULL
+          AND author_id IS NOT ?
+        """, (user_id, text, author_id),
+    ).fetchone()
+    return (row["n"] if row else 0) >= minimum
+
+
 def is_viewer_name_body(body, parts):
     """Is this whole caption nothing but one of those names?
 
@@ -802,8 +856,15 @@ def _name_parts(conn, user_id, names):
             if len(part) >= 2:
                 parts.add(part)
 
+    # Joined through posts, not filtered on authors.user_id — that column does
+    # not exist. `authors` is shared across accounts (it is not in
+    # _OWNED_TABLES), so this threw "no such column: user_id" on every run, and
+    # the whole cleanup failed before it cleared a single caption. Which is why
+    # pressing the button never reported a count.
     for row in conn.execute(
-        "SELECT DISTINCT name FROM authors WHERE user_id IS ?", (user_id,)
+        "SELECT DISTINCT a.name FROM authors a "
+        "JOIN posts p ON p.author_id = a.id "
+        "WHERE p.user_id IS ? AND a.name IS NOT NULL", (user_id,)
     ):
         for part in str(row["name"] or "").split():
             part = part.strip(".,:;!?'\"").lower()
@@ -825,9 +886,12 @@ def clean_captions(user_id, names=None):
     if user_id is None:
         raise ValueError("clean_captions requires a user_id")
 
-    counts = {"domain": 0, "token": 0, "name": 0}
+    counts = {"domain": 0, "token": 0, "name": 0, "repeated": 0}
     with get_db() as conn:
         known_names = _name_parts(conn, user_id, names)
+        # Captions already proven to belong to nobody, by having shown up
+        # under three different authors. Computed once for the whole sweep.
+        repeated = {b.strip().lower() for b in repeated_caption_bodies(conn, user_id)}
         rows = conn.execute(
             "SELECT id, body, body_from_image FROM posts "
             "WHERE user_id IS ? AND body IS NOT NULL AND body != ''",
@@ -852,7 +916,12 @@ def clean_captions(user_id, names=None):
             from_image = bool(row["body_from_image"])
 
             kind = None
-            if _BARE_DOMAIN_RE.match(body):
+            # Checked before the shape tests, and regardless of body_from_image:
+            # a word that appeared under three different authors is furniture
+            # even if it was read out of a graphic.
+            if body.lower() in repeated:
+                kind = "repeated"
+            elif _BARE_DOMAIN_RE.match(body):
                 kind = "domain"
             elif (not from_image
                   and _LONG_TOKEN_RE.match(body)
@@ -876,7 +945,8 @@ def clean_captions(user_id, names=None):
             )
             counts[kind] += 1
 
-    counts["total"] = counts["domain"] + counts["token"] + counts["name"]
+    counts["total"] = (counts["domain"] + counts["token"]
+                       + counts["name"] + counts["repeated"])
     return counts
 
 

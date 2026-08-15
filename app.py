@@ -1370,6 +1370,20 @@ def api_capture():
                 name=post.get("author_name"),
                 profile_url=post.get("author_url"),
             )
+
+            # A caption that has already arrived under other people's names is
+            # not a caption.
+            #
+            # This needs no setting and no knowledge of whose name it is. Two
+            # different authors do not write the same one-word post, so a
+            # single token that has already appeared under two other authors
+            # is page furniture whatever it says — which is what makes it
+            # catch the case the name filter misses when the field is empty.
+            if db.caption_seen_under_other_authors(
+                    conn, api_user["id"], post.get("body"), author_id):
+                post["body"] = ""
+                post["body_from_image"] = 0
+
             if db.upsert_post(conn, post_source_id, author_id, post,
                               user_id=api_user["id"]):
                 new_count += 1

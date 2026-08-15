@@ -741,6 +741,9 @@
           // Broken down, because "cleared 12" gives no way to tell a fix that
           // worked from one that ate real captions.
           var parts = [];
+          if (data.repeated) {
+            parts.push(data.repeated + " repeated under other authors");
+          }
           if (data.name) parts.push(data.name + " name" + (data.name === 1 ? "" : "s"));
           if (data.domain) parts.push(data.domain + " link label" + (data.domain === 1 ? "" : "s"));
           if (data.token) parts.push(data.token + " random token" + (data.token === 1 ? "" : "s"));
