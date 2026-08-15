@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}{{ app_name }} — Discover{% endblock %}
+
+{% block content %}
+<section class="feed-head">
+  <div>
+    <h1>Discover</h1>
+    <p class="sub">
+      The groups you are already in, and what each one is actually worth.
+      Nothing here is shared with anyone — which groups you belong to stays on
+      your own dashboard.
+    </p>
+  </div>
+</section>
+
+{% if not candidates %}
+<section class="glass panel reveal">
+  <h2>Let's find your groups</h2>
+  <p class="fine">
+    Most people are in dozens of groups and remember six. Rather than guess
+    which are worth scanning, the extension can read the list Facebook already
+    shows you.
+  </p>
+  <ol class="discover-steps">
+    <li>Open <b>facebook.com/groups/feed</b> in another tab.</li>
+    <li>In the {{ app_name }} panel, press <b>Find my groups</b>.</li>
+    <li>Come back here — they'll be listed, ready to scan.</li>
+  </ol>
+  <p class="fine">
+    Only the group name and its link are sent. No posts, no members, nothing
+    about who is in them.
+  </p>
+</section>
+{% else %}
+
+<section class="stat-row">
+  <div class="stat glass reveal spotlight">
+    <span class="stat-value" data-countup="{{ candidates|length }}">{{ candidates|length }}</span>
+    <span class="stat-label">Groups you're in</span>
+  </div>
+  <div class="stat glass reveal spotlight">
+    <span class="stat-value" data-countup="{{ scanned|length }}">{{ scanned|length }}</span>
+    <span class="stat-label">Already scanned</span>
+  </div>
+  <div class="stat glass reveal spotlight">
+    <span class="stat-value" data-countup="{{ unscanned|length }}">{{ unscanned|length }}</span>
+    <span class="stat-label">Never scanned</span>
+  </div>
+</section>
+
+<section class="glass panel reveal">
+  <div class="panel-head">
+    <h2>Rank them for me</h2>
+    <span class="sub">
+      {% if ranked %}Ranked against your brand profile.{% else %}Not ranked yet.{% endif %}
+    </span>
+  </div>
+  {% if not rank_ready %}
+  <p class="fine">
+    Add an AI key on <a href="{{ url_for('settings') }}">Settings</a> to have
+    your groups scored against what you sell.
+  </p>
+  {% elif not brand.offer and not brand.audience %}
+  <p class="fine">
+    Fill in your brand profile on <a href="{{ url_for('settings') }}">Settings</a> —
+    what you offer and who you're speaking to — and these can be ranked by how
+    well each group matches it.
+  </p>
+  {% else %}
+  <p class="fine">
+    Scores each group by how well its name matches your offer
+    {% if brand.audience %} and audience{% endif %}. Only the group names are
+    sent to your own AI key — nothing about the posts or the people in them.
+  </p>
+  <button class="btn btn-ghost" id="rank-groups">
+    {{ 'Re-rank' if ranked else 'Rank my groups' }}
+  </button>
+  {% endif %}
+</section>
+
+<div class="discover-list">
+  {% for c in candidates %}
+  <article class="glass panel discover-item" data-candidate-id="{{ c.id }}">
+    <div class="discover-main">
+      <h3 class="discover-name">{{ c.name or c.fb_id }}</h3>
+
+      <div class="discover-tags">
+        {% if c.source_id %}
+          <span class="fb-status fb-s-shipped">scanned</span>
+          <span class="fine">{{ '{:,}'.format(c.posts) }} posts captured</span>
+          {% if c.posts %}
+            {# Whether engagement could actually be read is the difference
+               between a group worth returning to and one that only looks it. #}
+            {% set pct = (c.measured * 100 // c.posts) %}
+            <span class="fine {{ 'ok-tone' if pct >= 60 else 'warn-tone' }}">
+              {{ pct }}% engagement read
+            </span>
+          {% endif %}
+        {% else %}
+          <span class="fb-status">never scanned</span>
+        {% endif %}
+
+        {% if c.relevance is not none %}
+        <span class="discover-score {{ 'is-strong' if c.relevance >= 70 }}">
+          {{ c.relevance }}/100 match
+        </span>
+        {% endif %}
+      </div>
+
+      {% if c.reason %}<p class="discover-reason">{{ c.reason }}</p>{% endif %}
+    </div>
+
+    <div class="discover-actions">
+      <a class="mini-btn accent-btn" href="{{ c.url }}"
+         target="_blank" rel="noopener noreferrer">
+        {{ 'Re-scan ↗' if c.source_id else 'Open &amp; scan ↗' | safe }}
+      </a>
+      <button class="mini-btn dismiss-candidate" data-candidate-id="{{ c.id }}">
+        Hide
+      </button>
+    </div>
+  </article>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

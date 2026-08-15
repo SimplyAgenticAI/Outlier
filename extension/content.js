@@ -238,6 +238,94 @@
     return "scan";      // nothing identified yet — never claim a kind
   }
 
+  /* The groups this account already belongs to.
+   *
+   * Most people are in dozens and remember six, so the hardest question the
+   * dashboard asks a new user — which groups should I scan — is usually
+   * answered by a list Facebook is already showing them. This reads that
+   * list. It is the user's own membership, on a page they are looking at,
+   * which is the same footing as everything else this extension reads.
+   *
+   * Structural selectors only: links whose href is a group. No class names,
+   * no layout assumptions, no ordering assumptions — Facebook renames those
+   * constantly and every previous attempt in this file to depend on them has
+   * had to be undone.
+   *
+   * Nothing here is sent anywhere but the user's own dashboard, and it is
+   * never shown to another account. Which groups somebody is in says what
+   * they care about, and that is not ours to publish.
+   */
+  var GROUP_LIST_SKIP = {
+    feed: 1, create: 1, discover: 1, joins: 1, "your-groups": 1, browse: 1
+  };
+
+  function harvestGroups() {
+    var found = {};
+    var links = document.querySelectorAll('a[href*="/groups/"]');
+
+    for (var i = 0; i < links.length; i++) {
+      var href = links[i].getAttribute("href") || "";
+      var match = href.match(/\/groups\/([^/?#]+)/);
+      if (!match) continue;
+
+      var slug = groupKey(match[1]);
+      if (!slug || GROUP_LIST_SKIP[slug]) continue;
+
+      // The name is the link's own text. A link with none is an icon or an
+      // image wrapper pointing at the same group, and the text-bearing one is
+      // usually right beside it — so a nameless hit never overwrites a named.
+      var name = (links[i].innerText || "").trim().replace(/\s+/g, " ");
+      if (name.length > 120) name = "";
+      // A count badge rides along on some rows: "Cat Memes 12+".
+      name = name.replace(/\s+\d+\+?$/, "").trim();
+
+      var key = "group:" + slug;
+      if (!found[key] || (!found[key].name && name)) {
+        found[key] = {
+          fb_id: key,
+          name: name,
+          url: location.origin + "/groups/" + match[1].replace(/\/+$/, "")
+        };
+      }
+    }
+
+    var list = [];
+    for (var id in found) {
+      if (Object.prototype.hasOwnProperty.call(found, id)) list.push(found[id]);
+    }
+    return list;
+  }
+
+  function sendGroupList() {
+    var groups = harvestGroups();
+    if (!groups.length) {
+      logLine("No groups found on this page — open facebook.com/groups/feed");
+      renderHud();
+      return;
+    }
+    if (!contextAlive()) { handleOrphaned(); return; }
+
+    logLine("Found " + groups.length + " group" + (groups.length === 1 ? "" : "s") + " — sending");
+    renderHud();
+
+    chrome.runtime.sendMessage(
+      { type: "OUTLIER_GROUPS", groups: groups },
+      function (response) {
+        if (chrome.runtime.lastError) {
+          STATS.lastError = "Extension worker asleep — press it again";
+        } else if (!response || !response.ok) {
+          STATS.lastError = (response && response.error) || "Dashboard rejected the list";
+        } else {
+          // The count is reported because a silent harvest that read nothing
+          // looks exactly like one that worked.
+          logLine("→ " + groups.length + " sent, " + (response.added || 0) + " new");
+          STATS.lastError = null;
+        }
+        renderHud();
+      }
+    );
+  }
+
   function detectSource() {
     var url = location.href;
 
@@ -3027,7 +3115,15 @@
     var dash = document.createElement("button");
     dash.textContent = "Open dashboard";
 
-    [manual, dash].forEach(function (button) {
+    // A button rather than an automatic sweep. This reads markup nobody here
+    // can see, and a harvest that silently found nothing is indistinguishable
+    // from one that worked — pressing it means the count comes back while the
+    // user is still looking at the page it came from.
+    var findGroups = document.createElement("button");
+    findGroups.textContent = "Find my groups";
+    findGroups.title = "Send the groups you belong to, so the dashboard can rank them";
+
+    [manual, dash, findGroups].forEach(function (button) {
       styleEl(button, {
         flex: "1", padding: "0.65em", borderRadius: "8px",
         border: "1px solid rgba(110,231,183,0.24)", cursor: "pointer",
@@ -3036,6 +3132,7 @@
     });
 
     manual.addEventListener("click", function () { scanPosts(); flush(); });
+    findGroups.addEventListener("click", sendGroupList);
     dash.addEventListener("click", function () {
       chrome.storage.local.get(["endpoint"], function (state) {
         window.open(state.endpoint || "http://localhost:5050", "_blank");
@@ -3044,6 +3141,12 @@
 
     rowBtns.appendChild(manual);
     rowBtns.appendChild(dash);
+
+    // Its own row: three buttons across a 300px panel leaves none of them
+    // readable, and this one has the longest label.
+    var rowGroups = document.createElement("div");
+    styleEl(rowGroups, { display: "flex", marginTop: "0.5em", flexShrink: "0" });
+    rowGroups.appendChild(findGroups);
 
 
     // Stats and log share one scrollable region; the buttons are pinned below
@@ -3070,6 +3173,7 @@
     content.appendChild(scroller);
     content.appendChild(hudBtn);
     content.appendChild(rowBtns);
+    content.appendChild(rowGroups);
 
     hud.appendChild(header);
     hud.appendChild(content);

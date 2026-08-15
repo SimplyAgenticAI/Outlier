@@ -499,6 +499,48 @@
       });
   });
 
+  /* --------------------------------------------------------- discover */
+
+  var rankGroups = document.getElementById("rank-groups");
+  if (rankGroups) {
+    rankGroups.addEventListener("click", function () {
+      rankGroups.disabled = true;
+      var label = rankGroups.textContent;
+      rankGroups.textContent = "Ranking…";
+      post("/api/rank-groups", {})
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not rank them");
+          window.sessionStorage.setItem("outlier-reset",
+            "Ranked " + data.ranked + " group" + (data.ranked === 1 ? "" : "s") + ".");
+          window.location.reload();
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+          rankGroups.textContent = label;
+          rankGroups.disabled = false;
+        });
+    });
+  }
+
+  var discoverList = document.querySelector(".discover-list");
+  if (discoverList) {
+    discoverList.addEventListener("click", function (event) {
+      var hide = event.target.closest(".dismiss-candidate");
+      if (!hide) return;
+      var card = hide.closest(".discover-item");
+      hide.disabled = true;
+      post("/api/candidate/" + hide.dataset.candidateId + "/dismiss", {})
+        .then(function (data) {
+          if (!data.ok) throw new Error("Could not hide that");
+          if (card) card.remove();
+        })
+        .catch(function (error) {
+          toast(error.message, true);
+          hide.disabled = false;
+        });
+    });
+  }
+
   /* --------------------------------------------------------- feedback */
 
   var fbSubmit = document.getElementById("fb-submit");

@@ -1644,6 +1644,53 @@ body.score-help-open { overflow: hidden; }
    sitting bright red on every row of the feed. */
 .delete-post:hover { color: var(--ember); }
 
+/* ------------------------------------------------------------ discover */
+
+.discover-steps {
+  margin: 0 0 14px; padding-left: 20px;
+  font-size: 13px; line-height: 2; color: var(--text-muted);
+}
+.discover-steps b { color: var(--text); font-weight: 600; }
+
+.discover-list { display: grid; gap: 12px; }
+
+.discover-item {
+  display: flex; gap: 14px; align-items: flex-start;
+  justify-content: space-between; flex-wrap: wrap;
+}
+.discover-main { flex: 1; min-width: 220px; }
+.discover-name {
+  margin: 0 0 7px; font-size: 15px; line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.discover-tags {
+  display: flex; flex-wrap: wrap; gap: 9px; align-items: center;
+  font-size: 12px;
+}
+.discover-reason {
+  margin: 8px 0 0; font-size: 13px; line-height: 1.55; color: var(--text-muted);
+}
+
+/* The match score. Muted until it is worth acting on — a page of bright
+   badges ranks nothing, because everything looks equally urgent. */
+.discover-score {
+  padding: 2px 9px; border-radius: 20px;
+  font-size: 11px; font-weight: 700;
+  background: rgba(255, 255, 255, 0.05); color: var(--text-faint);
+}
+.discover-score.is-strong {
+  background: rgba(52, 211, 153, 0.16); color: var(--emerald);
+}
+
+.discover-actions {
+  display: flex; gap: 7px; align-items: center; flex-shrink: 0;
+}
+
+@media (max-width: 560px) {
+  .discover-actions { width: 100%; }
+  .discover-actions .mini-btn { flex: 1; text-align: center; }
+}
+
 /* ------------------------------------------------------------ feedback */
 
 .fb-compose { display: grid; gap: 10px; margin-bottom: 16px; }

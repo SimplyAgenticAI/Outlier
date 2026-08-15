@@ -867,8 +867,11 @@ def inject_globals():
 # authenticates with an API key, and Stripe signs its webhooks.
 # Endpoints that legitimately have no CSRF token: the extension authenticates
 # with an API key or its own header, and Stripe signs its webhooks.
+# /api/my-groups joins these for the same reason /api/capture is here: it is
+# called cross-origin from facebook.com by the extension, which carries an API
+# key and no session, so there is no session token for it to present.
 CSRF_EXEMPT = {"/api/capture", "/api/ping", "/api/stripe/webhook",
-               "/api/extension/key"}
+               "/api/extension/key", "/api/my-groups"}
 
 
 @app.before_request
@@ -1748,6 +1751,86 @@ def api_notifications_read():
     body = request.get_json(silent=True) or {}
     unread = db.mark_notifications_read(user["id"], body.get("id"))
     return jsonify({"ok": True, "unread": unread})
+
+
+@app.route("/api/my-groups", methods=["POST"])
+def api_my_groups():
+    """The groups this account belongs to, from their own sidebar.
+
+    Extension-key auth like capture — never the session cookie, since this is
+    called cross-origin from facebook.com and ambient browser authority there
+    would let any page drive it. Deliberately NOT the capture endpoint: these
+    carry no engagement and must never reach the scoring path, because a group
+    nobody has scanned cannot be allowed to influence a baseline.
+    """
+    api_user = auth.user_for_api_key(request.headers.get("X-Outlier-Key", "").strip())
+    if not api_user:
+        return jsonify({"ok": False, "error": "Invalid or missing API key."}), 401
+
+    body = request.get_json(silent=True) or {}
+    groups = body.get("groups") or []
+    if not isinstance(groups, list):
+        return jsonify({"ok": False, "error": "groups must be a list"}), 400
+
+    added, total = db.record_group_candidates(api_user["id"], groups[:500])
+    return jsonify({"ok": True, "added": added, "total": total})
+
+
+@app.route("/discover")
+@auth.login_required
+def discover():
+    """Groups you are already in, and what each one is worth."""
+    candidates = db.list_group_candidates(_uid())
+    return render_template(
+        "discover.html",
+        candidates=candidates,
+        scanned=[c for c in candidates if c.get("source_id")],
+        unscanned=[c for c in candidates if not c.get("source_id")],
+        ranked=any(c.get("relevance") is not None for c in candidates),
+        brand=sage.get_brand(),
+        rank_ready=sage.get_config()["has_key"],
+        version=APP_VERSION,
+        active="discover",
+    )
+
+
+@app.route("/api/rank-groups", methods=["POST"])
+@auth.login_required
+def api_rank_groups():
+    """Score the user's groups against their own brand profile."""
+    candidates = db.list_group_candidates(_uid())
+    if not candidates:
+        return jsonify({"ok": False, "error": "No groups to rank yet."}), 400
+
+    scores, error = remix.rank_groups(
+        [{"fb_id": c["fb_id"], "name": c["name"]} for c in candidates],
+        sage.get_brand(),
+    )
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+
+    # Only ids we actually asked about. A model that invents one should not be
+    # able to write a row.
+    known = {c["fb_id"] for c in candidates}
+    ranked = 0
+    for row in scores or []:
+        fb_id = (row.get("fb_id") or "").strip()
+        if fb_id not in known:
+            continue
+        db.set_candidate_relevance(_uid(), fb_id, row.get("score") or 0,
+                                   row.get("reason"))
+        ranked += 1
+
+    return jsonify({"ok": True, "ranked": ranked})
+
+
+@app.route("/api/candidate/<int:candidate_id>/dismiss", methods=["POST"])
+@auth.login_required
+def api_dismiss_candidate(candidate_id):
+    body = request.get_json(silent=True) or {}
+    db.dismiss_candidate(_uid(), candidate_id,
+                         dismissed=not body.get("undo"))
+    return jsonify({"ok": True})
 
 
 @app.route("/api/viewer-name", methods=["POST"])

@@ -204,6 +204,29 @@ CREATE TABLE IF NOT EXISTS feedback_votes (
     PRIMARY KEY (feedback_id, user_id)
 );
 
+-- Groups the user already belongs to, harvested from their own sidebar.
+--
+-- Kept OUT of `sources` deliberately. A source drives a baseline and gets
+-- scored against; a candidate is a group nobody has scanned yet and must
+-- never enter that maths. They meet on fb_id, so a candidate lights up as
+-- scanned the moment a real capture lands under the same id.
+--
+-- Nothing here is ever shown to another account. Group membership says what a
+-- person cares about — their politics, their health, their money — and it is
+-- the one thing this table would be worth sharing and must not be.
+CREATE TABLE IF NOT EXISTS group_candidates (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id       INTEGER NOT NULL,
+    fb_id         TEXT NOT NULL,
+    name          TEXT,
+    url           TEXT,
+    relevance     INTEGER,           -- 0-100, from the user's own AI. NULL = unranked
+    reason        TEXT,              -- one line, why it scored that
+    dismissed     INTEGER DEFAULT 0,
+    seen_at       TEXT DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, fb_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_posts_source ON posts(source_id);
 CREATE INDEX IF NOT EXISTS idx_posts_captured ON posts(captured_at);
 CREATE INDEX IF NOT EXISTS idx_posts_posted ON posts(posted_at);
@@ -1016,6 +1039,94 @@ def recent_users(limit=25):
                    (SELECT COUNT(*) FROM sources s WHERE s.user_id = u.id) AS sources
             FROM users u ORDER BY u.id DESC LIMIT ?
             """, (int(limit),))]
+
+
+# ------------------------------------------------------------- discovery
+
+def record_group_candidates(user_id, groups):
+    """Store the groups a user belongs to. Returns (added, total_seen).
+
+    Upsert on (user_id, fb_id): re-running the harvest refreshes names without
+    resurrecting anything dismissed, and without disturbing a relevance score
+    that cost an API call to produce.
+    """
+    added = 0
+    with get_db() as conn:
+        for g in groups or []:
+            fb_id = (g.get("fb_id") or "").strip()
+            if not fb_id:
+                continue
+            existing = conn.execute(
+                "SELECT id FROM group_candidates WHERE user_id = ? AND fb_id = ?",
+                (user_id, fb_id),
+            ).fetchone()
+            if existing:
+                conn.execute(
+                    "UPDATE group_candidates SET name = COALESCE(NULLIF(?, ''), name), "
+                    "url = COALESCE(NULLIF(?, ''), url) WHERE id = ?",
+                    ((g.get("name") or "").strip()[:200],
+                     (g.get("url") or "").strip()[:400], existing["id"]),
+                )
+            else:
+                conn.execute(
+                    "INSERT INTO group_candidates (user_id, fb_id, name, url) "
+                    "VALUES (?, ?, ?, ?)",
+                    (user_id, fb_id, (g.get("name") or "").strip()[:200],
+                     (g.get("url") or "").strip()[:400]),
+                )
+                added += 1
+    return added, len(groups or [])
+
+
+def list_group_candidates(user_id, include_dismissed=False):
+    """Every candidate, joined to what a scan actually found.
+
+    The scan columns are the whole point of the page: a group's value cannot
+    be guessed from its name or its size, only from what it yielded. Groups
+    already scanned carry their real numbers; the rest carry nulls and are
+    honestly presented as unknown.
+    """
+    where = "" if include_dismissed else "AND c.dismissed = 0"
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            f"""
+            SELECT c.*,
+                   s.id   AS source_id,
+                   (SELECT COUNT(*) FROM posts p
+                     WHERE p.source_id = s.id AND p.user_id = c.user_id) AS posts,
+                   (SELECT COUNT(*) FROM posts p
+                     WHERE p.source_id = s.id AND p.user_id = c.user_id
+                       AND p.engagement_read = 1) AS measured
+            FROM group_candidates c
+            LEFT JOIN sources s
+                   ON s.fb_id = c.fb_id AND s.user_id IS c.user_id
+            WHERE c.user_id = ? {where}
+            ORDER BY
+                -- Ranked first where a rank exists, then whatever is unscanned
+                -- (the work still to do), then the rest.
+                CASE WHEN c.relevance IS NULL THEN 1 ELSE 0 END,
+                c.relevance DESC,
+                CASE WHEN s.id IS NULL THEN 0 ELSE 1 END,
+                c.name COLLATE NOCASE
+            """, (user_id,))]
+
+
+def dismiss_candidate(user_id, candidate_id, dismissed=True):
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE group_candidates SET dismissed = ? WHERE id = ? AND user_id = ?",
+            (1 if dismissed else 0, int(candidate_id), user_id),
+        )
+
+
+def set_candidate_relevance(user_id, fb_id, score, reason=None):
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE group_candidates SET relevance = ?, reason = ? "
+            "WHERE user_id = ? AND fb_id = ?",
+            (max(0, min(int(score), 100)), (reason or "")[:300] or None,
+             user_id, fb_id),
+        )
 
 
 # -------------------------------------------------------------- usernames
