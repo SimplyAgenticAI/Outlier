@@ -527,7 +527,6 @@ def settings():
         anthropic_model=sage.ANTHROPIC_MODEL,
         openai_model=sage.OPENAI_MODEL,
         brand=sage.get_brand(),
-        viewer_names=sage.get_setting(db.VIEWER_NAMES_KEY, ""),
         version=APP_VERSION,
         active="settings",
     )
@@ -1344,6 +1343,12 @@ def api_capture():
         # — an old extension that still sends "Jeff" gets it stripped anyway.
         viewer_parts = db.viewer_name_parts(conn, api_user["id"])
 
+        # How many authors each short caption in THIS batch has already
+        # appeared under — asked once for the whole batch rather than once per
+        # post, which grew with everything the account had ever captured.
+        author_counts = db.caption_author_counts(
+            conn, api_user["id"], [p.get("body") for p in posts])
+
         for post in posts:
             if not post.get("fb_post_id"):
                 continue
@@ -1379,11 +1384,11 @@ def api_capture():
             #
             # This needs no setting and no knowledge of whose name it is. Two
             # different authors do not write the same one-word post, so a
-            # single token that has already appeared under two other authors
-            # is page furniture whatever it says — which is what makes it
-            # catch the case the name filter misses when the field is empty.
-            if db.caption_seen_under_other_authors(
-                    conn, api_user["id"], post.get("body"), author_id):
+            # single token already seen under two or more authors is page
+            # furniture whatever it says — which is what catches the case the
+            # name filter misses when nobody has filled the field in.
+            _body = (post.get("body") or "").strip()
+            if db.furniture_caption(_body) and author_counts.get(_body, 0) >= 2:
                 post["body"] = ""
                 post["body_from_image"] = 0
 

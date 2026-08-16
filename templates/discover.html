@@ -113,7 +113,9 @@
     <div class="discover-actions">
       <a class="mini-btn accent-btn" href="{{ c.url }}"
          target="_blank" rel="noopener noreferrer">
-        {{ 'Re-scan ↗' if c.source_id else 'Open &amp; scan ↗' | safe }}
+        {# No entity and no |safe: the filter binds to the else branch alone,
+           which is a trap waiting for whoever edits this next. #}
+        {{ 'Re-scan ↗' if c.source_id else 'Open and scan ↗' }}
       </a>
       <button class="mini-btn dismiss-candidate" data-candidate-id="{{ c.id }}">
         Hide

@@ -827,24 +827,40 @@ def repeated_caption_bodies(conn, user_id, min_authors=2):
         """, (user_id, int(min_authors)))]
 
 
-def caption_seen_under_other_authors(conn, user_id, body, author_id, minimum=2):
-    """Has this exact one-word caption already appeared under other authors?
+def furniture_caption(body):
+    """Is this body short and plain enough to be worth asking about at all?
 
-    The ingest-time half of the rule above. Only asked about a caption short
-    enough and plain enough to be furniture, so the ordinary case — a post
-    with real writing in it — never reaches the query at all.
+    The gate that keeps the ordinary case — a post with real writing in it —
+    away from the query entirely.
     """
     text = (body or "").strip()
-    if not text or " " in text or len(text) > 30:
-        return False
-    row = conn.execute(
-        """
-        SELECT COUNT(DISTINCT author_id) AS n FROM posts
-        WHERE user_id IS ? AND body = ? AND author_id IS NOT NULL
-          AND author_id IS NOT ?
-        """, (user_id, text, author_id),
-    ).fetchone()
-    return (row["n"] if row else 0) >= minimum
+    return bool(text) and " " not in text and len(text) <= 30
+
+
+def caption_author_counts(conn, user_id, bodies):
+    """How many distinct authors each of these captions has appeared under.
+
+    ONE query for a whole batch, not one per post.
+    ​
+    The first version asked per post, and measured at 40,000 stored posts that
+    cost about 17ms each — a capture batch carrying twenty such captions added
+    a third of a second to the request, growing linearly with everything the
+    account had ever captured. A partial index does not rescue it: the NULL-safe
+    `user_id IS ?` comparison stops the planner using one. Asking once for the
+    whole batch removes the problem rather than optimising it.
+    """
+    wanted = sorted({(b or "").strip() for b in bodies if furniture_caption(b)})
+    if not wanted:
+        return {}
+    marks = ",".join("?" * len(wanted))
+    rows = conn.execute(
+        f"""
+        SELECT body, COUNT(DISTINCT author_id) AS n FROM posts
+        WHERE user_id IS ? AND author_id IS NOT NULL AND body IN ({marks})
+        GROUP BY body
+        """, [user_id] + wanted,
+    )
+    return {r["body"]: r["n"] for r in rows}
 
 
 def is_viewer_name_body(body, parts):
@@ -988,6 +1004,27 @@ def record_visit(path, visitor=None, user_id=None, referrer=None):
         pass
 
 
+VISIT_RETENTION_DAYS = 400
+
+
+def prune_visits(conn):
+    """Drop page views older than the retention window.
+
+    One row per page view, forever, on a 1GB disk was a slow leak with no
+    ceiling — the kind that is invisible for a year and then fills the volume
+    that also holds every captured post. Four hundred days keeps a full
+    year-on-year comparison and throws away the rest.
+
+    Run from the admin page rather than on a schedule: it is the only reader
+    of this table, nothing else depends on the pruning being timely, and a
+    delete on every page view would be a write nobody asked for.
+    """
+    conn.execute(
+        "DELETE FROM visits WHERE created_at < datetime('now', ?)",
+        (f"-{VISIT_RETENTION_DAYS} days",),
+    )
+
+
 def traffic_summary(days=30):
     """Totals the owner actually asks about, in one round trip each.
 
@@ -997,6 +1034,8 @@ def traffic_summary(days=30):
     """
     since = f"-{int(days)} days"
     with get_db() as conn:
+        prune_visits(conn)
+
         def one(sql, *params):
             row = conn.execute(sql, params).fetchone()
             return (row[0] if row else 0) or 0

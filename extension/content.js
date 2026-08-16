@@ -229,7 +229,13 @@
    * answer changes underneath the panel as you navigate.
    */
   function sourceNoun() {
-    var source = detectSource() || lastKnownSource;
+    // lastKnownSource FIRST, so the common case costs nothing.
+    //
+    // This called detectSource() on every render, and renderHud runs on every
+    // sweep — so a label that changes about once a session was re-derived
+    // several times a second, walking the DOM each time. The kind only
+    // changes when the source does, and lastKnownSource already tracks that.
+    var source = lastKnownSource || detectSource();
     var kind = source && source.kind;
     if (kind === "group") return "group";
     if (kind === "page") return "page";
