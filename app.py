@@ -1465,6 +1465,19 @@ def api_capture():
         "received": len(posts),
         "new": new_count,
         "source_id": logged_source,
+        # WHOSE dashboard these landed in.
+        #
+        # The extension carries its own API key, so it delivers to whichever
+        # account minted that key — not to whoever happens to be signed in on
+        # the dashboard. When those differ the server accepts everything and
+        # reports success, and the dashboard correctly shows nothing, because
+        # the posts are not that account's. From the outside that is
+        # indistinguishable from data being lost, and it is the third time
+        # today something has been invisible rather than wrong.
+        #
+        # Saying the account name on every batch makes the mismatch obvious in
+        # the moment: if that is not you, the key is the problem.
+        "account": db.display_name(api_user),
         "sources_touched": len(source_ids),
     })
 

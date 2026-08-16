@@ -2753,7 +2753,10 @@
         STATS.sent += batch.length;
         STATS.added += response.new || 0;
         STATS.lastError = null;
-        logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new");
+        // The account name rides along, because delivering successfully to
+        // the WRONG dashboard looks exactly like delivering to the right one.
+        logLine("→ sent " + batch.length + ", " + (response.new || 0) + " new" +
+                (response.account ? " → " + response.account : ""));
         renderHud();
       }
     );
