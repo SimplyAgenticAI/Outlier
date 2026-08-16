@@ -106,40 +106,4 @@
 </div>
 {% endif %}
 
-{# Everything that acts on captured data, with the captured data. These were
-   in Settings, three clicks from the thing they operate on. #}
-<section class="settings-grid data-tools">
-  <div class="glass panel reveal">
-    <h2>Export</h2>
-    <p class="fine">Download everything for use elsewhere — or to hand to an AI tool.</p>
-    <div class="demo-actions">
-      <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='json') }}">JSON</a>
-      <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='csv') }}">CSV</a>
-      <a class="btn btn-ghost" href="{{ url_for('api_export', fmt='markdown') }}">Markdown</a>
-    </div>
-  </div>
-
-  <div class="glass panel reveal">
-    <h2>Tidy up captions</h2>
-    <p class="fine">
-      Some posts were stored with a caption that was never the author's writing
-      — a name read off the page, or the domain label from a link preview.
-      Newer captures no longer do this, but posts already saved keep what they
-      were saved with. This clears those captions and nothing else: every post
-      stays, every number stays, no score moves.
-    </p>
-    <button class="btn btn-ghost" id="clean-captions">Clear bad captions</button>
-  </div>
-
-  <div class="glass panel reveal">
-    <h2>Danger zone</h2>
-    <p class="fine">
-      Deletes every post, source, saved item and remix. Use this when captures
-      were recorded with an older extension — posts carrying zeroed engagement
-      distort every baseline they sit in, and re-capturing has to start clean.
-    </p>
-    <button class="btn btn-ghost danger" id="reset-all">Delete everything</button>
-  </div>
-</section>
-
 {% endblock %}

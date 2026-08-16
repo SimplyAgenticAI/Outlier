@@ -766,37 +766,6 @@
     });
   }
 
-  var cleanCaptions = document.getElementById("clean-captions");
-  if (cleanCaptions) {
-    cleanCaptions.addEventListener("click", function () {
-      // No prompt any more. The name is saved on the Capture page and the
-      // server reads it from there, so asking again here was making somebody
-      // type a thing the app already knew.
-      toast("Checking stored captions…");
-      post("/api/clean-captions", {})
-        .then(function (data) {
-          var n = (data && data.total) || 0;
-          if (!n) {
-            toast("Nothing to clear — every stored caption looks like writing.");
-            return;
-          }
-          // Broken down, because "cleared 12" gives no way to tell a fix that
-          // worked from one that ate real captions.
-          var parts = [];
-          if (data.repeated) {
-            parts.push(data.repeated + " repeated under other authors");
-          }
-          if (data.name) parts.push(data.name + " name" + (data.name === 1 ? "" : "s"));
-          if (data.domain) parts.push(data.domain + " link label" + (data.domain === 1 ? "" : "s"));
-          if (data.token) parts.push(data.token + " random token" + (data.token === 1 ? "" : "s"));
-          window.sessionStorage.setItem("outlier-reset",
-            "Cleared " + n + " caption" + (n === 1 ? "" : "s") +
-            (parts.length ? " — " + parts.join(", ") + "." : "."));
-          window.location.href = "/";
-        })
-        .catch(function () { toast("Could not clear captions", true); });
-    });
-  }
 
   var resetAll = document.getElementById("reset-all");
   if (resetAll) {

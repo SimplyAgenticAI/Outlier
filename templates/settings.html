@@ -145,6 +145,16 @@
       <button class="btn btn-ghost danger" id="clear-demo">Remove sample data</button>
     </div>
   </div>
+
+  <div class="glass panel reveal">
+    <h2>Danger zone</h2>
+    <p class="fine">
+      Deletes every post, source, saved item and remix. Use this when captures
+      were recorded with an older extension — posts carrying zeroed engagement
+      distort every baseline they sit in, and re-capturing has to start clean.
+    </p>
+    <button class="btn btn-ghost danger" id="reset-all">Delete everything</button>
+  </div>
 </section>
 
 {# Where the rest of this page went, so nobody hunts for it.
@@ -155,8 +165,9 @@
 <section class="glass panel reveal">
   <h2>Looking for something else?</h2>
   <ul class="settings-pointers">
-    <li><b>Your groups, pages and profiles</b>, exports, and deleting captured
-      data — <a href="{{ url_for('groups') }}">Groups</a></li>
+    <li><b>Your groups, pages and profiles</b> —
+      <a href="{{ url_for('groups') }}">Groups</a></li>
+    <li><b>Exporting your data</b> — <a href="{{ url_for('library') }}">Library</a></li>
     <li><b>Username, plan, password and your extension key</b> —
       <a href="{{ url_for('account') }}">Account</a></li>
     <li><b>How scanning behaves</b>, including your own Facebook name —
