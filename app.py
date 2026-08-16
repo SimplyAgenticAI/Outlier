@@ -1612,6 +1612,11 @@ def admin():
         "admin.html",
         traffic=db.traffic_summary(days),
         users=db.recent_users(50),
+        # Presence only, never the values — an admin page is still a web page.
+        stripe={
+            "key": bool(os.environ.get("STRIPE_SECRET_KEY")),
+            "webhook": bool(os.environ.get("STRIPE_WEBHOOK_SECRET")),
+        },
         days=days,
         version=APP_VERSION,
         active="admin",
@@ -1786,6 +1791,50 @@ def api_my_groups():
 def discover():
     """Groups you are already in, and what each one is worth."""
     candidates = db.list_group_candidates(_uid())
+
+    # What each scanned group actually paid out.
+    #
+    # Computed once for every source and joined on fb_id, rather than scoring
+    # each candidate separately — a user with fifty groups would otherwise pay
+    # fifty full scoring passes to load one page.
+    #
+    # Yield, not size. A 500k-member group where nothing lands is worth less
+    # than an 8k group where everything does, and outliers per hundred posts
+    # is the number that says which is which. It only appears once a group has
+    # been scanned, because before that it is not known and guessing at it is
+    # how a ranking starts lying.
+    stats_by_fb = {s["fb_id"]: s.get("stats") for s in _sources_with_stats()}
+    for c in candidates:
+        stats = stats_by_fb.get(c["fb_id"])
+        c["outliers"] = (stats or {}).get("outlier_count")
+        c["measured_pct"] = (stats or {}).get("measured_pct")
+        c["yield_per_100"] = (
+            round(c["outliers"] / c["posts"] * 100, 1)
+            if stats and c.get("posts") else None
+        )
+
+    # Three bands, and the middle one is the point.
+    #
+    #   0  scanned and producing — proven, ranked by how much.
+    #   1  not scanned — unknown, ranked by how well the name matches.
+    #   2  scanned and producing nothing — proven, and proven bad.
+    #
+    # A relevance score is a guess made from a group's name; yield is what the
+    # group actually did. Evidence outranks a guess in both directions, which
+    # is why a group that measurably yields nothing sits BELOW one nobody has
+    # tried yet rather than beside it.
+    def band(c):
+        if c.get("yield_per_100"):
+            return 0
+        return 2 if c.get("source_id") and c.get("posts") else 1
+
+    candidates.sort(key=lambda c: (
+        band(c),
+        -(c.get("yield_per_100") or 0),
+        -(c.get("relevance") if c.get("relevance") is not None else -1),
+        (c.get("name") or "").lower(),
+    ))
+
     return render_template(
         "discover.html",
         candidates=candidates,

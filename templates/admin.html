@@ -44,6 +44,31 @@
   </div>
 </div>
 
+{# Whether money can actually be taken.
+   The price ids ship in the code because they are public identifiers, but the
+   secret key and webhook secret are environment variables and must be — a
+   secret key in the repository would be a live credential on a public remote.
+   That makes "are payments working" invisible from the code alone, so it is
+   answered here instead of guessed at. #}
+<section class="glass panel reveal">
+  <h2>Payments</h2>
+  <ul class="settings-pointers">
+    <li>
+      <b>Stripe key</b> —
+      {% if stripe.key %}<span class="ok-tone">set</span>
+      {% else %}<span class="warn-tone">missing</span> — checkout is inert until
+        <code>STRIPE_SECRET_KEY</code> is set in Render's environment{% endif %}
+    </li>
+    <li>
+      <b>Webhook secret</b> —
+      {% if stripe.webhook %}<span class="ok-tone">set</span>
+      {% else %}<span class="warn-tone">missing</span> — subscriptions won't
+        activate after payment until <code>STRIPE_WEBHOOK_SECRET</code> is set{% endif %}
+    </li>
+    <li><b>Price ids</b> — <span class="ok-tone">in the code</span> (public identifiers, safe to commit)</li>
+  </ul>
+</section>
+
 <section class="glass panel reveal">
   <h2>Accounts</h2>
   {% if users %}

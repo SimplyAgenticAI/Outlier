@@ -96,6 +96,15 @@
               {{ pct }}% engagement read
             </span>
           {% endif %}
+          {# What it actually paid out. Shown only once scanned, because
+             before that it is unknown and a guess here would be a lie with a
+             number attached. #}
+          {% if c.yield_per_100 is not none %}
+          <span class="discover-yield {{ 'is-strong' if c.yield_per_100 >= 8 }}">
+            {{ c.outliers }} outlier{{ '' if c.outliers == 1 else 's' }}
+            · {{ c.yield_per_100 }} per 100
+          </span>
+          {% endif %}
         {% else %}
           <span class="fb-status">never scanned</span>
         {% endif %}
