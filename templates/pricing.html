@@ -32,8 +32,8 @@
     <div class="price-figure"><span class="price-amount">$0</span></div>
     <div class="price-period">forever</div>
     <p class="price-blurb">
-      Enough to tell whether the scoring says something useful about your
-      groups.
+      The whole product, capped at 1,000 posts. Nothing is held back — you see
+      exactly what it does before deciding whether it's worth paying for.
     </p>
     <ul class="price-features">
       {% for feature in free_features %}
@@ -54,7 +54,16 @@
   </div>
 
   <div class="glass price-card featured reveal spotlight">
-    <div class="price-flag">Recommended</div>
+    {# Hidden on monthly, and it says what it means.
+
+       It read "Recommended" permanently, on a page offering exactly two
+       things: free, and $19. Recommending one of two is not a recommendation,
+       it is a sales badge, and it undercuts the other tier for no reason.
+
+       On yearly it is a real claim — two months free is a fact about the
+       price — so the flag appears there and states the saving instead of an
+       opinion. Shown and hidden by the same toggle that swaps the price. #}
+    <div class="price-flag" id="price-flag" hidden>Save 2 months</div>
     <div class="price-name">Pro</div>
 
     {% for key, plan in plans.items() %}
@@ -69,8 +78,8 @@
     {% endfor %}
 
     <p class="price-blurb">
-      Everything, with no caps — for people running this weekly across several
-      groups.
+      The same product with the cap removed — for people running this weekly
+      across several groups.
     </p>
     <ul class="price-features">
       {% for feature in pro_features %}

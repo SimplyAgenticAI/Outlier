@@ -40,20 +40,30 @@ PLANS = {
 
 FREE_LIMITS = {"sources": None, "posts": 1000}   # None = unlimited
 
+# One difference between the tiers, and it is volume.
+#
+# The old lists claimed Sage, remix, ideas and export were Pro-only. Nothing
+# in the code has ever enforced that — capture_allowed is the single gate in
+# the app and it counts posts. So the pricing page was telling free users they
+# could not have things they already had, which is the one direction a pricing
+# page must never be wrong in: it argues against the product to the people
+# still deciding whether it works.
+#
+# Holding features back also hides the thing worth paying for. Somebody who
+# has never seen a remix has no reason to want more capture; somebody who has
+# used it on their own winning post has an obvious one.
 PRO_FEATURES = [
-    "Unlimited groups and profiles",
+    "Everything in Free, with nothing held back",
     "Unlimited captured posts and comments",
-    "Sage, the built-in analyst",
-    "AI post ideas modelled on what won",
-    "Remix any post into new variants",
-    "Export to JSON, CSV and Markdown",
+    "Scan as many groups as often as you like",
+    "Priority on new features as they land",
 ]
 
 FREE_FEATURES = [
-    "Unlimited groups and profiles",
+    "Every feature — Sage, remix, ideas, export",
+    "Full outlier scoring and the meadow",
+    "Unlimited groups, pages and profiles",
     "1,000 captured posts",
-    "Full outlier scoring",
-    "Posts and comments feeds",
 ]
 
 

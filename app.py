@@ -1274,6 +1274,51 @@ def api_ping():
     })
 
 
+def _warn_approaching_cap(api_user):
+    """Tell a free account it is nearing the cap, once, before it bites.
+
+    Volume is the only difference between the tiers, so the moment somebody
+    runs out is the entire upgrade conversation — and discovering it by having
+    a scan refused halfway through is the worst possible way to have it. This
+    lands while capture still works, with the number that matters.
+
+    Fired once per account: the flag is a settings row, so a user who upgrades
+    and later downgrades gets a fresh warning rather than silence.
+    """
+    try:
+        if billing.is_pro(api_user) or billing.is_admin(api_user):
+            return
+        cap = billing.FREE_LIMITS.get("posts")
+        if not cap:
+            return
+
+        stored = billing.usage(api_user["id"])["posts"]
+        if stored < cap * 0.8 or stored >= cap:
+            return                       # not yet, or already stopped
+
+        with db.get_db() as conn:
+            seen = conn.execute(
+                "SELECT 1 FROM user_settings WHERE user_id = ? AND key = 'cap_warned'",
+                (api_user["id"],),
+            ).fetchone()
+            if seen:
+                return
+            conn.execute(
+                "INSERT OR REPLACE INTO user_settings (user_id, key, value) "
+                "VALUES (?, 'cap_warned', '1')", (api_user["id"],),
+            )
+
+        db.notify(
+            api_user["id"], "quota",
+            f"{stored:,} of {cap:,} posts stored",
+            body=("Capture stops at the cap. Everything else — Sage, remix, "
+                  "ideas, export — stays exactly as it is."),
+            url="/pricing",
+        )
+    except Exception:
+        pass                             # a nudge is never worth failing a capture
+
+
 @app.route("/api/capture", methods=["POST", "OPTIONS"])
 def api_capture():
     """Ingest a batch of posts scraped by the extension.
@@ -1406,6 +1451,14 @@ def api_capture():
             "VALUES (?, ?, ?, ?)",
             (api_user["id"], logged_source, len(posts), new_count),
         )
+
+    # AFTER the transaction closes, never inside it.
+    #
+    # This sat inside the `with` block and opened its own connection, so it
+    # queued behind the write lock the block still held — eight seconds of
+    # busy_timeout, then an exception, then swallowed. Every capture would
+    # have paid that stall and the warning would never once have fired.
+    _warn_approaching_cap(api_user)
 
     return jsonify({
         "ok": True,

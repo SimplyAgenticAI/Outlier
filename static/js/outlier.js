@@ -1305,6 +1305,10 @@
         document.querySelectorAll(".price-option").forEach(function (option) {
           option.style.display = option.dataset.interval === interval ? "" : "none";
         });
+        // The badge belongs to the yearly price, not to the tier. Picking one
+        // of two tiers is not a recommendation; two months free is a fact.
+        var flag = document.getElementById("price-flag");
+        if (flag) flag.hidden = interval !== "year";
         var cta = document.getElementById("checkout-btn");
         if (cta) cta.dataset.interval = interval;
       });

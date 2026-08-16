@@ -1240,12 +1240,17 @@ select.kind-select option { color: initial; }
 }
 .price-card { padding: 30px 28px; display: flex; flex-direction: column; position: relative; }
 .price-card.featured { border-color: var(--border-lit); box-shadow: 0 0 40px rgba(52,211,153,0.1); }
+/* Inside the card, not hanging off the top of it.
+   At top:-10px it sat above its own border and was clipped by the row that
+   holds the cards — visible in a mockup, cut in half in a browser. Sitting
+   just inside the padding it cannot be trimmed by anything. */
 .price-flag {
-  position: absolute; top: -10px; left: 50%; transform: translateX(-50%);
+  position: absolute; top: 12px; right: 14px;
   font-size: 10px; text-transform: uppercase; letter-spacing: 0.7px; font-weight: 700;
-  padding: 4px 12px; border-radius: 999px;
+  padding: 4px 12px; border-radius: 999px; white-space: nowrap;
   background: linear-gradient(135deg, var(--emerald), var(--emerald-dim)); color: #04150c;
 }
+.price-flag[hidden] { display: none; }
 .price-name { font-size: 14px; font-weight: 650; color: var(--text-muted); margin-bottom: 12px; }
 .price-figure { display: flex; align-items: baseline; gap: 4px; }
 .price-amount { font-size: 40px; font-weight: 780; letter-spacing: -1.5px; }
