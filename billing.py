@@ -52,11 +52,18 @@ FREE_LIMITS = {"sources": None, "posts": 1000}   # None = unlimited
 # Holding features back also hides the thing worth paying for. Somebody who
 # has never seen a remix has no reason to want more capture; somebody who has
 # used it on their own winning post has an obvious one.
+# Only what the money actually buys.
+#
+# The first line used to read "Everything in Free, with nothing held back",
+# which states the obvious — nobody pays to receive less — and spends the most
+# valuable line on the card sounding defensive. Pro differs from Free in one
+# way, so the list says what that one way gets you rather than restating that
+# it is a superset.
 PRO_FEATURES = [
-    "Everything in Free, with nothing held back",
     "Unlimited captured posts and comments",
-    "Scan as many groups as often as you like",
-    "Priority on new features as they land",
+    "Re-scan as often as you like, so scores stay current",
+    "Full history kept, however long you run it",
+    "Bigger samples, so a group's median is worth trusting",
 ]
 
 FREE_FEATURES = [
