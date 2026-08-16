@@ -63,7 +63,7 @@ PRO_FEATURES = [
     "Unlimited captured posts and comments",
     "Re-scan as often as you like, so scores stay current",
     "Full history kept, however long you run it",
-    "Bigger samples, so a group's median is worth trusting",
+    "More posts scanned, more winners found",
 ]
 
 FREE_FEATURES = [
