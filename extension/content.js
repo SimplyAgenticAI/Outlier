@@ -2842,6 +2842,29 @@
         var afterArts = document.querySelectorAll('div[role="article"]').length;
         if (afterArts <= beforeArts && found === 0) {
           idleScrolls++;
+
+          /* Write down what a stall looked like, while it is happening.
+           *
+           * A scan that freezes and comes back after a page refresh has been
+           * reported several times, and every report is consistent with two
+           * completely different faults:
+           *
+           *   articles on screen stays low  — Facebook is not loading more,
+           *                                   so the scroll is not reaching
+           *                                   whatever actually scrolls here.
+           *   articles climbing, kept at 0  — they ARE loading and the
+           *                                   extractor is refusing them.
+           *
+           * Those need opposite fixes and the counters alone cannot tell them
+           * apart after the fact. This is not a fix and does not pretend to
+           * be one: it is the evidence, recorded once per stall, so the next
+           * report names the branch instead of describing the symptom.
+           */
+          if (idleScrolls === 3) {
+            logLine("Stalled: " + afterArts + " articles on page, " +
+                    STATS.candidates + " readable, " + SEEN.size + " captured");
+          }
+
           if (idleScrolls >= 6) {
             stopAutoScroll(null, "Reached the end — " + SEEN.size + " posts");
           }
