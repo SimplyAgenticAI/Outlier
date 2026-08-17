@@ -22,9 +22,18 @@
     shows you.
   </p>
   <ol class="discover-steps">
-    <li>Open <b>facebook.com/groups/feed</b> in another tab.</li>
+    {# /groups/joins is the membership list. /groups/feed is the POST feed
+       from those groups, which is a different page and does not reliably
+       list them — pointing people there is why a harvest could come back
+       with nothing. #}
+    <li>
+      Open
+      <a href="https://www.facebook.com/groups/joins/?nav_source=tab"
+         target="_blank" rel="noopener noreferrer">your groups on Facebook</a>
+      in another tab.
+    </li>
     <li>In the {{ app_name }} panel, press <b>Find my groups</b>.</li>
-    <li>Come back here — they'll be listed, ready to scan.</li>
+    <li>The button tells you how many it sent. Come back here and they're listed.</li>
   </ol>
   <p class="fine">
     Only the group name and its link are sent. No posts, no members, nothing

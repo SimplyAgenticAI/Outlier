@@ -261,8 +261,18 @@
    * never shown to another account. Which groups somebody is in says what
    * they care about, and that is not ours to publish.
    */
+  /* Paths under /groups/ that are not a group.
+   *
+   * Used twice, and it matters both times. When harvesting, these are links
+   * to Facebook's own pages rather than to somebody's group. When detecting
+   * the source, standing on one of them is not standing in a group — and
+   * only "feed" was excluded, so /groups/joins/ resolved to a group called
+   * "joins". A scan there filed posts under a group that does not exist, and
+   * the joins page is exactly where the harvest instructions now send people.
+   */
   var GROUP_LIST_SKIP = {
-    feed: 1, create: 1, discover: 1, joins: 1, "your-groups": 1, browse: 1
+    feed: 1, create: 1, discover: 1, joins: 1, "your-groups": 1, browse: 1,
+    search: 1, notifications: 1, invites: 1, requests: 1
   };
 
   function harvestGroups() {
@@ -302,15 +312,38 @@
     return list;
   }
 
+  /* The button answers on itself.
+   *
+   * It only ever wrote a line into the panel log, which is easy to miss
+   * entirely — so a harvest that worked and a harvest that did nothing looked
+   * identical from the outside, and the report was that pressing it did
+   * nothing at all. Success, emptiness and failure now each change the label,
+   * which cannot be missed and needs no log to be read.
+   */
+  var groupsBtn = null;
+
+  function sayGroups(text, revert) {
+    if (!groupsBtn) return;
+    groupsBtn.textContent = text;
+    if (revert) {
+      setTimeout(function () {
+        if (groupsBtn) groupsBtn.textContent = "Find my groups";
+      }, 4000);
+    }
+  }
+
   function sendGroupList() {
     var groups = harvestGroups();
+
     if (!groups.length) {
-      logLine("No groups found on this page — open facebook.com/groups/feed");
+      sayGroups("No groups on this page", true);
+      logLine("No groups here — open facebook.com/groups/joins/");
       renderHud();
       return;
     }
     if (!contextAlive()) { handleOrphaned(); return; }
 
+    sayGroups("Sending " + groups.length + "…");
     logLine("Found " + groups.length + " group" + (groups.length === 1 ? "" : "s") + " — sending");
     renderHud();
 
@@ -319,24 +352,41 @@
       function (response) {
         if (chrome.runtime.lastError) {
           STATS.lastError = "Extension worker asleep — press it again";
+          sayGroups("Failed — press again", true);
         } else if (!response || !response.ok) {
           STATS.lastError = (response && response.error) || "Dashboard rejected the list";
+          sayGroups("Failed — see the panel", true);
         } else {
-          // The count is reported because a silent harvest that read nothing
-          // looks exactly like one that worked.
           logLine("→ " + groups.length + " sent, " + (response.added || 0) + " new");
           STATS.lastError = null;
+          sayGroups("Sent " + groups.length + " groups", true);
         }
         renderHud();
       }
     );
   }
 
+  /* Offer it where it applies, instead of waiting to be discovered.
+   *
+   * Somebody standing on their own list of groups is one press from a
+   * dashboard worth using, and had no way to know the button existed.
+   */
+  function offerGroupHarvest() {
+    if (!groupsBtn) return;
+    if (!/^\/groups\/(joins|feed)\b/i.test(location.pathname)) return;
+
+    var count = harvestGroups().length;
+    if (!count) return;
+    groupsBtn.textContent = "Send these " + count + " groups";
+    logLine(count + " groups on this page — press Send to add them");
+    renderHud();
+  }
+
   function detectSource() {
     var url = location.href;
 
     var groupMatch = url.match(/\/groups\/([^/?#]+)/);
-    if (groupMatch && groupMatch[1] !== "feed") {
+    if (groupMatch && !GROUP_LIST_SKIP[groupKey(groupMatch[1])]) {
       var slug = groupMatch[1];
       var name = nameFromTitle(null);
 
@@ -3191,6 +3241,9 @@
 
     manual.addEventListener("click", function () { scanPosts(); flush(); });
     findGroups.addEventListener("click", sendGroupList);
+    // Held so the button can report its own result, and so the offer below
+    // can relabel it on a page where it applies.
+    groupsBtn = findGroups;
     dash.addEventListener("click", function () {
       chrome.storage.local.get(["endpoint"], function (state) {
         window.open(state.endpoint || "http://localhost:5050", "_blank");
@@ -3779,6 +3832,9 @@
    * capturing anything from it. countPostsOnScreen only looks.
    */
   setTimeout(function () { countPostsOnScreen(); renderHud(); }, 1500);
+  // After Facebook has rendered its list, not before — the groups page fills
+  // in progressively and a count taken on load is always zero.
+  setTimeout(offerGroupHarvest, 2500);
   setInterval(function () {
     if (!autoScrolling) { countPostsOnScreen(); renderHud(); }
   }, 2500);
