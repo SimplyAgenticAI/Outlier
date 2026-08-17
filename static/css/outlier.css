@@ -1649,6 +1649,95 @@ body.score-help-open { overflow: hidden; }
    sitting bright red on every row of the feed. */
 .delete-post:hover { color: var(--ember); }
 
+/* ----------------------------------------------------------- next step */
+
+.next-step {
+  display: flex; gap: 22px; align-items: center; justify-content: space-between;
+  flex-wrap: wrap; margin-bottom: 18px;
+  border-color: var(--border-lit);
+}
+.next-step-body { flex: 1; min-width: 240px; }
+.next-step-eyebrow {
+  display: inline-block; margin-bottom: 6px;
+  font-size: 10px; font-weight: 700; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--emerald);
+}
+.next-step h2 { margin: 0 0 6px; font-size: 18px; }
+.next-step .fine { margin: 0 0 14px; max-width: 56ch; }
+
+/* The scan demo: what the panel looks like on Facebook. */
+.scan-demo { width: 260px; max-width: 100%; flex-shrink: 0; }
+
+.sd-page { fill: rgba(255,255,255,0.02); stroke: var(--border); }
+.sd-post { fill: rgba(255,255,255,0.035); }
+.sd-line { fill: rgba(110,231,183,0.22); }
+
+.sd-hud { fill: rgba(7,20,13,0.97); stroke: rgba(110,231,183,0.32); }
+.sd-hud-bar { fill: rgba(16,40,27,0.9); }
+.sd-hud-title { fill: var(--emerald-bright); font-size: 7px; font-weight: 700; }
+.sd-label { fill: var(--text-faint); font-size: 6px; }
+.sd-count, .sd-sent {
+  fill: var(--text); font-size: 13px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.sd-btn { fill: var(--emerald); }
+.sd-btn-text {
+  fill: #04170e; font-size: 6px; font-weight: 700; text-anchor: middle;
+}
+.sd-press {
+  fill: rgba(255,255,255,0.5); opacity: 0;
+  /* Set here rather than in each keyframe: transform-origin does not
+     interpolate, and repeating it inside the frames is how it drifts. */
+  transform-origin: 212px 124px;
+}
+
+/* Only the first value shows until the animation takes over, so a
+   reduced-motion viewer sees a sane still frame rather than every number
+   stacked on top of itself. */
+.sd-count, .sd-sent { opacity: 0; }
+.sd-n0, .sd-s0 { opacity: 1; }
+
+@media (prefers-reduced-motion: no-preference) {
+  /* One loop: the button is pressed, the page scrolls past six posts, and the
+     counters climb behind it — captured first, sent a beat later, because
+     that is the order it happens in. Six seconds, then round again. */
+  .sd-press  { animation: sd-press 6s ease-out infinite; }
+  .sd-scroll { animation: sd-scroll 6s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+
+  .sd-count, .sd-sent { animation: sd-tick 6s steps(1) infinite; }
+  .sd-n0 { animation-delay: 0s;    }
+  .sd-n1 { animation-delay: 1.2s;  }
+  .sd-n2 { animation-delay: 2.4s;  }
+  .sd-n3 { animation-delay: 3.6s;  }
+  .sd-s0 { animation-delay: 0.4s;  }
+  .sd-s1 { animation-delay: 1.6s;  }
+  .sd-s2 { animation-delay: 2.8s;  }
+  .sd-s3 { animation-delay: 4s;    }
+}
+
+/* Visible for its slice of the loop, hidden for the rest. Each value's slice
+   is placed by its delay, so one 20% window serves all eight. */
+@keyframes sd-tick {
+  0%      { opacity: 1; }
+  20%     { opacity: 0; }
+  100%    { opacity: 0; }
+}
+
+@keyframes sd-press {
+  0%, 4%   { opacity: 0; transform: scale(0.4); }
+  8%       { opacity: 0.8; transform: scale(1); }
+  16%,100% { opacity: 0; transform: scale(1.6); }
+}
+@keyframes sd-scroll {
+  0%, 10%  { transform: translateY(0); }
+  85%,100% { transform: translateY(-108px); }
+}
+
+@media (max-width: 620px) {
+  .next-step { gap: 16px; }
+  .scan-demo { width: 100%; }
+}
+
 /* ------------------------------------------------------------ discover */
 
 .discover-steps {

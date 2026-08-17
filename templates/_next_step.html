@@ -1,0 +1,55 @@
+{# One next action, computed from the database in app._next_step.
+
+   Shown between the feed header and the cards, and only while there is
+   genuinely something to do — it removes itself as the account progresses
+   rather than waiting to be dismissed. #}
+<section class="glass panel reveal next-step">
+  <div class="next-step-body">
+    <span class="next-step-eyebrow">Next</span>
+    <h2>{{ step.title }}</h2>
+    <p class="fine">{{ step.body }}</p>
+    <a class="btn btn-primary" href="{{ step.href }}">{{ step.cta }}</a>
+  </div>
+
+  {% if step.scan_demo %}
+  {# What the extension looks like ON Facebook — the one part of this product
+     nobody can see from the dashboard, and the step people stall on.
+
+     Inline SVG rather than a video or a GIF: the CSP blocks external assets,
+     it stays sharp at any size, it themes with the app, it weighs a couple of
+     kilobytes, and it can be stopped for prefers-reduced-motion. #}
+  <svg class="scan-demo" viewBox="0 0 260 170" role="img"
+       aria-label="The Tallgrass panel on a Facebook group, counting posts as the page scrolls">
+    <!-- the page behind -->
+    <rect class="sd-page" x="4" y="4" width="252" height="162" rx="8"/>
+    <g class="sd-scroll">
+      {% for y in [16, 52, 88, 124, 160, 196] %}
+      <rect class="sd-post" x="16" y="{{ y }}" width="150" height="28" rx="5"/>
+      <rect class="sd-line" x="24" y="{{ y + 7 }}" width="86" height="4" rx="2"/>
+      <rect class="sd-line" x="24" y="{{ y + 17 }}" width="54" height="4" rx="2"/>
+      {% endfor %}
+    </g>
+
+    <!-- the panel, sitting where it really sits -->
+    <rect class="sd-hud" x="176" y="30" width="72" height="106" rx="7"/>
+    <rect class="sd-hud-bar" x="176" y="30" width="72" height="16" rx="7"/>
+    <text class="sd-hud-title" x="184" y="41">Tallgrass</text>
+
+    {# The counters climb by cross-fading stacked values. CSS cannot animate
+       text content, so the numbers are real elements taking their turn. #}
+    <text class="sd-label" x="184" y="60">Captured</text>
+    {% for n in [0, 6, 14, 23] %}
+    <text class="sd-count sd-n{{ loop.index0 }}" x="184" y="76">{{ n }}</text>
+    {% endfor %}
+
+    <text class="sd-label" x="184" y="94">Sent</text>
+    {% for n in [0, 6, 14, 23] %}
+    <text class="sd-sent sd-s{{ loop.index0 }}" x="184" y="110">{{ n }}</text>
+    {% endfor %}
+
+    <rect class="sd-btn" x="184" y="118" width="56" height="12" rx="6"/>
+    <text class="sd-btn-text" x="212" y="127">Start</text>
+    <circle class="sd-press" cx="212" cy="124" r="9"/>
+  </svg>
+  {% endif %}
+</section>

@@ -207,6 +207,86 @@ PAGE_SIZE = 60
 # ---------------------------------------------------------------- pages
 
 
+def _next_step(user, scored):
+    """The one thing this account should do next, or None when there isn't one.
+
+    Derived from the database rather than from a tour the user clicks through,
+    so it cannot claim a step is undone after they have done it, and it
+    disappears on its own instead of needing to be dismissed.
+
+    The existing empty state already handles "nothing captured at all". This
+    covers the stretch after that, which had no guidance anywhere: posts are
+    arriving, and nobody has said what they are for or what to do next. That
+    is the gap a user described as not knowing the best way to use it.
+
+    Ordered by what blocks what. There is no point suggesting a remix to
+    somebody whose group cannot score yet.
+    """
+    if not user:
+        return None
+
+    # Never issued a key: the extension cannot deliver anything yet.
+    if not user.get("api_key_prefix"):
+        return {
+            "key": "connect",
+            "title": "Connect the extension",
+            "body": ("Install it, then open this dashboard once while signed in "
+                     "— it picks up your key automatically."),
+            "cta": "Get the extension",
+            "href": url_for("capture"),
+            "scan_demo": False,
+        }
+
+    real = [s for s in scored if not s["is_demo"]]
+    if not real:
+        return {
+            "key": "scan",
+            "title": "Scan your first group",
+            "body": ("Open a Facebook group you're in, find the Tallgrass panel "
+                     "in the corner, and press Start. Scroll — or let it scroll "
+                     "— and posts arrive here as they're read."),
+            "cta": "How scanning works",
+            "href": url_for("capture"),
+            "scan_demo": True,
+        }
+
+    # Captured, but nothing can be scored yet — a median needs a sample.
+    if not any(s["has_baseline"] for s in real):
+        need = max(outliers.MIN_SAMPLE - sum(1 for s in real if s.get("engagement_read")), 1)
+        return {
+            "key": "more",
+            "title": "Keep scanning — nothing can be scored yet",
+            "body": (f"A group needs about {outliers.MIN_SAMPLE} posts with readable "
+                     f"engagement before a median means anything. Roughly {need} more "
+                     "and this feed starts ranking properly."),
+            "cta": "See what each group needs",
+            "href": url_for("groups"),
+            "scan_demo": True,
+        }
+
+    # Scored, but the second half of the product has never been touched.
+    with db.get_db() as conn:
+        remixed = conn.execute(
+            "SELECT 1 FROM remixes WHERE user_id = ? LIMIT 1", (user["id"],)
+        ).fetchone()
+    if not remixed:
+        best = max((s for s in real if s.get("outlier_multiple")),
+                   key=lambda s: s["outlier_multiple"], default=None)
+        if best:
+            return {
+                "key": "remix",
+                "title": f"Your top post beat its group by {best['outlier_multiple']}×",
+                "body": ("Finding it is half of this. The other half is writing your "
+                         "own version — open it and generate variants built on the "
+                         "same mechanic."),
+                "cta": "Open it and remix",
+                "href": url_for("post_detail", post_id=best["id"]),
+                "scan_demo": False,
+            }
+
+    return None
+
+
 @app.route("/")
 @auth.login_required
 def feed():
@@ -267,6 +347,7 @@ def feed():
         tier_filter=tier_filter,
         tier_labels=outliers.TIER_LABELS,
         has_data=bool(scored),
+        next_step=_next_step(auth.current_user(), scored),
         real_count=real_count,
         sample_count=len(scored) - real_count,
         show_samples=show_samples,

@@ -32,6 +32,10 @@
 
 {% else %}
 
+  {% if next_step %}
+    {% with step = next_step %}{% include "_next_step.html" %}{% endwith %}
+  {% endif %}
+
   <section class="stat-row">
     <div class="stat glass reveal spotlight">
       {% if stats.top_multiple is not none %}
