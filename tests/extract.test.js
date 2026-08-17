@@ -86,6 +86,40 @@ console.log("which surface are we on");
         c[2] ? [c[2], c[3]] : null);
 });
 
+/* --------------------------------------------------------- video thumbs -- */
+
+console.log();
+console.log("a video or reel keeps its still frame");
+
+// Reels arrived with no picture at all: the sweep reads <img> elements, and a
+// video puts its thumbnail in the poster ATTRIBUTE of <video>. A video post
+// with no thumbnail is close to unreadable on a card.
+[
+  [{ body: "Watch this clip from the weekend", likes: 400,
+     video: "https://scontent.xx.fbcdn.net/v/t15/reel_thumb.jpg" },
+   "https://scontent.xx.fbcdn.net/v/t15/reel_thumb.jpg",
+   "the poster becomes the thumbnail"],
+
+  // A real image beats a poster: Facebook sometimes posters a video with a
+  // black first frame, so an actual img in the post is the better picture.
+  [{ body: "Both a photo and a video here", likes: 400,
+     image: "https://scontent.xx.fbcdn.net/v/t39/real_photo.jpg",
+     video: "https://scontent.xx.fbcdn.net/v/t15/poster_frame.jpg" },
+   "https://scontent.xx.fbcdn.net/v/t39/real_photo.jpg",
+   "  a real image still wins over the poster"],
+
+  // Anything off Facebook's CDN is a player skin, not the post's own frame.
+  [{ body: "Video with a non-Facebook poster", likes: 400,
+     video: "https://cdn.example.com/player-skin.png" },
+   null,
+   "  a poster off the CDN is not a thumbnail"],
+].forEach(function (c) {
+  var api = runScan(buildPage([c[0]]), "/groups/1234567890/");
+  api.scanPosts();
+  var post = api.queue()[0] || {};
+  check(c[2], post.image_url || null, c[1]);
+});
+
 /* ----------------------------------------------------------- engagement -- */
 
 console.log("engagement from a labelled post");

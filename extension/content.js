@@ -1795,6 +1795,32 @@
     var hasVideo = !!(video && !isBelowBar(video, bar)) ||
                    !!article.querySelector('a[href*="/reel/"], a[href*="/videos/"]');
 
+    /* A video's thumbnail, which is not an <img> and so was never collected.
+     *
+     * The sweep above reads img elements. A video or a reel puts its still
+     * frame in the poster ATTRIBUTE of the <video> element, so every one of
+     * them arrived with no picture at all — and a video post with no
+     * thumbnail is close to unreadable on a card, since the caption is often
+     * the only other thing it has.
+     *
+     * A fallback rather than a candidate: a real img in the post is a better
+     * thumbnail than the poster when both exist, because Facebook sometimes
+     * posters a video with a black first frame. This only fills the gap.
+     */
+    if (!found.length) {
+      var posters = article.querySelectorAll("video[poster]");
+      for (var v = 0; v < posters.length; v++) {
+        if (isBelowBar(posters[v], bar)) continue;
+        if (!owned(article, posters[v])) continue;
+        var poster = posters[v].getAttribute("poster") || "";
+        // Same origin test the images get: anything not from Facebook's CDN
+        // is a player skin or a placeholder, not the post's own frame.
+        if (!poster || !/scontent|fbcdn/i.test(poster)) continue;
+        found.push({ src: poster, alt: "", area: 0 });
+        break;
+      }
+    }
+
     // Any image's alt may carry the transcription, not only the largest. But
     // OCR that reads like a post's own chrome is a screenshot of someone else's
     // post, not this author's caption, so it is skipped.

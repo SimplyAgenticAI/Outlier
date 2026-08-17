@@ -139,6 +139,15 @@ function buildPage(specs) {
       art.appendChild(img);
     }
 
+    // A reel or video post: the still frame lives in the poster ATTRIBUTE of
+    // a <video>, not in an <img>, so it has to be created here — above the
+    // action bar, like the real thing — for isBelowBar to see it correctly.
+    if (spec.video) {
+      var vid = D.el("video");
+      vid.setAttribute("poster", spec.video);
+      art.appendChild(vid);
+    }
+
     var counts = D.el("div");
     counts.setAttribute("aria-label", spec.likes + " reactions");
     art.appendChild(counts);
