@@ -367,6 +367,113 @@ console.log("real meme and quote-card text is still kept");
   check("not post chrome: " + real.slice(0, 34), api.looksLikePostChrome(real), false);
 });
 
+/* ------------------------------------------- the comment section is not us -- */
+
+/* A coloured-background post, reported from the live dashboard.
+ *
+ * Its captured body was the word "Facebook" thirty-three times, then the
+ * author's badge, the tallies, two strangers' replies, "View 3 replies" and
+ * "Comment as Jeff" — the whole article, saved as its caption.
+ *
+ * Two independent faults, both reproduced here:
+ *
+ *   1. findActionBar returns null whenever Facebook draws the bar as bare
+ *      icons. The cutoff vanished, so every reply and the composer became
+ *      caption candidates.
+ *   2. isOnlyChrome gave up at more than eight words, so a long run of pure
+ *      furniture was exempt from the furniture filter for being long.
+ *
+ * The comment boundary is the fix for (1) and does not depend on the bar.
+ */
+console.log();
+console.log("the comment section never becomes the caption");
+
+function backgroundPost(opts) {
+  var D = H.makeDoc();
+  var root = D.el("div");
+  var article = D.el("div");
+  article.setAttribute("role", "article");
+
+  // One wrapper holding the whole item — few enough children to survive the
+  // "not the article's own wrapper" guard, which is what made it a candidate.
+  var wrap = D.el("div");
+  wrap.setAttribute("dir", "auto");
+  article.appendChild(wrap);
+
+  function leaf(parent, text) {
+    var el = D.el("div");
+    el.setAttribute("dir", "auto");
+    el.textContent = text;
+    parent.appendChild(el);
+    return el;
+  }
+
+  var who = D.el("a");
+  who.setAttribute("role", "link");
+  who.textContent = "Layla Miller";
+  wrap.appendChild(who);
+
+  // The coloured background renders as a stack of leaves reading "Facebook".
+  var bg = D.el("div");
+  bg.setAttribute("dir", "auto");
+  for (var i = 0; i < 33; i++) { leaf(bg, "Facebook"); }
+  wrap.appendChild(bg);
+
+  if (opts.caption) { leaf(wrap, opts.caption); }
+
+  var bar = D.el("div");
+  bar.setAttribute("role", "button");
+  if (!opts.iconOnlyBar) {
+    bar.setAttribute("aria-label", "Like");
+    bar.textContent = "Like Comment Share";
+  }
+  wrap.appendChild(bar);
+
+  var comments = D.el("div");
+  comments.setAttribute("dir", "auto");
+  leaf(comments, "View more comments");
+  leaf(comments, "People backing out of deals the last minute");
+  leaf(comments, "The Title company fixes all the realtor's and lender's mistakes, does 90% of the work, takes all the risk and makes the least amount of money.");
+  leaf(comments, "View 3 replies");
+  wrap.appendChild(comments);
+
+  var composer = D.el("div");
+  composer.setAttribute("dir", "auto");
+  leaf(composer, "Comment as Jeff");
+  leaf(composer, "Jeff");
+  wrap.appendChild(composer);
+
+  root.appendChild(article);
+  var a = runScan({ doc: D, root: root }, "/groups/1234567890/");
+  var art = root.querySelectorAll('[role="article"]')[0];
+  return a.extractBody(art, "Layla Miller", a.findActionBar(art));
+}
+
+// The reported shape: no recognisable bar, no caption of its own.
+var blob = backgroundPost({ iconOnlyBar: true });
+check("no run of the word Facebook survives", /Facebook\s+Facebook/i.test(blob), false);
+check("no reply text survives", /Title company/i.test(blob), false);
+check("the composer does not survive", /Comment as/i.test(blob), false);
+check("nor the reader's name alone", blob.trim() !== "Jeff", true);
+
+// The same post with a bar Facebook did label — must behave identically.
+var labelled = backgroundPost({ iconOnlyBar: false });
+check("and the same with a labelled bar", /Title company|Comment as/i.test(labelled), false);
+
+// A real caption on the same layout must still come through, bar or no bar.
+var REAL = "Closing day and the lender still has not sent the figures";
+check("a real caption survives with no bar",
+      backgroundPost({ iconOnlyBar: true, caption: REAL }), REAL);
+check("a real caption survives with a bar",
+      backgroundPost({ iconOnlyBar: false, caption: REAL }), REAL);
+
+// The filter that was exempting long runs for being long.
+check("a long run of furniture is furniture",
+      api.isOnlyChrome(new Array(34).join("Facebook ").trim()), true);
+check("a short run still is too", api.isOnlyChrome("Like Comment Share"), true);
+check("but real writing is not",
+      api.isOnlyChrome("Facebook keeps changing the algorithm and it is driving me up the wall"), false);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

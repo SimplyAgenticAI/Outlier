@@ -885,22 +885,71 @@
    */
   var CHROME_WORDS = /^(like|comment|comments|share|shares|reply|replies|see more|see less|all reactions|most relevant|top comments|newest|write a comment|view more comments|facebook|·|\||\d+|\d+[hdwmy])$/i;
 
+  /* No upper bound on the run.
+   *
+   * This used to give up at more than eight words, which had the rule exactly
+   * backwards: the LONGER a run of pure furniture is, the more certainly it is
+   * furniture. A coloured-background post arrived with a caption of the word
+   * "Facebook" repeated thirty-three times, and it survived precisely because
+   * it was long. Real writing exits the loop on its first ordinary word, so
+   * there is nothing to save by stopping early.
+   */
   function isOnlyChrome(text) {
     var parts = String(text).split(/[\s·|]+/).filter(Boolean);
-    if (!parts.length || parts.length > 8) return false;
+    if (!parts.length) return false;
     for (var i = 0; i < parts.length; i++) {
       if (!CHROME_WORDS.test(parts[i])) return false;
     }
     return true;
   }
 
+  /* The comment section, wherever it starts.
+   *
+   * findActionBar is the usual cutoff, but it returns null whenever Facebook
+   * renders the bar as bare icons — and with no bar every reply and the
+   * composer become caption candidates. That is how a post came back with a
+   * body of somebody else's comment, and how "Comment as Jeff" and the reader's
+   * own name ended up as captions.
+   *
+   * These markers are a second, independent cutoff. Each one only ever appears
+   * below the post, none of them depends on the bar being found, and the
+   * composer is present even on a post with no replies yet.
+   */
+  var COMMENT_MARKER_RE =
+    /^(comment as\b|write a (public )?comment\b|view more comments\b|view \d+ (more )?(compl|repl))/i;
+
+  // The same markers found anywhere inside a block rather than at its start:
+  // a block that CONTAINS the composer spans the whole article, so it is the
+  // post rather than the post's caption.
+  var COMMENT_SECTION_RE =
+    /\b(comment as\b|write a (public )?comment\b|view more comments\b|view \d+ (more )?repl)/i;
+
+  function findCommentBoundary(article) {
+    var nodes = article.querySelectorAll('div, span, a, [role="button"], [aria-label]');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      if (!owned(article, el)) continue;
+      // Length-capped so this matches the control itself and not some wrapper
+      // that merely contains it far below.
+      var text = (el.innerText || "").trim();
+      if (text && text.length <= 60 && COMMENT_MARKER_RE.test(text)) return el;
+      var label = ((el.getAttribute && el.getAttribute("aria-label")) || "").trim();
+      if (label && COMMENT_MARKER_RE.test(label)) return el;
+    }
+    return null;
+  }
+
   function extractBody(article, authorName, bar) {
+    // Computed once and handed to every pass, including the bar-less ones
+    // below — it is the only cutoff those passes have.
+    var commentsAt = findCommentBoundary(article);
+
     // The caption is the longest text block ABOVE the action bar. Without the
     // cutoff a long comment beats a short caption — which is how "that's
     // funny, flat earthers will think this is a real picture" got saved as
     // the body of a post captioned "Artemis 2 captures its first views".
     var strict = longestTextBlock(
-      article, authorName, bar, 'div[dir="auto"], span[dir="auto"]');
+      article, authorName, bar, 'div[dir="auto"], span[dir="auto"]', commentsAt);
     if (strict) return strict;
 
     /* dir="auto" is a convention, not a guarantee.
@@ -911,7 +960,7 @@
      * runs when the strict pass found nothing, so it can add captures and
      * never remove them.
      */
-    var loose = longestTextBlock(article, authorName, bar, "div, span, p");
+    var loose = longestTextBlock(article, authorName, bar, "div, span, p", commentsAt);
     if (loose) return loose;
 
     /* Still nothing — so drop the action-bar cutoff entirely.
@@ -925,9 +974,13 @@
      * Without the cutoff a reply's text can win instead of the caption. That
      * is the lesser failure by a wide margin: a post saved with the wrong
      * caption is visible and fixable, a post never saved at all is invisible.
+     *
+     * The comment boundary still applies here even though the bar does not.
+     * Dropping BOTH cutoffs is what let a stranger's reply become the caption
+     * on every post whose action bar rendered as bare icons.
      */
-    return longestTextBlock(article, authorName, null, 'div[dir="auto"], span[dir="auto"]') ||
-           longestTextBlock(article, authorName, null, "div, span, p");
+    return longestTextBlock(article, authorName, null, 'div[dir="auto"], span[dir="auto"]', commentsAt) ||
+           longestTextBlock(article, authorName, null, "div, span, p", commentsAt);
   }
 
   /* Characters Facebook inserts between letters so text cannot be matched.
@@ -1240,13 +1293,20 @@
     return !!viewerNames()[body.replace(/[.,:;!?]+$/, "").toLowerCase()];
   }
 
-  function longestTextBlock(article, authorName, bar, selector) {
+  function longestTextBlock(article, authorName, bar, selector, commentsAt) {
     var blocks = article.querySelectorAll(selector);
     var best = "";
 
     for (var i = 0; i < blocks.length; i++) {
       var el = blocks[i];
       if (isBelowBar(el, bar)) continue;          // comments live below it
+
+      // And below the comment boundary, which holds even when the bar is null.
+      if (commentsAt) {
+        if (el === commentsAt) continue;
+        if (commentsAt.contains && commentsAt.contains(el)) continue;
+        if (isBelowBar(el, commentsAt)) continue;
+      }
 
       // The action bar is not "above" itself, so the loose pass happily took
       // its own text — a caption-less post came back with a body of
@@ -1263,6 +1323,18 @@
       if (!text || text.length <= best.length) continue;
       if (CHROME_RE.test(text)) continue;
       if (isOnlyChrome(text)) continue;
+
+      /* A block holding the post's own furniture is the POST, not its caption.
+       *
+       * When a wrapper survives the child-count guard below, its text is the
+       * whole item — header, background layer, tallies, every reply and the
+       * composer — and being the longest thing in the article it wins. That is
+       * the "Facebook Facebook Facebook … Comment as Jeff" body. Both tests are
+       * things a caption never contains: its own reaction tally or action bar,
+       * and any part of the comment section.
+       */
+      if (looksLikePostChrome(text)) continue;
+      if (COMMENT_SECTION_RE.test(text)) continue;
 
       // The header block is just the author's name, sometimes with a timestamp.
       if (authorName && text.replace(/\s+/g, " ") === authorName) continue;
@@ -3723,6 +3795,8 @@
     extractPostSource: extractPostSource,
     isSponsoredOrSuggested: isSponsoredOrSuggested,
     looksLikePostChrome: looksLikePostChrome,
+    isOnlyChrome: isOnlyChrome,
+    findCommentBoundary: findCommentBoundary,
     textFromAlt: textFromAlt,
     sceneFromAlt: sceneFromAlt,
     isBareNamePart: isBareNamePart,
