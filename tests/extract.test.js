@@ -794,6 +794,89 @@ check("the member's share is captured", !!sPost.fb_post_id);
 check("reactions are the sharer's 3, not the viral 6,858", sPost.likes, 3);
 check("shares are not the viral 29,957", sPost.shares !== 29957, true);
 
+/* ------------------------------------------- a tally never crosses a line -- */
+
+/* The million-share bug, from a real screenshot of the feed.
+ *
+ * extractEngagement joins every aria-label into one haystack with newlines.
+ * The share pattern was /shares?:?\s*(\d…)/ and \s matches a newline, so a
+ * match could START on the Share BUTTON's own label — the bare word "Share" —
+ * cross the join, and capture the leading number of whatever label came next.
+ * On a post whose next label was the view tally, the views were stored as the
+ * share count: a photo post with 2,000 reactions and 39 comments showed
+ * 1,000,000 shares in the feed. shares === video_plays was the tell.
+ *
+ * Built label-by-label rather than through buildPage, because the bug lives
+ * entirely in the ORDER and wording of the aria-labels.
+ */
+console.log();
+console.log("a tally and its number must sit on the same line");
+
+function engagementOf(labels) {
+  var D = H.makeDoc();
+  var root = D.el("div");
+  var art = D.el("div");
+  art.setAttribute("role", "article");
+
+  var who = D.el("a");
+  who.setAttribute("role", "link");
+  who.textContent = "Julia Boyd Griffin";
+  art.appendChild(who);
+
+  labels.forEach(function (spec) {
+    var el = D.el("div");
+    if (spec.role) { el.setAttribute("role", spec.role); }
+    el.setAttribute("aria-label", spec.label);
+    if (spec.text) { el.textContent = spec.text; }
+    art.appendChild(el);
+  });
+
+  root.appendChild(art);
+  var a = runScan({ doc: D, root: root }, "/groups/1234567890/");
+  var article = root.querySelectorAll('[role="article"]')[0];
+  return a.extractEngagement(article, a.findActionBar(article));
+}
+
+// The exact shape from the screenshot: the view tally follows the Share button.
+var bleed = engagementOf([
+  { label: "2,000 reactions; see who reacted to this" },
+  { label: "39 comments" },
+  { label: "Like", role: "button", text: "Like" },
+  { label: "Comment", role: "button", text: "Comment" },
+  { label: "Share", role: "button", text: "Share" },
+  { label: "1,000,000 views" }
+]);
+check("reactions still read", bleed.likes, 2000);
+check("comments still read", bleed.comments, 39);
+check("the view count is NOT stored as shares", bleed.shares, 0);
+check("the views are read as views", bleed.video_plays, 1000000);
+
+// The Like and Comment buttons carry equally bare labels and had the same hole.
+var afterLike = engagementOf([
+  { label: "Like", role: "button", text: "Like" },
+  { label: "9,809 views" }
+]);
+check("a number after the bare Like button is not a reaction total",
+      afterLike.likes, 0);
+var afterComment = engagementOf([
+  { label: "Comment", role: "button", text: "Comment" },
+  { label: "4,200 views" }
+]);
+check("a number after the bare Comment button is not a comment count",
+      afterComment.comments, 0);
+
+// And the counts a post really does carry still come through, on the same line.
+var real = engagementOf([
+  { label: "2,000 reactions; see who reacted to this" },
+  { label: "39 comments" },
+  { label: "183 shares" },
+  { label: "Like", role: "button", text: "Like" },
+  { label: "Share", role: "button", text: "Share" }
+]);
+check("a labelled share tally is still read", real.shares, 183);
+check("alongside its reactions", real.likes, 2000);
+check("and its comments", real.comments, 39);
+
 console.log();
 if (FAILURES.length) {
   console.log(FAILURES.length + " FAILURES");

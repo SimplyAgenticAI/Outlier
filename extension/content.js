@@ -1478,26 +1478,42 @@
       return best;
     }
 
+    /* A tally and its number must sit on the SAME line — [^\S\r\n], never \s.
+     *
+     * The haystack is every aria-label joined with newlines, and \s matches a
+     * newline. So "shares?:?\s*(\d…)" could begin on the Share BUTTON's own
+     * label — which is the bare word "Share" — step over the join, and capture
+     * the first number of whatever label happened to come next. A photo post
+     * with 2,000 reactions and 39 comments was stored with 1,000,000 shares,
+     * lifted straight out of the view count that followed it; the giveaway was
+     * shares and video_plays landing on the identical number. The Like and
+     * Comment buttons carry equally bare labels and had the same hole.
+     *
+     * This is the [^\d\n] rule from the "See who reacted" pattern below,
+     * finally applied to the other three. A tally Facebook renders across two
+     * lines is not readable here, and that is the correct trade: no count
+     * beats a confidently wrong one.
+     */
     result.likes = bestMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s*(?:people\s+)?reacted/i,
-      /(?:Like|reaction)s?:?\s*([\d][\d.,]*\s*[KMB]?)/i,
-      /([\d][\d.,]*\s*[KMB]?)\s+reactions?/i,
+      /([\d][\d.,]*[^\S\r\n]*[KMB]?)[^\S\r\n]*(?:people[^\S\r\n]+)?reacted/i,
+      /(?:Like|reaction)s?:?[^\S\r\n]*([\d][\d.,]*[^\S\r\n]*[KMB]?)/i,
+      /([\d][\d.,]*[^\S\r\n]*[KMB]?)[^\S\r\n]+reactions?/i,
       // [^\d\n] not [^\d]: the labels are joined with newlines into one
       // haystack, and [^\d]* would skip across that boundary — "…see who
       // reacted to this\n9,809 views" then read the VIEW count as the reaction
       // total. Confining the gap to a single line keeps it to this label.
-      /See who reacted[^\d\n]*([\d][\d.,]*\s*[KMB]?)/i,
-      /([\d][\d.,]*\s*[KMB]?)\s+likes?\b/i
+      /See who reacted[^\d\n]*([\d][\d.,]*[^\S\r\n]*[KMB]?)/i,
+      /([\d][\d.,]*[^\S\r\n]*[KMB]?)[^\S\r\n]+likes?\b/i
     ]);
 
     result.comments = bestMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s+comments?/i,
-      /comments?:?\s*([\d][\d.,]*\s*[KMB]?)/i
+      /([\d][\d.,]*[^\S\r\n]*[KMB]?)[^\S\r\n]+comments?/i,
+      /comments?:?[^\S\r\n]*([\d][\d.,]*[^\S\r\n]*[KMB]?)/i
     ]);
 
     result.shares = bestMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s+shares?/i,
-      /shares?:?\s*([\d][\d.,]*\s*[KMB]?)/i
+      /([\d][\d.,]*[^\S\r\n]*[KMB]?)[^\S\r\n]+shares?/i,
+      /shares?:?[^\S\r\n]*([\d][\d.,]*[^\S\r\n]*[KMB]?)/i
     ]);
 
     /* The counts row: bare numbers beside icons.
@@ -1542,7 +1558,7 @@
      * as 9,809 reactions, which then scored it as a huge false outlier.
      */
     result.video_plays = bestMatch([
-      /([\d][\d.,]*\s*[KMB]?)\s+(?:views|plays)/i
+      /([\d][\d.,]*[^\S\r\n]*[KMB]?)[^\S\r\n]+(?:views|plays)/i
     ]);
 
     /* A bare number may only correct the reaction total UP to a plausible
