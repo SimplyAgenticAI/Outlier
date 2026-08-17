@@ -23,14 +23,25 @@ MODEL = "claude-opus-5"
 # What is left is the same insight told three ways, which is what a variant
 # set is for.
 ANGLES = {
+    # "and the subject entirely" used to close this line, and it was the single
+    # worst instruction in the file. A post asking which careers AI cannot touch
+    # came back as a reminiscence about knitting — the model changing the
+    # subject because it had been told to. A variant on somebody else's topic is
+    # useless to the person who has to post it, however well written it is.
     "same_hook": (
         "Keep the exact hook mechanic that worked — the same opening move, the "
         "same promise, the same shape of first line — and change the story, the "
-        "specifics and the subject entirely."
+        "examples and the specifics."
     ),
+    # This used to ask for "one specific detail that could only come from having
+    # been there", which is a direct instruction to invent a life. It produced
+    # grandmothers, living rooms and the smell of baked bread — none of it the
+    # operator's, none of it publishable.
     "personal": (
-        "Tell it as a first-person story with one concrete stake and one "
-        "specific detail that could only come from having been there."
+        "Tell it in the first person. You do not know this operator's life, so "
+        "every personal specific is a square-bracket blank for them to fill in "
+        "— [the client who almost walked away] — with finished, publishable "
+        "copy around the blanks."
     ),
     "question": (
         "Lead with a question the reader answers in their head before they "
@@ -70,8 +81,18 @@ with its engagement numbers. Your job is to work out what mechanic drove that \
 result, then write new posts that use the same mechanic on different material.
 
 Rules:
-- Never reproduce the original's specifics — the story, numbers, names, and \
-examples must be genuinely new. You are reusing structure, not content.
+- Reuse the original's STRUCTURE, never its content. Its story, numbers, names \
+and examples must not appear in your variants. Drifting off the subject is the \
+single most common way to get this wrong — a post about careers and AI coming \
+back as a reminiscence about knitting is a failure no matter how well written \
+it is, because the person posting it cannot use it. The section headed "What \
+the variants must be about" names the subject; stay inside it.
+- Never invent the operator's life. You do not know their clients, their \
+history, their numbers or their results, and a memory you made up for them is \
+not something they can post. Wherever a first-person specific is needed, write \
+a square-bracket blank they can fill — [the deal that fell through] — and \
+finish every other word around it. A blank they fill in ten seconds beats a \
+fabricated anecdote they have to throw away.
 - Match the register of the source group. If the original is blunt and plain, \
 do not make it polished.
 - No hashtag stuffing, no emoji walls, no engagement-bait phrasing like \
@@ -183,8 +204,49 @@ def _material(post):
     return body, image_text, image_desc, copy_len
 
 
-def remix_post(post, angles=None, count=3):
+def _subject_anchor(post, brand):
+    """What the variants have to stay about.
+
+    Without this the only topic signal in the whole prompt was a "Posted in:"
+    line the model was free to ignore, and it did. Three sources in descending
+    order of authority: what the operator told us they do, the group the post
+    came from, and — failing both — the original's own subject.
+    """
+    offer = (brand.get("offer") or "").strip()
+    audience = (brand.get("audience") or "").strip()
+    if offer or audience:
+        bits = []
+        if offer:
+            bits.append("what they do: " + offer)
+        if audience:
+            bits.append("who they are writing for: " + audience)
+        return (
+            "Write these for the operator's own world — " + "; ".join(bits) + ". "
+            "Their subject is the one that matters; the original is only where "
+            "the mechanic came from."
+        )
+
+    source = (post.get("source_name") or "").strip()
+    if source:
+        return (
+            f'These variants are going back into "{source}". Keep the '
+            "original's subject matter — the people there care about that "
+            "subject, and that is part of why the post worked at all."
+        )
+
+    return (
+        "Keep the original's subject matter. You are moving the mechanic onto "
+        "new material within the same topic, never onto a different topic."
+    )
+
+
+def remix_post(post, angles=None, count=3, instructions=""):
     """Generate variants of a winning post.
+
+    `instructions` is the operator's own direction and OUTRANKS everything
+    assembled here — the same lever generate_graphic already had. Without it
+    there was no way to say anything at all, which is fine right up until the
+    output is wrong and then there is nothing to pull.
 
     Returns (result_dict, error_string). Callers show the error inline rather
     than failing the page — a missing key shouldn't take out the post view.
@@ -259,11 +321,35 @@ def remix_post(post, angles=None, count=3):
     shape = _engagement_shape(post)
     shape_block = f"\n\nWhat the numbers say:\n{shape}" if shape else ""
 
-    user_content = f"""Here is the post that outperformed.
+    # The operator's own profile, which this function used to ignore entirely.
+    # Sage reads it and so does the graphic generator; the one feature that most
+    # needs to know what they sell and who they talk to was the only one that
+    # never asked.
+    import sage
+    brand = sage.get_brand()
+    summary = sage.brand_summary()
+    brand_block = f"\n\nWho these are for:\n{summary}" if summary else ""
+    anchor = _subject_anchor(post, brand)
+
+    # Goes FIRST and is named as authoritative. Buried at the end it reads as
+    # an afterthought the model is free to average against everything else.
+    instructions = (instructions or "").strip()[:600]
+    lead = ""
+    if instructions:
+        lead = (
+            "FOLLOW THIS DIRECTION FROM THE OPERATOR EXACTLY. Where it "
+            "conflicts with anything below, IT WINS:\n"
+            f"{instructions}\n\n"
+        )
+
+    user_content = f"""{lead}Here is the post that outperformed.
 
 Posted in: {post.get('source_name', 'a Facebook group')}
 Performance: {engagement}{f" — {multiple}x the median post in that group" if multiple else ""}
-Format: {post.get('post_type', 'text')}{shape_block}
+Format: {post.get('post_type', 'text')}{shape_block}{brand_block}
+
+What the variants must be about:
+{anchor}
 
 {material}{thin_note}
 

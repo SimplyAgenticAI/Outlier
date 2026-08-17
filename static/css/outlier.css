@@ -2167,3 +2167,14 @@ a.notif-item:hover { background: rgba(110, 231, 183, 0.06); }
 .brand-field input:focus, .brand-field textarea:focus {
   outline: none; border-color: #6ee7b7;
 }
+
+/* The operator's per-remix steer. Matches the brand form's field so the two
+   places you type direction into the writer look like the same control. */
+.remix-steer { display: flex; flex-direction: column; gap: 4px; margin: 0 0 14px; }
+.remix-steer-label { font-size: 12px; color: var(--text-muted); }
+.remix-steer input {
+  width: 100%; padding: 8px 10px; border-radius: 8px;
+  background: rgba(255, 255, 255, 0.03); border: 1px solid var(--border);
+  color: var(--text); font: inherit;
+}
+.remix-steer input:focus { outline: none; border-color: #6ee7b7; }

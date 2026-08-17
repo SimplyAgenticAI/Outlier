@@ -159,8 +159,8 @@
   <div class="glass remix-panel reveal spotlight">
     <h2>Remix this post</h2>
     <p class="sub">
-      Generate new posts that reuse what made this one work — same mechanic,
-      entirely new material.
+      Generate new posts that reuse what made this one work — the same mechanic,
+      your subject, new specifics.
     </p>
 
     {% if not remix_ready %}
@@ -178,6 +178,11 @@
       </label>
       {% endfor %}
     </div>
+    <label class="remix-steer">
+      <span class="remix-steer-label">Steer it (optional)</span>
+      <input type="text" id="remix-instructions" maxlength="600"
+             placeholder="e.g. keep it about title work, no emoji, shorter">
+    </label>
     <button class="btn btn-primary" id="remix-btn" data-post-id="{{ post.id }}">
       Generate variants
     </button>

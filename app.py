@@ -1586,13 +1586,16 @@ def api_save(post_id):
 def api_remix(post_id):
     body = request.get_json(silent=True) or {}
     angles = body.get("angles") or None
+    # The operator's own steer. Optional — with none supplied the variants are
+    # assembled exactly as they were before.
+    instructions = (body.get("instructions") or "").strip()
 
     scored = outliers.score_posts(_fetch_posts())
     post = next((s for s in scored if s["id"] == post_id), None)
     if not post:
         return jsonify({"ok": False, "error": "Post not found"}), 404
 
-    result, error = remix.remix_post(post, angles=angles)
+    result, error = remix.remix_post(post, angles=angles, instructions=instructions)
     if error:
         return jsonify({"ok": False, "error": error}), 400
 

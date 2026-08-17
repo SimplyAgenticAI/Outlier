@@ -1284,7 +1284,11 @@
       status.className = "remix-status";
       status.textContent = "Writing variants — this takes a few seconds.";
 
-      post("/api/remix/" + remixBtn.dataset.postId, { angles: angles })
+      var steer = document.getElementById("remix-instructions");
+      post("/api/remix/" + remixBtn.dataset.postId, {
+        angles: angles,
+        instructions: steer ? steer.value.trim() : ""
+      })
         .then(function (data) {
           if (!data.ok) throw new Error(data.error || "Remix failed");
           renderRemix(data.result);
