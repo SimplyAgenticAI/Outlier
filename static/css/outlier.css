@@ -1227,9 +1227,17 @@ select.kind-select option { color: initial; }
   .hiw-2, .hiw-c2 { animation-delay: 4s; }
   .hiw-3, .hiw-c3 { animation-delay: 8s; }
 
-  /* Inside beat one: the roll of posts moves and the counter climbs. */
+  /* Inside beat one: the roll of posts moves and the counter climbs.
+   *
+   * The counters need their OWN keyframe, not the scene's. Reusing hiw-beat
+   * held each number visible for 27% of the loop — over three seconds — while
+   * they are only 0.9s apart, so all four sat on top of each other at the
+   * same coordinates and read as one smeared glyph. Each value now shows for
+   * its own slot and nothing else.
+   */
   .hiw-roll { animation: hiw-roll 12s ease-in-out infinite; }
-  .hiw-hud-n { animation: hiw-beat 12s steps(1) infinite; }
+  .hiw-n0, .hiw-n1, .hiw-n2 { animation: hiw-count 12s steps(1) infinite; }
+  .hiw-n3 { animation: hiw-count-last 12s steps(1) infinite; }
   .hiw-n0 { animation-delay: 0s; }
   .hiw-n1 { animation-delay: 0.9s; }
   .hiw-n2 { animation-delay: 1.8s; }
@@ -1252,6 +1260,19 @@ select.kind-select option { color: initial; }
   0%      { opacity: 0; }
   3%, 30% { opacity: 1; }
   33%,100%{ opacity: 0; }
+}
+/* 7.5% of twelve seconds is 0.9s — exactly one slot, so only one number is
+   ever on screen. The last one holds until the beat ends rather than blinking
+   out and leaving the panel empty. */
+@keyframes hiw-count {
+  0%          { opacity: 0; }
+  0.5%, 7%    { opacity: 1; }
+  7.5%, 100%  { opacity: 0; }
+}
+@keyframes hiw-count-last {
+  0%          { opacity: 0; }
+  0.5%, 9.5%  { opacity: 1; }
+  10%, 100%   { opacity: 0; }
 }
 @keyframes hiw-roll {
   0%, 4%   { transform: translateY(0); }
