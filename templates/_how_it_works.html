@@ -1,0 +1,67 @@
+{# What this product is, before anyone has an account.
+
+   /login is the front door — a signed-out visitor is redirected here — and it
+   was a form with one line of copy, explaining nothing to somebody deciding
+   whether to sign up at all.
+
+   Three beats, because that is the actual arc: read the groups, rank against
+   their own median, write the next one. Inline SVG rather than a video: the
+   CSP blocks external assets, it stays sharp at any size, it themes with the
+   app, and it can be stopped for prefers-reduced-motion. #}
+<div class="hiw" aria-hidden="true">
+  <svg class="hiw-stage" viewBox="0 0 320 190">
+
+    {# 1. SCAN — the panel sitting on a group, counting as it reads. #}
+    <g class="hiw-scene hiw-1">
+      <rect class="hiw-page" x="6" y="8" width="308" height="174" rx="10"/>
+      <g class="hiw-roll">
+        {% for y in [18, 58, 98, 138, 178, 218] %}
+        <rect class="hiw-post" x="20" y="{{ y }}" width="180" height="32" rx="6"/>
+        <rect class="hiw-line" x="30" y="{{ y + 9 }}" width="104" height="5" rx="2"/>
+        <rect class="hiw-line" x="30" y="{{ y + 21 }}" width="64" height="5" rx="2"/>
+        {% endfor %}
+      </g>
+
+      <rect class="hiw-hud" x="214" y="34" width="88" height="120" rx="9"/>
+      <rect class="hiw-hud-bar" x="214" y="34" width="88" height="18" rx="9"/>
+      <text class="hiw-hud-name" x="224" y="47">{{ app_name }}</text>
+      <text class="hiw-hud-label" x="224" y="70">Captured</text>
+      {% for n in [0, 9, 21, 34] %}
+      <text class="hiw-hud-n hiw-n{{ loop.index0 }}" x="224" y="90">{{ n }}</text>
+      {% endfor %}
+      <rect class="hiw-hud-btn" x="224" y="120" width="68" height="16" rx="8"/>
+      <text class="hiw-hud-btn-t" x="258" y="131">Scanning…</text>
+    </g>
+
+    {# 2. SCORE — the same posts against their group's median, one breaking
+       away. This is the idea the whole product rests on. #}
+    <g class="hiw-scene hiw-2">
+      <line class="hiw-median" x1="24" y1="132" x2="296" y2="132"/>
+      <text class="hiw-median-t" x="24" y="148">median for this group</text>
+      {% for x, y, d in [(44,138,0),(72,127,1),(100,141,2),(128,124,3),(156,135,4),
+                          (184,129,5),(212,139,6),(240,126,7)] %}
+      <circle class="hiw-dot" cx="{{ x }}" cy="{{ y }}" r="5"
+              style="--d: {{ d * 0.08 }}s"/>
+      {% endfor %}
+      <circle class="hiw-break" cx="272" cy="44" r="9"/>
+      <text class="hiw-break-t" x="272" y="26">3.4×</text>
+    </g>
+
+    {# 3. WRITE — the breakout becomes copy of your own. #}
+    <g class="hiw-scene hiw-3">
+      <rect class="hiw-card" x="34" y="26" width="252" height="138" rx="10"/>
+      <circle class="hiw-avatar" cx="56" cy="48" r="9"/>
+      <rect class="hiw-line" x="72" y="43" width="70" height="6" rx="3"/>
+      {% for y, w, d in [(74, 210, 0), (92, 186, 1), (110, 224, 2), (128, 140, 3)] %}
+      <rect class="hiw-typed hiw-t{{ d }}" x="52" y="{{ y }}" width="{{ w }}" height="7" rx="3"/>
+      {% endfor %}
+    </g>
+  </svg>
+
+  {# Captions ride the same twelve-second loop as the scenes. #}
+  <div class="hiw-caption">
+    <p class="hiw-cap hiw-c1">Reads the groups you're already in — nothing leaves your dashboard.</p>
+    <p class="hiw-cap hiw-c2">Ranks every post against that group's own median, so a small group counts.</p>
+    <p class="hiw-cap hiw-c3">Then helps you write the next one, built on what actually worked.</p>
+  </div>
+</div>
