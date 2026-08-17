@@ -1160,140 +1160,151 @@ select.kind-select option { color: initial; }
 /* Two columns on the login page: the explainer takes the space that was
    empty, and the form keeps its width and position exactly. */
 .auth-shell-wide {
-  max-width: 980px;
-  display: grid; gap: 40px; align-items: center;
+  max-width: 1000px;
+  display: grid; gap: 44px; align-items: center;
   grid-template-columns: minmax(0, 1fr) 420px;
 }
 .auth-shell-wide .auth-card { max-width: 420px; }
 
 @media (max-width: 900px) {
   /* Form FIRST on a narrow screen. Somebody returning to sign in should not
-     have to scroll past a sales pitch to reach the password field. */
-  .auth-shell-wide { grid-template-columns: 1fr; max-width: 460px; gap: 28px; }
+     have to scroll past an explainer to reach the password field. */
+  .auth-shell-wide { grid-template-columns: 1fr; max-width: 460px; gap: 26px; }
   .auth-shell-wide .hiw { order: 2; }
 }
 
 .hiw { min-width: 0; }
-.hiw-stage { width: 100%; height: auto; display: block; }
+.hiw-stage { width: 100%; max-width: 380px; height: auto; display: block; }
 
-/* Every scene starts hidden and is revealed by its own slice of the loop, so
-   a reduced-motion viewer sees the first beat as a still frame rather than
-   three drawings stacked on top of each other. */
-.hiw-scene { opacity: 0; }
-.hiw-1 { opacity: 1; }
+/* Every stage stays on screen. Dimmed is the resting state and the highlight
+   travels — so the whole pipeline is readable without any motion at all,
+   which is what makes this legible to a reduced-motion viewer and in a
+   screenshot. */
+.hiw-band { opacity: 0.42; }
+.hiw-frame { fill: rgba(255,255,255,0.02); stroke: var(--border); }
+.hiw-num { fill: rgba(110,231,183,0.14); stroke: rgba(110,231,183,0.4); }
+.hiw-num-t {
+  fill: var(--emerald-bright); font-size: 10px; font-weight: 700;
+  text-anchor: middle;
+}
+.hiw-title { fill: var(--text); font-size: 11px; font-weight: 600; }
 
-.hiw-page { fill: rgba(255,255,255,0.02); stroke: var(--border); }
-.hiw-post { fill: rgba(255,255,255,0.04); }
-.hiw-line { fill: rgba(110,231,183,0.22); }
-
-.hiw-hud { fill: rgba(7,20,13,0.97); stroke: rgba(110,231,183,0.32); }
-.hiw-hud-bar { fill: rgba(16,40,27,0.9); }
-.hiw-hud-name { fill: var(--emerald-bright); font-size: 8px; font-weight: 700; }
-.hiw-hud-label { fill: var(--text-faint); font-size: 7px; }
-.hiw-hud-n {
-  fill: var(--text); font-size: 17px; font-weight: 700;
-  font-variant-numeric: tabular-nums; opacity: 0;
+/* 1 — reading */
+.hiw-post { fill: rgba(255,255,255,0.04); stroke: rgba(110,231,183,0.1); }
+.hiw-cap-t { fill: var(--text); font-size: 8px; }
+.hiw-cap-n { fill: var(--text-faint); font-size: 7px; }
+.hiw-chip { fill: rgba(7,20,13,0.9); stroke: rgba(110,231,183,0.3); }
+.hiw-chip-l { fill: var(--text-faint); font-size: 7px; text-anchor: middle; }
+.hiw-chip-n {
+  fill: var(--emerald-bright); font-size: 15px; font-weight: 700;
+  text-anchor: middle; font-variant-numeric: tabular-nums; opacity: 0;
 }
 .hiw-n0 { opacity: 1; }
-.hiw-hud-btn { fill: rgba(110,231,183,0.16); }
-.hiw-hud-btn-t {
-  fill: var(--emerald-bright); font-size: 7px; font-weight: 700; text-anchor: middle;
-}
 
-.hiw-median { stroke: rgba(110,231,183,0.36); stroke-width: 1.5; stroke-dasharray: 4 5; }
+/* 2 — ranking */
+.hiw-median { stroke: rgba(110,231,183,0.34); stroke-width: 1.5; stroke-dasharray: 4 5; }
 .hiw-median-t { fill: var(--text-faint); font-size: 8px; }
-.hiw-dot { fill: rgba(110,231,183,0.5); }
-.hiw-break { fill: var(--gold); }
+.hiw-dot { fill: rgba(110,231,183,0.45); }
+.hiw-break-line { stroke: rgba(217,180,95,0.45); stroke-width: 1.5; stroke-dasharray: 3 3; }
+.hiw-break-dot { fill: var(--gold); }
 .hiw-break-t {
   fill: var(--gold); font-size: 11px; font-weight: 700; text-anchor: middle;
 }
 
-.hiw-card { fill: rgba(16,40,27,0.5); stroke: var(--border-lit); }
-.hiw-avatar { fill: rgba(110,231,183,0.28); }
-.hiw-typed { fill: rgba(234,255,243,0.5); transform-origin: 52px 0; }
+/* 3 — writing */
+.hiw-draft { fill: rgba(16,40,27,0.5); stroke: var(--border-lit); }
+.hiw-typed { fill: rgba(234,255,243,0.45); transform-origin: 30px 0; }
+.hiw-caret { fill: var(--emerald-bright); }
 
-.hiw-caption { margin-top: 16px; position: relative; min-height: 3.2em; }
-.hiw-cap {
-  position: absolute; inset: 0; margin: 0; opacity: 0;
-  font-size: 14px; line-height: 1.6; color: var(--text-muted);
+/* The arrows between stages, which is what says one feeds the next. */
+.hiw-flow {
+  stroke: rgba(110,231,183,0.5); stroke-width: 1.5; fill: none;
+  stroke-linecap: round; stroke-linejoin: round; opacity: 0.25;
 }
-.hiw-c1 { opacity: 1; }
 
 @media (prefers-reduced-motion: no-preference) {
-  /* Twelve seconds, three beats of four. Scene and caption share one
-     keyframe and are placed by delay, so they can never drift apart. */
-  .hiw-scene, .hiw-cap { animation: hiw-beat 12s ease-in-out infinite; }
-  .hiw-1, .hiw-c1 { animation-delay: 0s; }
-  .hiw-2, .hiw-c2 { animation-delay: 4s; }
-  .hiw-3, .hiw-c3 { animation-delay: 8s; }
+  /* Fifteen seconds, five per stage. Slower than the first attempt on
+     purpose: this is read, not watched, and a caption-length idea needs time
+     to land before the next one arrives. */
+  .hiw-band { animation: hiw-lit 15s ease-in-out infinite; }
+  .hiw-b1 { animation-delay: 0s; }
+  .hiw-b2 { animation-delay: 5s; }
+  .hiw-b3 { animation-delay: 10s; }
 
-  /* Inside beat one: the roll of posts moves and the counter climbs.
-   *
-   * The counters need their OWN keyframe, not the scene's. Reusing hiw-beat
-   * held each number visible for 27% of the loop — over three seconds — while
-   * they are only 0.9s apart, so all four sat on top of each other at the
-   * same coordinates and read as one smeared glyph. Each value now shows for
-   * its own slot and nothing else.
-   */
-  .hiw-roll { animation: hiw-roll 12s ease-in-out infinite; }
-  .hiw-n0, .hiw-n1, .hiw-n2 { animation: hiw-count 12s steps(1) infinite; }
-  .hiw-n3 { animation: hiw-count-last 12s steps(1) infinite; }
-  .hiw-n0 { animation-delay: 0s; }
-  .hiw-n1 { animation-delay: 0.9s; }
-  .hiw-n2 { animation-delay: 1.8s; }
-  .hiw-n3 { animation-delay: 2.7s; }
+  .hiw-flow { animation: hiw-flow 15s ease-in-out infinite; }
+  .hiw-f1 { animation-delay: 4.2s; }
+  .hiw-f2 { animation-delay: 9.2s; }
 
-  /* Inside beat two: the ordinary dots settle, then one leaves. */
-  .hiw-dot { animation: hiw-settle 12s ease-out infinite; animation-delay: var(--d); }
-  .hiw-break { animation: hiw-break 12s cubic-bezier(0.34, 1.3, 0.64, 1) infinite; }
+  /* Stage 1: the feed rolls and the count climbs with it. */
+  .hiw-roll { animation: hiw-roll 15s linear infinite; }
+  .hiw-chip-n { animation: hiw-count 15s steps(1) infinite; }
+  .hiw-n0 { animation-delay: 0.2s; }
+  .hiw-n1 { animation-delay: 1.3s; }
+  .hiw-n2 { animation-delay: 2.4s; }
+  .hiw-n3 { animation: hiw-count-last 15s steps(1) infinite; animation-delay: 3.5s; }
 
-  /* Inside beat three: the lines are typed one after another. */
-  .hiw-typed { animation: hiw-type 12s ease-out infinite; }
-  .hiw-t0 { animation-delay: 8.2s; }
-  .hiw-t1 { animation-delay: 8.6s; }
-  .hiw-t2 { animation-delay: 9s; }
-  .hiw-t3 { animation-delay: 9.4s; }
+  /* Stage 2: ordinary posts land on the median, then one leaves it. The
+     break is held for two full seconds — it is the whole product, and the
+     first version gave it the same weight as everything else. */
+  .hiw-dot { animation: hiw-land 15s ease-out infinite; animation-delay: var(--d); }
+  .hiw-break { animation: hiw-break 15s cubic-bezier(0.34, 1.4, 0.64, 1) infinite; }
+
+  /* Stage 3: two lines typed, with a caret that runs ahead of them. */
+  .hiw-typed { animation: hiw-type 15s ease-out infinite; }
+  .hiw-t0 { animation-delay: 10.5s; }
+  .hiw-t1 { animation-delay: 11.4s; }
+  .hiw-caret { animation: hiw-caret 15s steps(1) infinite; animation-delay: 10.4s; }
 }
 
-/* One slice visible, the rest hidden. Delay places each element's slice. */
-@keyframes hiw-beat {
-  0%      { opacity: 0; }
-  3%, 30% { opacity: 1; }
-  33%,100%{ opacity: 0; }
+/* Lit for its stage, dim otherwise. Never fully hidden — a stage you cannot
+   see is a stage you cannot understand. */
+@keyframes hiw-lit {
+  0%          { opacity: 0.42; }
+  4%, 30%     { opacity: 1; }
+  34%, 100%   { opacity: 0.42; }
 }
-/* 7.5% of twelve seconds is 0.9s — exactly one slot, so only one number is
-   ever on screen. The last one holds until the beat ends rather than blinking
-   out and leaving the panel empty. */
+@keyframes hiw-flow {
+  0%, 100%    { opacity: 0.2; }
+  3%, 8%      { opacity: 1; }
+}
+@keyframes hiw-roll {
+  0%, 3%      { transform: translateY(0); }
+  30%, 100%   { transform: translateY(-114px); }
+}
+/* One slot each, so two numbers are never on screen together. */
 @keyframes hiw-count {
   0%          { opacity: 0; }
-  0.5%, 7%    { opacity: 1; }
-  7.5%, 100%  { opacity: 0; }
+  0.4%, 6.6%  { opacity: 1; }
+  7%, 100%    { opacity: 0; }
 }
 @keyframes hiw-count-last {
   0%          { opacity: 0; }
-  0.5%, 9.5%  { opacity: 1; }
-  10%, 100%   { opacity: 0; }
+  0.4%, 9%    { opacity: 1; }
+  9.4%, 100%  { opacity: 0; }
 }
-@keyframes hiw-roll {
-  0%, 4%   { transform: translateY(0); }
-  28%,100% { transform: translateY(-120px); }
-}
-@keyframes hiw-settle {
-  0%, 33%  { transform: translateY(-16px); opacity: 0; }
-  40%      { transform: translateY(0); opacity: 1; }
-  62%,100% { transform: translateY(0); opacity: 1; }
+@keyframes hiw-land {
+  0%, 33%     { transform: translateY(-14px); opacity: 0; }
+  40%, 64%    { transform: translateY(0); opacity: 1; }
+  68%, 100%   { transform: translateY(0); opacity: 0.35; }
 }
 @keyframes hiw-break {
-  0%, 40%  { transform: translateY(88px); opacity: 0; }
-  48%      { opacity: 1; }
-  56%,62%  { transform: translateY(0); opacity: 1; }
-  70%,100% { transform: translateY(0); opacity: 0; }
+  0%, 42%     { transform: translateY(46px); opacity: 0; }
+  50%, 64%    { transform: translateY(0); opacity: 1; }
+  70%, 100%   { transform: translateY(0); opacity: 0.35; }
 }
 @keyframes hiw-type {
-  0%       { transform: scaleX(0); opacity: 0; }
-  2%, 22%  { transform: scaleX(1); opacity: 1; }
-  26%,100% { transform: scaleX(1); opacity: 0; }
+  0%          { transform: scaleX(0); opacity: 0; }
+  1.5%, 26%   { transform: scaleX(1); opacity: 1; }
+  30%, 100%   { transform: scaleX(1); opacity: 0.3; }
 }
+@keyframes hiw-caret {
+  0%, 100%    { opacity: 0; }
+  0.5%, 3%    { opacity: 1; }
+  3.5%, 6%    { opacity: 0; }
+  6.5%, 9%    { opacity: 1; }
+  9.5%, 14%   { opacity: 0; }
+}
+
 .auth-card { padding: 34px 32px; }
 .auth-brand { display: flex; align-items: center; gap: 10px; margin-bottom: 22px; }
 .auth-card h1 { font-size: 23px; margin: 0 0 6px; }
