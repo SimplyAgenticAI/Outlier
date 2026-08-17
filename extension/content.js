@@ -244,143 +244,17 @@
     return "scan";      // nothing identified yet — never claim a kind
   }
 
-  /* The groups this account already belongs to.
-   *
-   * Most people are in dozens and remember six, so the hardest question the
-   * dashboard asks a new user — which groups should I scan — is usually
-   * answered by a list Facebook is already showing them. This reads that
-   * list. It is the user's own membership, on a page they are looking at,
-   * which is the same footing as everything else this extension reads.
-   *
-   * Structural selectors only: links whose href is a group. No class names,
-   * no layout assumptions, no ordering assumptions — Facebook renames those
-   * constantly and every previous attempt in this file to depend on them has
-   * had to be undone.
-   *
-   * Nothing here is sent anywhere but the user's own dashboard, and it is
-   * never shown to another account. Which groups somebody is in says what
-   * they care about, and that is not ours to publish.
-   */
   /* Paths under /groups/ that are not a group.
    *
-   * Used twice, and it matters both times. When harvesting, these are links
-   * to Facebook's own pages rather than to somebody's group. When detecting
-   * the source, standing on one of them is not standing in a group — and
-   * only "feed" was excluded, so /groups/joins/ resolved to a group called
-   * "joins". A scan there filed posts under a group that does not exist, and
-   * the joins page is exactly where the harvest instructions now send people.
+   * Standing on one of these is not standing in a group. Only "feed" used to
+   * be excluded, so /groups/joins/ resolved to a group called "joins" and a
+   * scan started there filed posts under a group that does not exist.
    */
   var GROUP_LIST_SKIP = {
     feed: 1, create: 1, discover: 1, joins: 1, "your-groups": 1, browse: 1,
     search: 1, notifications: 1, invites: 1, requests: 1
   };
 
-  function harvestGroups() {
-    var found = {};
-    var links = document.querySelectorAll('a[href*="/groups/"]');
-
-    for (var i = 0; i < links.length; i++) {
-      var href = links[i].getAttribute("href") || "";
-      var match = href.match(/\/groups\/([^/?#]+)/);
-      if (!match) continue;
-
-      var slug = groupKey(match[1]);
-      if (!slug || GROUP_LIST_SKIP[slug]) continue;
-
-      // The name is the link's own text. A link with none is an icon or an
-      // image wrapper pointing at the same group, and the text-bearing one is
-      // usually right beside it — so a nameless hit never overwrites a named.
-      var name = (links[i].innerText || "").trim().replace(/\s+/g, " ");
-      if (name.length > 120) name = "";
-      // A count badge rides along on some rows: "Cat Memes 12+".
-      name = name.replace(/\s+\d+\+?$/, "").trim();
-
-      var key = "group:" + slug;
-      if (!found[key] || (!found[key].name && name)) {
-        found[key] = {
-          fb_id: key,
-          name: name,
-          url: location.origin + "/groups/" + match[1].replace(/\/+$/, "")
-        };
-      }
-    }
-
-    var list = [];
-    for (var id in found) {
-      if (Object.prototype.hasOwnProperty.call(found, id)) list.push(found[id]);
-    }
-    return list;
-  }
-
-  /* The button answers on itself.
-   *
-   * It only ever wrote a line into the panel log, which is easy to miss
-   * entirely — so a harvest that worked and a harvest that did nothing looked
-   * identical from the outside, and the report was that pressing it did
-   * nothing at all. Success, emptiness and failure now each change the label,
-   * which cannot be missed and needs no log to be read.
-   */
-  var groupsBtn = null;
-
-  function sayGroups(text, revert) {
-    if (!groupsBtn) return;
-    groupsBtn.textContent = text;
-    if (revert) {
-      setTimeout(function () {
-        if (groupsBtn) groupsBtn.textContent = "Find my groups";
-      }, 4000);
-    }
-  }
-
-  function sendGroupList() {
-    var groups = harvestGroups();
-
-    if (!groups.length) {
-      sayGroups("No groups on this page", true);
-      logLine("No groups here — open facebook.com/groups/joins/");
-      renderHud();
-      return;
-    }
-    if (!contextAlive()) { handleOrphaned(); return; }
-
-    sayGroups("Sending " + groups.length + "…");
-    logLine("Found " + groups.length + " group" + (groups.length === 1 ? "" : "s") + " — sending");
-    renderHud();
-
-    chrome.runtime.sendMessage(
-      { type: "OUTLIER_GROUPS", groups: groups },
-      function (response) {
-        if (chrome.runtime.lastError) {
-          STATS.lastError = "Extension worker asleep — press it again";
-          sayGroups("Failed — press again", true);
-        } else if (!response || !response.ok) {
-          STATS.lastError = (response && response.error) || "Dashboard rejected the list";
-          sayGroups("Failed — see the panel", true);
-        } else {
-          logLine("→ " + groups.length + " sent, " + (response.added || 0) + " new");
-          STATS.lastError = null;
-          sayGroups("Sent " + groups.length + " groups", true);
-        }
-        renderHud();
-      }
-    );
-  }
-
-  /* Offer it where it applies, instead of waiting to be discovered.
-   *
-   * Somebody standing on their own list of groups is one press from a
-   * dashboard worth using, and had no way to know the button existed.
-   */
-  function offerGroupHarvest() {
-    if (!groupsBtn) return;
-    if (!/^\/groups\/(joins|feed)\b/i.test(location.pathname)) return;
-
-    var count = harvestGroups().length;
-    if (!count) return;
-    groupsBtn.textContent = "Send these " + count + " groups";
-    logLine(count + " groups on this page — press Send to add them");
-    renderHud();
-  }
 
   function detectSource() {
     var url = location.href;
@@ -3223,15 +3097,7 @@
     var dash = document.createElement("button");
     dash.textContent = "Open dashboard";
 
-    // A button rather than an automatic sweep. This reads markup nobody here
-    // can see, and a harvest that silently found nothing is indistinguishable
-    // from one that worked — pressing it means the count comes back while the
-    // user is still looking at the page it came from.
-    var findGroups = document.createElement("button");
-    findGroups.textContent = "Find my groups";
-    findGroups.title = "Send the groups you belong to, so the dashboard can rank them";
-
-    [manual, dash, findGroups].forEach(function (button) {
+    [manual, dash].forEach(function (button) {
       styleEl(button, {
         flex: "1", padding: "0.65em", borderRadius: "8px",
         border: "1px solid rgba(110,231,183,0.24)", cursor: "pointer",
@@ -3240,10 +3106,6 @@
     });
 
     manual.addEventListener("click", function () { scanPosts(); flush(); });
-    findGroups.addEventListener("click", sendGroupList);
-    // Held so the button can report its own result, and so the offer below
-    // can relabel it on a page where it applies.
-    groupsBtn = findGroups;
     dash.addEventListener("click", function () {
       chrome.storage.local.get(["endpoint"], function (state) {
         window.open(state.endpoint || "http://localhost:5050", "_blank");
@@ -3253,11 +3115,6 @@
     rowBtns.appendChild(manual);
     rowBtns.appendChild(dash);
 
-    // Its own row: three buttons across a 300px panel leaves none of them
-    // readable, and this one has the longest label.
-    var rowGroups = document.createElement("div");
-    styleEl(rowGroups, { display: "flex", marginTop: "0.5em", flexShrink: "0" });
-    rowGroups.appendChild(findGroups);
 
 
     // Stats and log share one scrollable region; the buttons are pinned below
@@ -3284,7 +3141,6 @@
     content.appendChild(scroller);
     content.appendChild(hudBtn);
     content.appendChild(rowBtns);
-    content.appendChild(rowGroups);
 
     hud.appendChild(header);
     hud.appendChild(content);
@@ -3832,9 +3688,6 @@
    * capturing anything from it. countPostsOnScreen only looks.
    */
   setTimeout(function () { countPostsOnScreen(); renderHud(); }, 1500);
-  // After Facebook has rendered its list, not before — the groups page fills
-  // in progressively and a count taken on load is always zero.
-  setTimeout(offerGroupHarvest, 2500);
   setInterval(function () {
     if (!autoScrolling) { countPostsOnScreen(); renderHud(); }
   }, 2500);

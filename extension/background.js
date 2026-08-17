@@ -119,58 +119,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;  // keep the channel open for the async reply
   }
 
-  if (message.type === "OUTLIER_GROUPS") {
-    handleGroups(message).then(sendResponse);
-    return true;
-  }
-
   if (message.type === "OUTLIER_PING") {
     testConnection().then(sendResponse);
     return true;
   }
 });
 
-/* The user's own group list, on its own endpoint.
- *
- * Not folded into /api/capture: these are not posts, they carry no
- * engagement, and nothing here may ever reach the scoring path — a group
- * nobody has scanned must not influence a baseline. A separate endpoint makes
- * that impossible rather than merely unlikely.
- */
-async function handleGroups(message) {
-  const endpoint = await getEndpoint();
-
-  if (!(await hasHostPermission(endpoint))) {
-    return {
-      ok: false,
-      error: "No Chrome permission for " + endpoint + " — re-save it in the popup"
-    };
-  }
-
-  try {
-    const apiKey = await getApiKey();
-    if (!apiKey) {
-      return {
-        ok: false,
-        error: "Sign in at " + endpoint + " in this browser — the key is then automatic."
-      };
-    }
-
-    const response = await fetch(`${endpoint}/api/my-groups`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", "X-Outlier-Key": apiKey },
-      body: JSON.stringify({ groups: message.groups })
-    });
-
-    if (!response.ok) {
-      return { ok: false, error: `Dashboard returned ${response.status}` };
-    }
-    const data = await response.json();
-    return { ok: true, added: data.added || 0, total: data.total || 0 };
-  } catch (error) {
-    return { ok: false, error: "Could not reach " + endpoint };
-  }
-}
 
 /* One key refresh at a time, shared by everyone who asks. Batches run
  * concurrently and discover a stale key together; each asking separately
