@@ -85,23 +85,28 @@
     </div>
 
     {# The figures are consistent, deliberately. Weighted engagement is
-       reactions + 3x comments + 5x shares, and the two posts from the same
-       group share that group's typical — so anyone who checks the arithmetic
-       finds it holds. A landing page that invents numbers for a product whose
-       entire pitch is honest numbers would be the wrong first impression. #}
+       reactions + 3x comments + 5x shares, the two posts from the same group
+       share that group's typical, and every multiple below is that sum divided
+       by that typical — so anyone who checks the arithmetic finds it holds. A
+       landing page that invents numbers, for a product whose entire pitch is
+       honest numbers, would be the wrong first impression.
+
+       Ampersands are written bare. Writing "&amp;" here sent it through Jinja's
+       autoescape a second time and the group rendered on screen as the literal
+       "Title &amp; Escrow Pros". #}
     {% for row in [
-        {"mult": "3.4", "tier": "breakout", "label": "Breakout", "arc": 88,
-         "author": "Dana Whitlock", "group": "Title &amp; Escrow Pros", "type": "text", "age": "2d",
+        {"mult": "28.2", "tier": "breakout", "label": "Breakout", "arc": 94,
+         "author": "Dana Whitlock", "group": "Title & Escrow Pros", "type": "text", "age": "2d",
          "caption": "The part of closing nobody warns first-time buyers about",
-         "typical": "251", "r": "412", "c": "96", "s": "31", "bar": 92},
-        {"mult": "1.9", "tier": "strong", "label": "Strong", "arc": 54,
+         "typical": "118", "r": "1,640", "c": "352", "s": "126", "bar": 96},
+        {"mult": "3.8", "tier": "strong", "label": "Strong", "arc": 62,
          "author": "Marcus Reyes", "group": "Realtor Growth Lab", "type": "photo", "age": "5d",
          "caption": "Three things I stopped doing that doubled my referrals",
-         "typical": "331", "r": "455", "c": "38", "s": "12", "bar": 58},
-        {"mult": "0.7", "tier": "quiet", "label": "Below median", "arc": 20,
-         "author": "Priya Raman", "group": "Title &amp; Escrow Pros", "type": "link", "age": "1w",
+         "typical": "640", "r": "1,910", "c": "104", "s": "45", "bar": 64},
+        {"mult": "0.6", "tier": "quiet", "label": "Below median", "arc": 18,
+         "author": "Priya Raman", "group": "Title & Escrow Pros", "type": "link", "age": "1w",
          "caption": "New rate sheet for August is up on the site",
-         "typical": "251", "r": "140", "c": "8", "s": "2", "bar": 21}] %}
+         "typical": "118", "r": "44", "c": "6", "s": "1", "bar": 19}] %}
     <article class="lpc lpc-{{ row.tier }}">
       <div class="lpc-badge">
         <svg viewBox="0 0 52 52" aria-hidden="true">
@@ -156,20 +161,21 @@
       Sort by raw engagement and the biggest groups win every time — you end up
       reading a 40,000-member group's average Tuesday. {{ app_name }} measures how far
       each post beat the typical post <em>in its own group</em>, then ranks on that
-      multiple. A 900-reaction post in a group that usually sees 800 is noise.
-      A 240-reaction post in a group that usually sees 40 is a formula worth stealing.
+      multiple. A 1,900-reaction post in a group that does that every week is noise.
+      A 1,600-reaction post in a group that usually sees a hundred is a formula
+      worth stealing.
     </p>
 
     <div class="lp-figure">
       <svg viewBox="0 0 560 210" class="lp-baseline" role="img"
            aria-label="Two groups with different typical engagement. In each, the post that beat its own group's median by the widest multiple is highlighted.">
         {% for group in [
-            {"x": 20,  "label": "Group A · 210 typical", "median": 150,
+            {"x": 20,  "label": "Title & Escrow Pros · 118 typical", "median": 150,
              "dots": [[46,156],[76,146],[106,158],[136,142],[166,152]],
-             "peak": [200, 96], "mult": "3.4x"},
-            {"x": 300, "label": "Group B · 2,900 typical", "median": 150,
+             "peak": [200, 62], "mult": "28.2x"},
+            {"x": 300, "label": "Realtor Growth Lab · 640 typical", "median": 150,
              "dots": [[326,148],[356,138],[386,152],[416,144],[446,140]],
-             "peak": [480, 128], "mult": "1.2x"}] %}
+             "peak": [480, 124], "mult": "3.8x"}] %}
         <g>
           <rect class="lp-bl-frame" x="{{ group.x }}" y="18" width="240" height="174" rx="12"/>
           <line class="lp-bl-median" x1="{{ group.x + 12 }}" y1="{{ group.median }}"
@@ -180,9 +186,9 @@
           {% endfor %}
           <line class="lp-bl-stem" x1="{{ group.peak[0] }}" y1="{{ group.median }}"
                 x2="{{ group.peak[0] }}" y2="{{ group.peak[1] }}"/>
-          <circle class="lp-bl-peak {{ 'is-win' if group.mult == '3.4x' }}"
+          <circle class="lp-bl-peak {{ 'is-win' if loop.first }}"
                   cx="{{ group.peak[0] }}" cy="{{ group.peak[1] }}" r="9"/>
-          <text class="lp-bl-mult {{ 'is-win' if group.mult == '3.4x' }}"
+          <text class="lp-bl-mult {{ 'is-win' if loop.first }}"
                 x="{{ group.peak[0] }}" y="{{ group.peak[1] - 16 }}">{{ group.mult }}</text>
         </g>
         {% endfor %}
