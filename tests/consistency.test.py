@@ -125,9 +125,16 @@ def main():
 
     print("every page still renders")
     for path in ["/", "/groups", "/library", "/ideas", "/settings",
-                 "/capture", "/account", "/sage", "/?kind=comment",
+                 "/capture", "/account", "/sage", "/playbook", "/?kind=comment",
                  "/?tier=breakout", "/?page=2", "/groups/1?kind=comment"]:
         check("GET %s" % path, c.get(path).status_code, 200)
+
+    # Public pages, fetched with no session at all. "/" is in the list above
+    # signed IN, so without this the landing page nobody has an account yet is
+    # the one page never rendered by a test.
+    anon = app.app.test_client()
+    for path in ["/", "/welcome", "/login", "/register", "/pricing"]:
+        check("GET %s signed out" % path, anon.get(path).status_code, 200)
 
     shutil.rmtree(tmp, ignore_errors=True)
 

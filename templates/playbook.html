@@ -1,0 +1,234 @@
+{% extends "base.html" %}
+{% block title %}Playbook — {{ app_name }}{% endblock %}
+
+{# How to use the thing well, which is a different question from what it does.
+   The app can rank posts and draft variants; it cannot tell you which winner
+   suits your voice, and it should say so rather than imply the top row is
+   always the right row. #}
+{% block content %}
+<section class="feed-head">
+  <h1>Playbook</h1>
+  <p class="sub">
+    {{ app_name }} finds what outperformed. What you do with it is judgement —
+    here is the judgement, written down.
+  </p>
+</section>
+
+<section class="pb">
+
+  <article class="glass pb-block reveal">
+    <h2><span class="pb-step">1</span> Choosing which winner to work from</h2>
+
+    <div class="pb-tip">
+      <h3>Don't just take the top number</h3>
+      <p>
+        The highest multiple is the loudest post in your feed, not automatically
+        the right one for you. Read down the list for the one you could plausibly
+        have written yourself. A 28× post on a subject you have no standing to
+        talk about will land worse than a 4× post that is genuinely yours — your
+        audience can tell the difference immediately, even when they could not
+        explain how.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Ask whether the mechanic repeats</h3>
+      <p>
+        Some posts win on a moment — a news story, a bit of drama, a photo that
+        happened once. Those are unrepeatable and there is nothing in them to
+        reuse. The question to ask of any winner is: <b>would this still work next
+        month with different specifics?</b> If the answer is no, keep scrolling.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Read the mix, not the total</h3>
+      <p>
+        Two posts with identical totals can have done completely different things,
+        and they call for different follow-ups:
+      </p>
+      <ul class="pb-list">
+        <li><b>Comments dominate</b> — it was answerable. A question, a gap, an
+          opinion worth arguing with, an invitation to share your own version.</li>
+        <li><b>Shares dominate</b> — it was useful, validating, or something people
+          wanted to be seen agreeing with. A different lever entirely.</li>
+        <li><b>Reactions only</b> — people agreed on sight and moved on. The hook
+          did all the work and the body did not ask anything of them.</li>
+      </ul>
+      <p>
+        Decide which of those you actually want before you pick a post to model.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Mind the young posts and the thin groups</h3>
+      <p>
+        A post under 48 hours old is flagged as recent because its numbers are
+        still filling in — a high multiple there may not survive the week. And a
+        group needs at least {{ min_sample }} measured posts before its median means
+        anything; below that, {{ app_name }} says so rather than scoring it, and you
+        should treat those groups as unranked rather than unimpressive.
+      </p>
+    </div>
+  </article>
+
+  <article class="glass pb-block reveal">
+    <h2><span class="pb-step">2</span> Making it yours</h2>
+
+    <div class="pb-tip">
+      <h3>Never post it word for word</h3>
+      <p>
+        Two reasons, and the second matters more. First, you are usually posting
+        into the same group it came from, in front of the same people who saw the
+        original — they will recognise it. Second, it would not work anyway: a
+        large part of why that post landed is <em>who</em> posted it and when. The
+        words are the least transferable thing about it. You are reusing the
+        mechanic, not the copy.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Flip it</h3>
+      <p>
+        The strongest and easiest reframe: keep the subject, reverse the stance.
+        If the winner was somebody saying what they cannot stand about something,
+        yours is why you have quietly come to love it. Same nerve, opposite hand
+        on it — and the people who agreed with the original will argue with yours,
+        which is the same engagement arriving through a different door.
+      </p>
+      <p>Other turns on the same idea:</p>
+      <ul class="pb-list">
+        <li><b>Agree and extend</b> — "everyone's saying X, and here's the part
+          nobody's mentioned."</li>
+        <li><b>The counterexample</b> — the case where the popular advice fails.</li>
+        <li><b>Change the altitude</b> — a broad question that worked becomes one
+          specific story, or a specific story becomes the general pattern.</li>
+        <li><b>Change who it's for</b> — the same insight aimed at the beginner
+          instead of the veteran reads as a completely different post.</li>
+      </ul>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Steal the shape, not the subject</h3>
+      <p>
+        Often the transferable thing is the <em>format</em> rather than the topic:
+        the list of things you stopped doing, the confession, the before and after,
+        the question that hides a false binary, the number nobody expected. Those
+        shapes work across subjects. Note the shape, then fill it with your own
+        material.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>One mechanic per post</h3>
+      <p>
+        When three different posts win in a group, the temptation is to combine
+        them. Don't — a post doing three clever things at once usually does none
+        of them clearly. Pick the mechanic, build the whole post on it, and keep
+        the other two for next week.
+      </p>
+    </div>
+  </article>
+
+  <article class="glass pb-block reveal">
+    <h2><span class="pb-step">3</span> Working with the AI</h2>
+
+    <div class="pb-tip">
+      <h3>Your own GPT may write it better than ours — use both</h3>
+      <p>
+        This is worth saying plainly rather than pretending otherwise. If you have
+        an assistant you have been training for months — your own GPT, your own
+        project, your own custom instructions — it knows your voice far better
+        than anything here can, because you taught it.
+      </p>
+      <p>
+        The two know different things, so use each for what it has:
+      </p>
+      <ul class="pb-list">
+        <li><b>{{ app_name }} knows the data</b> — which post beat its group, by how
+          much, what the engagement mix says about why, and which mechanic is
+          worth transplanting.</li>
+        <li><b>Your assistant knows your voice</b> — the rhythm, the vocabulary,
+          the things you would never say.</li>
+      </ul>
+      <p>
+        A workflow that works well: find the winner here, screenshot it or copy the
+        copy, drop it into your own assistant with your usual instructions, and let
+        it write in the voice it already knows. Use {{ app_name }} to decide
+        <em>what</em> to write, and whichever writer you trust most to actually
+        write it.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Fill in your brand profile</h3>
+      <p>
+        Remix reads the profile in
+        <a href="{{ url_for('settings') }}">Settings</a> — what you do, who you
+        write for, how you sound. Without it, it can only anchor on the group the
+        post came from, so it is guessing at your subject. With it, the variants
+        come back about your world instead of somebody else's.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Use the steer field, and be blunt in it</h3>
+      <p>
+        The <b>Steer it</b> box on any post outranks everything else in the prompt.
+        One line is enough — <em>"keep it about title work, no emoji, much
+        shorter"</em>. If a variant comes back wrong, steer it rather than
+        regenerating and hoping.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>The blanks in square brackets are deliberate</h3>
+      <p>
+        Remix will not invent your clients, your numbers or your history, so where
+        a first-person post needs a specific it leaves you
+        <em>[the deal that fell through]</em> to fill. Fill those with something
+        true. That one concrete detail is usually the entire reason a personal post
+        lands, and it is the one thing no model can supply for you.
+      </p>
+    </div>
+  </article>
+
+  <article class="glass pb-block reveal">
+    <h2><span class="pb-step">4</span> Building the habit</h2>
+
+    <div class="pb-tip">
+      <h3>Capture more than feels necessary</h3>
+      <p>
+        Scoring is comparative — a median needs a sample before it means anything.
+        Browsing your groups normally for a week with the extension on gives you a
+        far more trustworthy baseline than a single deliberate scan, and it costs
+        you nothing extra because you were going to scroll anyway.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Keep a swipe file</h3>
+      <p>
+        Save the posts you would genuinely write a version of, not just the ones
+        with big numbers. Over a month that becomes a shortlist of formats proven
+        in <em>your</em> groups — which is worth more than any generic list of
+        hooks, because it was measured where you actually post.
+      </p>
+    </div>
+
+    <div class="pb-tip">
+      <h3>Watch your own posts too</h3>
+      <p>
+        Scan your own page or profile and your posts get captured and scored on the
+        same terms as everyone else's. That closes the loop: you can see whether
+        the version you wrote actually beat the group, instead of guessing.
+      </p>
+    </div>
+  </article>
+
+  <p class="pb-foot">
+    None of this is a rule. It is what tends to work — if something here
+    consistently doesn't for your audience, believe your audience.
+  </p>
+</section>
+{% endblock %}

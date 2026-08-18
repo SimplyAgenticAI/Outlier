@@ -1125,6 +1125,18 @@ def account():
     )
 
 
+@app.route("/playbook")
+@auth.login_required
+def playbook():
+    """How to use the thing well — a different question from what it does.
+
+    The app can rank posts and draft variants; it cannot tell you which winner
+    suits your voice. Leaving that unsaid implies the top row is always the
+    right row, which is the most common way to use this badly.
+    """
+    return render_template("playbook.html", active="playbook")
+
+
 @app.route("/welcome")
 def landing():
     """The product page, always — signed in or not.
