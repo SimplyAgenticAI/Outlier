@@ -74,6 +74,80 @@
     </p>
   </section>
 
+  {# ------------------------------------------------------- the product itself
+     Diagrams explain the idea; this shows the thing they will actually look at
+     every day. Built from its own .lpc- classes rather than the live post card,
+     which expects real rows and the scripts that animate them. #}
+  <section class="lp-proof" aria-label="A preview of the ranked feed">
+    <div class="lp-proof-head">
+      <span class="lp-proof-title">Outlier feed</span>
+      <span class="lp-proof-note">Ranked by how far each post beat the median in its own group</span>
+    </div>
+
+    {# The figures are consistent, deliberately. Weighted engagement is
+       reactions + 3x comments + 5x shares, and the two posts from the same
+       group share that group's typical — so anyone who checks the arithmetic
+       finds it holds. A landing page that invents numbers for a product whose
+       entire pitch is honest numbers would be the wrong first impression. #}
+    {% for row in [
+        {"mult": "3.4", "tier": "breakout", "label": "Breakout", "arc": 88,
+         "author": "Dana Whitlock", "group": "Title &amp; Escrow Pros", "type": "text", "age": "2d",
+         "caption": "The part of closing nobody warns first-time buyers about",
+         "typical": "251", "r": "412", "c": "96", "s": "31", "bar": 92},
+        {"mult": "1.9", "tier": "strong", "label": "Strong", "arc": 54,
+         "author": "Marcus Reyes", "group": "Realtor Growth Lab", "type": "photo", "age": "5d",
+         "caption": "Three things I stopped doing that doubled my referrals",
+         "typical": "331", "r": "455", "c": "38", "s": "12", "bar": 58},
+        {"mult": "0.7", "tier": "quiet", "label": "Below median", "arc": 20,
+         "author": "Priya Raman", "group": "Title &amp; Escrow Pros", "type": "link", "age": "1w",
+         "caption": "New rate sheet for August is up on the site",
+         "typical": "251", "r": "140", "c": "8", "s": "2", "bar": 21}] %}
+    <article class="lpc lpc-{{ row.tier }}">
+      <div class="lpc-badge">
+        <svg viewBox="0 0 52 52" aria-hidden="true">
+          <circle class="lpc-track" cx="26" cy="26" r="22"/>
+          <circle class="lpc-fill" cx="26" cy="26" r="22"
+                  style="stroke-dasharray: {{ (138.2 * row.arc / 100) | round(1) }} 138.2"/>
+        </svg>
+        <span class="lpc-num">{{ row.mult }}<span class="lpc-x">&times;</span></span>
+        <span class="lpc-tier">{{ row.label }}</span>
+      </div>
+
+      <div class="lpc-main">
+        <div class="lpc-meta">
+          <span class="lpc-author">{{ row.author }}</span>
+          <span class="lpc-sep">&middot;</span>
+          <span class="lpc-group">{{ row.group }}</span>
+          <span class="lpc-sep">&middot;</span>
+          <span class="lpc-chip">{{ row.type }}</span>
+          <span class="lpc-age">{{ row.age }}</span>
+        </div>
+
+        <p class="lpc-caption">{{ row.caption }}</p>
+
+        <div class="lpc-bar">
+          <span class="lpc-bar-track"><span class="lpc-bar-fill" style="width: {{ row.bar }}%"></span></span>
+          <span class="lpc-bar-median" aria-hidden="true"></span>
+        </div>
+
+        <div class="lpc-counts">
+          <b>{{ row.r }}</b> reactions
+          <b>{{ row.c }}</b> comments
+          <b>{{ row.s }}</b> shares
+          <span class="lpc-typical">vs {{ row.typical }} typical for this group</span>
+        </div>
+      </div>
+    </article>
+    {% endfor %}
+
+    <p class="lp-proof-foot">
+      Sample data, drawn the way the real feed draws it — and look at the
+      second row. It pulled <em>more</em> reactions than the one above it and
+      still ranks lower, because its group does that on a normal day. Every
+      most-engagement leaderboard puts those two in the wrong order.
+    </p>
+  </section>
+
   {# ------------------------------------------------- the actual difference #}
   <section class="lp-section">
     <span class="lp-tag">Why the ranking is different</span>

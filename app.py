@@ -298,8 +298,7 @@ def feed():
     because url_for("feed") is spread across every template.
     """
     if not auth.current_user():
-        return render_template("landing.html", allow_signups=ALLOW_SIGNUPS,
-                               version=APP_VERSION)
+        return landing()
 
     tier_filter = request.args.get("tier", "all")
     show_samples = request.args.get("samples") == "1"
@@ -1124,6 +1123,19 @@ def account():
         version=APP_VERSION,
         active="account",
     )
+
+
+@app.route("/welcome")
+def landing():
+    """The product page, always — signed in or not.
+
+    "/" only shows this to signed-out visitors, which makes it invisible to the
+    one person most likely to want to look at it: the operator, who is signed
+    in on every device they own. This is also the URL to put in an email or an
+    ad, where the reader may well have an account already.
+    """
+    return render_template("landing.html", allow_signups=ALLOW_SIGNUPS,
+                           version=APP_VERSION)
 
 
 @app.route("/pricing")

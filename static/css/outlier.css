@@ -2213,6 +2213,86 @@ a.notif-item:hover { background: rgba(110, 231, 183, 0.06); }
 }
 .lp-reassure { margin-top: 16px; font-size: 13px; color: var(--text-faint); }
 
+/* The feed preview. Its own classes rather than .post-card, which expects
+   real rows plus the scripts that count the multiple up and sweep the ring. */
+.lp-proof {
+  margin: 0 0 8px; padding: 20px; border-radius: 18px;
+  background: var(--glass-solid); border: 1px solid var(--border);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+}
+.lp-proof-head {
+  display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+  padding: 0 4px 14px; border-bottom: 1px solid var(--border);
+}
+.lp-proof-title { font-size: 15px; font-weight: 680; }
+.lp-proof-note { font-size: 12.5px; color: var(--text-faint); }
+.lp-proof-foot { margin: 14px 4px 2px; font-size: 12.8px; line-height: 1.6; color: var(--text-faint); }
+.lp-proof-foot em { color: var(--text-muted); font-style: normal; font-weight: 660; }
+
+.lpc {
+  display: flex; gap: 16px; align-items: flex-start;
+  padding: 16px 4px; border-bottom: 1px solid var(--border);
+}
+.lpc:last-of-type { border-bottom: 0; }
+
+.lpc-badge { position: relative; flex: 0 0 62px; width: 62px; text-align: center; }
+.lpc-badge svg { width: 62px; height: 62px; transform: rotate(-90deg); display: block; }
+.lpc-track { fill: none; stroke: rgba(110, 231, 183, 0.12); stroke-width: 4; }
+.lpc-fill {
+  fill: none; stroke: var(--text-faint); stroke-width: 4; stroke-linecap: round;
+}
+.lpc-num {
+  position: absolute; top: 20px; left: 0; right: 0;
+  font-size: 15px; font-weight: 700; letter-spacing: -0.02em;
+}
+.lpc-x { font-size: 10px; opacity: 0.7; margin-left: 1px; }
+.lpc-tier {
+  display: block; margin-top: 4px;
+  font-size: 9.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--text-faint);
+}
+.lpc-breakout .lpc-fill { stroke: var(--emerald); filter: drop-shadow(0 0 6px rgba(52, 211, 153, 0.55)); }
+.lpc-breakout .lpc-num, .lpc-breakout .lpc-tier { color: var(--emerald); }
+.lpc-strong .lpc-fill { stroke: var(--emerald-dim); }
+.lpc-quiet { opacity: 0.62; }
+
+.lpc-main { flex: 1 1 auto; min-width: 0; }
+.lpc-meta {
+  display: flex; align-items: center; gap: 7px; flex-wrap: wrap;
+  font-size: 12px; color: var(--text-faint);
+}
+.lpc-author { color: var(--text); font-weight: 640; }
+.lpc-group { color: var(--emerald-dim); }
+.lpc-sep { opacity: 0.5; }
+.lpc-chip {
+  padding: 1px 7px; border-radius: 999px; font-size: 10px;
+  text-transform: uppercase; letter-spacing: 0.05em;
+  border: 1px solid var(--border); color: var(--text-muted);
+}
+.lpc-caption {
+  margin: 8px 0 11px; font-size: 14.5px; line-height: 1.45; color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.lpc-bar { position: relative; margin-bottom: 9px; }
+.lpc-bar-track {
+  display: block; height: 5px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05); overflow: hidden;
+}
+.lpc-bar-fill {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--emerald-dim), var(--emerald));
+}
+.lpc-quiet .lpc-bar-fill { background: var(--text-faint); }
+/* The median mark. Everything to its left is an ordinary day for that group. */
+.lpc-bar-median {
+  position: absolute; top: -3px; left: 50%; width: 1px; height: 11px;
+  background: var(--text-muted); opacity: 0.65;
+}
+
+.lpc-counts { font-size: 12px; color: var(--text-faint); display: flex; gap: 10px; flex-wrap: wrap; }
+.lpc-counts b { color: var(--text-muted); font-weight: 680; }
+.lpc-typical { color: var(--text-faint); opacity: 0.85; }
+
 .lp-section { padding: 56px 0; border-top: 1px solid var(--border); }
 .lp-section-tight { padding-bottom: 34px; }
 .lp-tag {
@@ -2276,14 +2356,29 @@ a.notif-item:hover { background: rgba(110, 231, 183, 0.06); }
   .lp-cards, .lp-cards-two { grid-template-columns: 1fr; }
 }
 @media (max-width: 560px) {
-  .lp-bar { padding: 11px 16px; }
+  .lp { padding: 0 15px 44px; }
+  .lp-bar { padding: 11px 15px; }
   .lp-bar-links { gap: 13px; }
   /* The brand parent line and Pricing both go rather than wrap the bar onto
      two rows — sign-in and the CTA are what this bar is for. */
   .lp-bar .brand-parent, .lp-bar-links a[href$="/pricing"] { display: none; }
-  .lp-hero { padding: 48px 0 40px; }
+  .lp-hero { padding: 44px 0 36px; }
   .lp-cta, .lp-cta-ghost { width: 100%; }
-  .lp-section { padding: 42px 0; }
+  .lp-section { padding: 40px 0; }
+
+  /* The feed preview is the one block with a fixed-width column in it, so it
+     is the one that overflows a narrow screen if left alone. */
+  .lp-proof { padding: 15px 13px; border-radius: 14px; margin-inline: -2px; }
+  .lpc { gap: 12px; padding: 14px 0; }
+  .lpc-badge { flex-basis: 50px; width: 50px; }
+  .lpc-badge svg { width: 50px; height: 50px; }
+  .lpc-num { top: 15px; font-size: 13px; }
+  .lpc-caption { font-size: 13.5px; }
+  /* Group name and post type carry the point; author and age are the first
+     things to go rather than let the meta row run to three lines. */
+  .lpc-meta .lpc-age, .lpc-meta .lpc-sep:first-of-type { display: none; }
+  .lpc-counts { gap: 8px; font-size: 11.5px; }
+  .lpc-typical { flex-basis: 100%; }
 }
 
 /* The operator's per-remix steer. Matches the brand form's field so the two
