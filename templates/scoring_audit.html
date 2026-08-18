@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}Scoring audit — {{ app_name }}{% endblock %}
+
+{# Whether the model that the whole product rests on actually works.
+   Read-only: it re-ranks in memory and writes nothing. #}
+{% block content %}
+<section class="feed-head">
+  <h1>Scoring audit</h1>
+  <p class="sub">
+    Every number the ranking stands on was chosen, not derived. This checks them
+    against your real captures. Nothing here writes to the database.
+  </p>
+</section>
+
+<div class="glass notice reveal sa-confidence sa-{{ report.confidence|replace(' ', '-') }}">
+  <b>{{ report.confidence|capitalize }}.</b> {{ report.confidence_note }}
+  {{ report.total_posts }} posts captured, {{ report.scoreable_count }} of them
+  scoreable, {{ report.measured_rate }}% with engagement actually read.
+</div>
+
+{# ------------------------------------------------------------- 1. weights #}
+<section class="glass sa-block reveal">
+  <h2>1. Do the weights matter?</h2>
+  <p class="sa-lede">
+    Today a share counts 5×, a comment 3×, a reaction 1×.
+    Those were a judgement call. Here is the same feed re-ranked under other
+    schemes — if the top {{ report.top_depth }} barely moves, the exact weights
+    are not load bearing and are not worth arguing about.
+  </p>
+
+  <table class="sa-table">
+    <thead>
+      <tr><th>Scheme</th><th>Weights</th><th>Same in top {{ report.top_depth }}</th>
+          <th>Mean move</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for s in report.schemes %}
+      <tr class="{{ 'sa-current' if s.name == 'current' }}">
+        <td><b>{{ s.name }}</b></td>
+        <td class="sa-num">{{ s.weights|join(' / ') }}</td>
+        <td class="sa-num">
+          {% if s.same_in_top is none %}—
+          {% else %}{{ s.same_in_top }} / {{ s.top_depth }}{% endif %}
+        </td>
+        <td class="sa-num">{{ s.mean_move if s.mean_move is not none else '—' }}</td>
+        <td class="sa-note">{{ s.note }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <p class="sa-verdict">
+    {% if report.weights_load_bearing %}
+      <b>The weights change the answer.</b> At least one scheme reorders your top
+      posts, which means 1/3/5 is doing real work — and that it deserves a better
+      justification than the one in the comments.
+    {% else %}
+      <b>The weights barely matter.</b> Every alternative — including counting all
+      three equally — produces the same top {{ report.top_depth }}. That is good
+      news: the ranking is driven by which posts genuinely outperformed their
+      group, not by the weighting. It also means tuning these numbers is not
+      where any effort should go.
+    {% endif %}
+  </p>
+</section>
+
+{# --------------------------------------------------------------- 2. tiers #}
+<section class="glass sa-block reveal">
+  <h2>2. Are the tiers meaningful?</h2>
+  <p class="sa-lede">
+    Breakout is 5× and up, strong 3×, above 1.5×, typical 0.5×. If nearly
+    everything lands in one band, the bands are decoration.
+  </p>
+  <div class="sa-tiers">
+    {% for tier, label in tier_labels.items() %}
+    {% set n = report.tiers.get(tier, 0) %}
+    <div class="sa-tier{{ ' is-dominant' if tier == report.tier_dominant }}">
+      <span class="sa-tier-n">{{ n }}</span>
+      <span class="sa-tier-l">{{ label }}</span>
+    </div>
+    {% endfor %}
+  </div>
+  <p class="sa-verdict">
+    {% if report.tier_concentration is none %}
+      Nothing is scoreable yet, so there is nothing to band.
+    {% elif report.tier_concentration >= 70 %}
+      <b>{{ report.tier_concentration }}% of banded posts are
+      "{{ tier_labels.get(report.tier_dominant, report.tier_dominant) }}".</b>
+      One band holding that much is not separating anything — the cutoffs want
+      moving toward where your data actually sits.
+    {% else %}
+      <b>Reasonably spread</b> — the largest band holds
+      {{ report.tier_concentration }}% of banded posts, so the cutoffs are
+      dividing your feed rather than labelling all of it the same.
+    {% endif %}
+    {% if report.at_cap %}
+      <br><b>{{ report.at_cap }} post(s) are pinned at the {{ max_multiple }}× cap.</b>
+      A post reaches the cap mainly when its group's baseline is close to
+      nothing, so treat these as a data-quality signal rather than as your best
+      posts.
+    {% endif %}
+  </p>
+</section>
+
+{# -------------------------------------------------------------- 3. floors #}
+<section class="glass sa-block reveal">
+  <h2>3. What are the floors excluding?</h2>
+  <p class="sa-lede">
+    A source needs {{ min_sample }} measured posts and a baseline of at least
+    {{ min_baseline }} before anything in it gets scored. Those two numbers decide
+    how much of your library is visible at all.
+  </p>
+  <table class="sa-table">
+    <thead>
+      <tr><th>Source</th><th>Posts</th><th>Measured</th><th>Baseline</th><th>Scored?</th></tr>
+    </thead>
+    <tbody>
+      {% for s in report.sources %}
+      <tr>
+        <td>{{ s.name }}</td>
+        <td class="sa-num">{{ s.posts }}</td>
+        <td class="sa-num {{ 'sa-warn' if s.measured < s.posts }}">{{ s.measured }}</td>
+        <td class="sa-num">{{ s.baseline }}</td>
+        <td>
+          {% if s.scoreable %}<span class="sa-yes">yes</span>
+          {% elif s.fails_sample %}<span class="sa-no">needs {{ min_sample }} measured</span>
+          {% else %}<span class="sa-no">baseline under {{ min_baseline }}</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="sa-verdict">
+    {{ report.sources_blocked_by_sample }} source(s) blocked for want of
+    measured posts, {{ report.sources_blocked_by_baseline }} for a baseline
+    below the floor.
+    {% if report.measured_rate is not none and report.measured_rate < 80 %}
+      <br><b>Only {{ report.measured_rate }}% of captures had their engagement
+      read.</b> That is the number to fix before tuning anything else — every
+      baseline above is computed from the posts that worked, and a source where
+      most extractions failed has a baseline describing a minority of it.
+    {% endif %}
+  </p>
+</section>
+
+{# --------------------------------------------------------------- 4. input #}
+<section class="glass sa-block reveal">
+  <h2>4. Is the input clean?</h2>
+  <p class="sa-lede">
+    Before V17.5 a bug copied the view count into the share count. Those rows
+    are weighted 5× and sit in their group's median, so each one distorts every
+    other post in the same source.
+  </p>
+  {% if report.suspect_share_rows %}
+  <p class="sa-verdict sa-bad">
+    <b>{{ report.suspect_share_rows }} row(s) still carry the bug</b>, across
+    {{ report.sources_touched_by_suspect }} source(s). Their shares exactly equal
+    their view count, which does not happen naturally.
+  </p>
+  <ul class="sa-suspects">
+    {% for s in report.suspect_examples %}
+    <li>post {{ s.id }} — {{ "{:,}".format(s.shares) }} shares in {{ s.source }}</li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <p class="sa-verdict">
+    <b>Clean.</b> No row has shares exactly equal to its view count, so nothing
+    stored is carrying the old share bug.
+  </p>
+  {% endif %}
+</section>
+{% endblock %}

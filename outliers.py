@@ -51,11 +51,20 @@ MAX_MULTIPLE = 99.9
 RECENT_HOURS = 48
 
 
-def weighted_engagement(post):
+def weighted_engagement(post, weights=None):
+    """Weighted engagement, optionally under a weight scheme other than ours.
+
+    The `weights` argument exists so the scoring audit can ask "would the
+    ranking change if shares were worth 10 instead of 5" while measuring the
+    REAL engine rather than a reimplementation of it. A copy would be free to
+    drift from this file and then reassure us about code nobody runs.
+    """
+    w_likes, w_comments, w_shares = weights or (
+        WEIGHT_LIKES, WEIGHT_COMMENTS, WEIGHT_SHARES)
     return (
-        (post["likes"] or 0) * WEIGHT_LIKES
-        + (post["comments"] or 0) * WEIGHT_COMMENTS
-        + (post["shares"] or 0) * WEIGHT_SHARES
+        (post["likes"] or 0) * w_likes
+        + (post["comments"] or 0) * w_comments
+        + (post["shares"] or 0) * w_shares
     )
 
 
@@ -111,8 +120,12 @@ def engagement_known(post):
     return bool(flag)
 
 
-def score_posts(posts):
+def score_posts(posts, weights=None):
     """Score every post against the baseline of its own source.
+
+    `weights` overrides the reaction/comment/share weighting for this call
+    only, so the scoring audit can re-rank under an alternative scheme without
+    mutating module state that concurrent requests share.
 
     `posts` are sqlite3.Row objects (or dicts) carrying at least:
     id, source_id, likes, comments, shares, posted_at.
@@ -135,7 +148,7 @@ def score_posts(posts):
         # it wrong — and the sample size has to shrink with them, or eight
         # unread posts would look like enough evidence to score against.
         measured = [p for p in group_posts if engagement_known(p)]
-        engagements = [weighted_engagement(p) for p in measured]
+        engagements = [weighted_engagement(p, weights) for p in measured]
         baseline = _median(engagements)
         mad = _mad(engagements, baseline)
 
@@ -148,7 +161,7 @@ def score_posts(posts):
         low_baseline = bool(measured) and baseline < floor
 
         for post in group_posts:
-            eng = weighted_engagement(post)
+            eng = weighted_engagement(post, weights)
 
             # A post whose counts were never read has a weighted engagement of
             # zero for want of data, not for want of performance. Scoring it

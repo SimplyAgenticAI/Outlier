@@ -1125,6 +1125,29 @@ def account():
     )
 
 
+@app.route("/admin/scoring")
+@auth.login_required
+def scoring_audit_page():
+    """Is the ranking model actually sound? Read-only.
+
+    Admin-gated not because the numbers are sensitive but because this is a
+    question about the product rather than about anyone's posts, and it reads
+    every row in the table to answer it.
+    """
+    if not _require_admin():
+        return render_template("403.html", version=APP_VERSION), 403
+
+    import scoring_audit
+    return render_template(
+        "scoring_audit.html",
+        active="admin",
+        report=scoring_audit.audit(_fetch_posts()),
+        tier_labels=outliers.TIER_LABELS,
+        max_multiple=outliers.MAX_MULTIPLE,
+        min_baseline=outliers.MIN_BASELINE,
+    )
+
+
 @app.route("/playbook")
 @auth.login_required
 def playbook():
