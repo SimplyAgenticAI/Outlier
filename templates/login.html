@@ -12,12 +12,11 @@
 <div class="ambient"></div>
 <canvas id="field" class="field" aria-hidden="true"></canvas>
 
-{# Wider on the login page only, so the explainer sits BESIDE the form rather
-   than pushing it down. Most traffic here is people who already have an
-   account and want the form exactly where it was. #}
-<main class="auth-shell auth-shell-wide">
-  {% include "_how_it_works.html" %}
-
+{# Just the form. The read/rank/write explainer used to sit beside it, back
+   when /login was the front door and this was the only page a stranger saw.
+   It now lives on the landing page at "/", where somebody deciding whether to
+   sign up actually lands, and this page is left to the one job it has. #}
+<main class="auth-shell">
   <div class="glass auth-card">
     <div class="auth-brand">
       <span class="brand-mark">

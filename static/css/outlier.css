@@ -1155,23 +1155,12 @@ select.kind-select option { color: initial; }
 .auth-body { display: grid; place-items: center; min-height: 100vh; }
 .auth-shell { position: relative; z-index: 1; width: 100%; max-width: 420px; padding: 24px; }
 
-/* ------------------------------------------------- how it works (login) */
+/* ------------------------------------------- how it works (landing page) */
 
-/* Two columns on the login page: the explainer takes the space that was
-   empty, and the form keeps its width and position exactly. */
-.auth-shell-wide {
-  max-width: 1000px;
-  display: grid; gap: 44px; align-items: center;
-  grid-template-columns: minmax(0, 1fr) 420px;
-}
-.auth-shell-wide .auth-card { max-width: 420px; }
-
-@media (max-width: 900px) {
-  /* Form FIRST on a narrow screen. Somebody returning to sign in should not
-     have to scroll past an explainer to reach the password field. */
-  .auth-shell-wide { grid-template-columns: 1fr; max-width: 460px; gap: 26px; }
-  .auth-shell-wide .hiw { order: 2; }
-}
+/* .auth-shell-wide lived here: a two-column login page with the explainer
+   beside the form. Both it and its 900px breakpoint went when the explainer
+   moved to the landing page, leaving /login back on the plain .auth-shell
+   that /register already used. */
 
 .hiw { min-width: 0; }
 .hiw-stage { width: 100%; max-width: 380px; height: auto; display: block; }
