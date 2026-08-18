@@ -888,8 +888,21 @@ def age_of(stamp):
 @app.route("/diagnostics")
 @auth.login_required
 def diagnostics():
+    import capture_health
+
+    # Evaluated on this page view rather than on a schedule, because there is
+    # no scheduler. The alert is global and throttled to one per day per shape
+    # of failure, so an admin opening Health is what makes the check run — and
+    # an admin opening Health is exactly when it should.
+    try:
+        capture_health.check_and_alert()
+    except Exception:            # never let monitoring take out the page
+        app.logger.exception("capture health check failed")
+
+    user = auth.current_user()
     return render_template(
         "diagnostics.html", version=APP_VERSION, active="diagnostics",
+        health=capture_health.report(user["id"] if user else None),
         **_diagnosis(),
     )
 

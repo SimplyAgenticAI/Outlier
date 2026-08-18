@@ -11,6 +11,58 @@
   </p>
 </section>
 
+{# Extraction quality now against extraction quality before. This is the check
+   that catches a Facebook markup change, which arrives silently: posts keep
+   being captured, they just stop having engagement or authors in them. #}
+<section class="glass sa-block reveal ch-panel ch-{{ health.state }}">
+  <h2>Is extraction still working?</h2>
+  {% if health.state == 'unknown' %}
+  <p class="sa-lede">
+    Not enough to compare yet. This needs {{ health.min_rows }} posts captured in
+    the last {{ health.recent_days }} days and {{ health.min_rows }} in the
+    {{ health.baseline_days }} days before — currently
+    {{ health.recent_count }} and {{ health.baseline_count }}. Keep capturing and
+    it starts watching on its own.
+  </p>
+  {% else %}
+  <p class="sa-lede">
+    The last {{ health.recent_days }} days of captures against the
+    {{ health.baseline_days }} days before them. A Facebook markup change shows
+    up here as a field that used to arrive and suddenly doesn't — a drop of
+    {{ health.drop_points }} points or more is treated as broken rather than noisy.
+  </p>
+  <table class="sa-table">
+    <thead>
+      <tr><th>What extraction should produce</th><th>Before</th><th>Now</th><th>Change</th></tr>
+    </thead>
+    <tbody>
+      {% for f in health.fields %}
+      <tr>
+        <td>{{ f.label }}</td>
+        <td class="sa-num">{{ f.baseline }}%</td>
+        <td class="sa-num">{{ f.recent }}%</td>
+        <td class="sa-num {{ 'sa-warn' if f.tripped }}">
+          {% if f.delta is none %}—
+          {% else %}{{ '+' if f.delta > 0 }}{{ f.delta }}{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  <p class="sa-verdict {{ 'sa-bad' if health.state == 'degraded' }}">
+    {% if health.state == 'degraded' %}
+      <b>Something broke.</b> {{ health.tripped|join(', ') }} stopped arriving on
+      recent captures. That is what a Facebook markup change looks like from
+      here — the extension is still finding posts, it just can't read part of
+      them any more. Worth a page report from a group that looks wrong.
+    {% else %}
+      <b>Holding.</b> Nothing extraction produces has dropped materially against
+      the previous {{ health.baseline_days }} days.
+    {% endif %}
+  </p>
+  {% endif %}
+</section>
+
 <div class="diag-grid">
   <div class="glass panel reveal">
     <div class="stat-value" data-count="{{ week }}">{{ "{:,}".format(week) }}</div>

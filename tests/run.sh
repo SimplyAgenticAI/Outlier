@@ -44,5 +44,7 @@ echo "--- service worker ---"
 node tests/worker.test.js
 echo "--- self-update ---"
 node tests/updater.test.js
+echo "--- capture health canary ---"
+python tests/health.test.py
 echo "--- app consistency ---"
 python tests/consistency.test.py

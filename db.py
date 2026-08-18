@@ -1370,3 +1370,34 @@ def clear_all_captures(user_id):
         )
 
     return {"posts": removed, "sources": sources}
+
+
+# ------------------------------------------------------------ instance settings
+
+def get_setting(key, default=""):
+    """A value for the whole install, not for one person.
+
+    The per-user equivalent lives in sage.py against user_settings. This one
+    backs the settings table, which had a schema and no accessors.
+    """
+    try:
+        with get_db() as conn:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key = ?", (key,)).fetchone()
+        return row["value"] if row and row["value"] is not None else default
+    except Exception:
+        return default
+
+
+def set_setting(key, value):
+    """Never raises — callers are alert throttles, not the request path."""
+    try:
+        with get_db() as conn:
+            conn.execute(
+                "INSERT INTO settings (key, value, updated_at) "
+                "VALUES (?, ?, CURRENT_TIMESTAMP) "
+                "ON CONFLICT(key) DO UPDATE SET "
+                "value = excluded.value, updated_at = CURRENT_TIMESTAMP",
+                (key, value))
+    except Exception:
+        pass

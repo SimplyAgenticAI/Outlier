@@ -2466,3 +2466,9 @@ a.notif-item:hover { background: rgba(110, 231, 183, 0.06); }
 .sa-tier-l { display: block; margin-top: 3px; font-size: 11.5px; color: var(--text-faint); }
 
 .sa-suspects { margin: 10px 0 0; padding-left: 20px; font-size: 13px; color: var(--text-muted); }
+
+/* Capture-health panel on the Health page. The degraded state is the only
+   thing on that page allowed to shout. */
+.ch-panel { margin-bottom: 18px; }
+.ch-degraded { border-color: rgba(224, 122, 95, 0.45); }
+.ch-unknown { opacity: 0.9; }
