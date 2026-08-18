@@ -1,0 +1,240 @@
+{# The product page, for people who have never signed in.
+
+   Until now the front door was the sign-in form: a signed-out visitor was
+   redirected to /login and had one animated diagram and a password box to
+   decide on. That is a fine page for somebody who already has an account and
+   a bad one for somebody deciding whether to get one.
+
+   Standalone rather than extending base.html — base carries the signed-in
+   navigation, which is exactly what this visitor has no use for.
+
+   Every claim here is one the app actually does. The honest boundary in the
+   last section is deliberate: "it only reads what you can already see" is
+   both the truthful limit of a browser extension and the strongest trust
+   argument this product has. #}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{ app_name }} — {{ app_tagline }}</title>
+<meta name="description" content="{{ app_tagline }} {{ app_name }} scores every post against the median for its own group, so a breakout in a small group is not buried under a big group's ordinary day.">
+<link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/outlier.css') }}">
+</head>
+<body class="landing-body">
+
+<div class="ambient"></div>
+<canvas id="field" class="field" aria-hidden="true"></canvas>
+
+<header class="lp-bar">
+  <a class="brand" href="{{ url_for('feed') }}">
+    <span class="brand-mark">
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <circle cx="5" cy="18" r="1.8"/><circle cx="9" cy="16" r="1.8"/>
+        <circle cx="13" cy="17" r="1.8"/><circle cx="17" cy="15" r="1.8"/>
+        <circle class="mark-outlier" cx="19" cy="5" r="2.6"/>
+      </svg>
+    </span>
+    <span class="brand-text">
+      <span class="brand-name">{{ app_name }}</span>
+      <span class="brand-parent">{{ app_parent }}</span>
+    </span>
+  </a>
+  <nav class="lp-bar-links">
+    <a href="{{ url_for('pricing') }}">Pricing</a>
+    <a href="{{ url_for('login') }}">Sign in</a>
+    {% if allow_signups %}
+    <a class="btn btn-primary lp-bar-cta" href="{{ url_for('register') }}">Get started</a>
+    {% endif %}
+  </nav>
+</header>
+
+<main class="lp">
+
+  {# ---------------------------------------------------------------- hero #}
+  <section class="lp-hero">
+    <span class="lp-eyebrow">Works on every group, page and profile you can already see</span>
+    <h1 class="lp-h1">
+      Find the post that <span class="lp-accent">broke out</span>.<br>
+      Then write the next one.
+    </h1>
+    <p class="lp-lede">
+      {{ app_name }} scores every post against the median for its own group — so a
+      quiet group's runaway hit stops being buried under a big group's ordinary day.
+    </p>
+    <div class="lp-cta-row">
+      {% if allow_signups %}
+      <a class="btn btn-primary lp-cta" href="{{ url_for('register') }}">Get started free</a>
+      {% endif %}
+      <a class="btn lp-cta-ghost" href="{{ url_for('login') }}">Sign in</a>
+    </div>
+    <p class="lp-reassure">
+      Free to start. Install the extension and you're capturing in under a minute.
+    </p>
+  </section>
+
+  {# ------------------------------------------------- the actual difference #}
+  <section class="lp-section">
+    <span class="lp-tag">Why the ranking is different</span>
+    <h2 class="lp-h2">A big number and a breakout number are not the same thing</h2>
+    <p class="lp-sub">
+      Sort by raw engagement and the biggest groups win every time — you end up
+      reading a 40,000-member group's average Tuesday. {{ app_name }} measures how far
+      each post beat the typical post <em>in its own group</em>, then ranks on that
+      multiple. A 900-reaction post in a group that usually sees 800 is noise.
+      A 240-reaction post in a group that usually sees 40 is a formula worth stealing.
+    </p>
+
+    <div class="lp-figure">
+      <svg viewBox="0 0 560 210" class="lp-baseline" role="img"
+           aria-label="Two groups with different typical engagement. In each, the post that beat its own group's median by the widest multiple is highlighted.">
+        {% for group in [
+            {"x": 20,  "label": "Group A · 210 typical", "median": 150,
+             "dots": [[46,156],[76,146],[106,158],[136,142],[166,152]],
+             "peak": [200, 96], "mult": "3.4x"},
+            {"x": 300, "label": "Group B · 2,900 typical", "median": 150,
+             "dots": [[326,148],[356,138],[386,152],[416,144],[446,140]],
+             "peak": [480, 128], "mult": "1.2x"}] %}
+        <g>
+          <rect class="lp-bl-frame" x="{{ group.x }}" y="18" width="240" height="174" rx="12"/>
+          <line class="lp-bl-median" x1="{{ group.x + 12 }}" y1="{{ group.median }}"
+                x2="{{ group.x + 228 }}" y2="{{ group.median }}"/>
+          <text class="lp-bl-label" x="{{ group.x + 12 }}" y="{{ group.median + 18 }}">{{ group.label }}</text>
+          {% for d in group.dots %}
+          <circle class="lp-bl-dot" cx="{{ d[0] }}" cy="{{ d[1] }}" r="5"/>
+          {% endfor %}
+          <line class="lp-bl-stem" x1="{{ group.peak[0] }}" y1="{{ group.median }}"
+                x2="{{ group.peak[0] }}" y2="{{ group.peak[1] }}"/>
+          <circle class="lp-bl-peak {{ 'is-win' if group.mult == '3.4x' }}"
+                  cx="{{ group.peak[0] }}" cy="{{ group.peak[1] }}" r="9"/>
+          <text class="lp-bl-mult {{ 'is-win' if group.mult == '3.4x' }}"
+                x="{{ group.peak[0] }}" y="{{ group.peak[1] - 16 }}">{{ group.mult }}</text>
+        </g>
+        {% endfor %}
+      </svg>
+      <p class="lp-figure-note">
+        Same feed, both groups. The one on the left is the post worth reading —
+        and on a raw-engagement leaderboard it never appears.
+      </p>
+    </div>
+  </section>
+
+  {# ------------------------------------------------------------- surfaces #}
+  <section class="lp-section">
+    <span class="lp-tag">Works everywhere on Facebook</span>
+    <h2 class="lp-h2">Capture from any group, page or profile</h2>
+    <p class="lp-sub">
+      Whether you're studying a niche group, a competitor's page or a creator who
+      posts every day, {{ app_name }} collects their posts as you browse and puts them
+      in one ranked feed.
+    </p>
+
+    <div class="lp-cards">
+      {% for card in [
+          {"name": "Facebook Groups",
+           "body": "The groups you're already a member of. Every post gets scored against that group's own baseline, so each group is judged on its own terms.",
+           "icon": "group"},
+          {"name": "Pages and competitors",
+           "body": "Follow brand pages and local businesses to see which offers, topics and formats their audience actually responds to.",
+           "icon": "page"},
+          {"name": "Profiles and creators",
+           "body": "Track people who post constantly and find their few real winners without scrolling months of timeline.",
+           "icon": "profile"}] %}
+      <article class="glass lp-card">
+        <span class="lp-card-icon" aria-hidden="true">
+          {% if card.icon == "group" %}
+          <svg viewBox="0 0 24 24"><circle cx="9" cy="9" r="3.2"/><circle cx="16.5" cy="10.5" r="2.4"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><path d="M15 14.4c2.6.2 4.5 2 4.5 4.6"/></svg>
+          {% elif card.icon == "page" %}
+          <svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8 9.5h8M8 13h8M8 16.5h5"/></svg>
+          {% else %}
+          <svg viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.6"/><path d="M5 19.5c0-3.6 3.1-6 7-6s7 2.4 7 6"/></svg>
+          {% endif %}
+        </span>
+        <h3>{{ card.name }}</h3>
+        <p>{{ card.body }}</p>
+      </article>
+      {% endfor %}
+    </div>
+  </section>
+
+  {# -------------------------------------------------------- the mechanism #}
+  <section class="lp-section lp-section-tight">
+    <span class="lp-tag">How it works</span>
+    <h2 class="lp-h2">Read, rank, write</h2>
+    <p class="lp-sub">
+      Three steps, and the third is the one that pays. Finding the outlier is
+      only half the job — the other half is writing your own version of it.
+    </p>
+    <div class="lp-pipeline">
+      {% include "_how_it_works.html" %}
+    </div>
+  </section>
+
+  {# ------------------------------------------------------------ after that #}
+  <section class="lp-section">
+    <span class="lp-tag">Once you've found it</span>
+    <h2 class="lp-h2">Turn a winner into your next post</h2>
+    <div class="lp-cards lp-cards-two">
+      <article class="glass lp-card">
+        <h3>Remix</h3>
+        <p>
+          Take a post that beat its group and get variants that reuse the
+          mechanic that made it work — the same hook shape, your subject, new
+          specifics. It reads the engagement mix too: a post that drew comments
+          did something answerable, and a post that drew shares did something
+          worth forwarding. Those are different levers and they get written
+          differently.
+        </p>
+      </article>
+      <article class="glass lp-card">
+        <h3>Sage</h3>
+        <p>
+          Ask questions of everything you've captured. Which group is worth your
+          time, what keeps working in it, what you posted last month that is
+          worth doing again. It answers from your own data, not from generic
+          advice about posting at 9am.
+        </p>
+      </article>
+    </div>
+  </section>
+
+  {# ------------------------------------------------------------ the limit #}
+  <section class="lp-section">
+    <span class="lp-tag">The honest boundary</span>
+    <h2 class="lp-h2">It only ever reads what you can already see</h2>
+    <p class="lp-sub">
+      {{ app_name }} is a browser extension. It reads the posts on the pages you visit
+      while you visit them — the groups you joined, the pages you follow. It does
+      not sign into anything on your behalf, and it cannot reach a group you are
+      not a member of. That is the real limit of the tool, and it is also the
+      reason you can run it on your own account without wondering what it is
+      doing when you are not looking.
+    </p>
+  </section>
+
+  {# ---------------------------------------------------------- closing CTA #}
+  <section class="lp-final glass">
+    <h2>Ready to find your first breakout?</h2>
+    <p>Free to set up. Under a minute to your first captured post.</p>
+    {% if allow_signups %}
+    <a class="btn btn-primary lp-cta" href="{{ url_for('register') }}">Get started free</a>
+    {% else %}
+    <a class="btn btn-primary lp-cta" href="{{ url_for('login') }}">Sign in</a>
+    {% endif %}
+  </section>
+
+  <footer class="lp-foot">
+    <span>{{ app_name }} — {{ app_parent }}</span>
+    <nav>
+      <a href="{{ url_for('pricing') }}">Pricing</a>
+      <a href="{{ url_for('privacy') }}">Privacy</a>
+      <a href="{{ url_for('terms') }}">Terms</a>
+      <a href="{{ url_for('login') }}">Sign in</a>
+    </nav>
+  </footer>
+</main>
+
+<script src="{{ url_for('static', filename='js/field.js') }}"></script>
+</body>
+</html>

@@ -288,9 +288,19 @@ def _next_step(user, scored):
 
 
 @app.route("/")
-@auth.login_required
 def feed():
-    """The outlier feed — posts ranked by how far they beat their own baseline."""
+    """Signed in: the outlier feed. Signed out: the product page.
+
+    Deliberately NOT login_required. The front door used to redirect a
+    signed-out visitor to /login, so the first thing a stranger saw was a
+    password box — a fine page for somebody who already has an account and a
+    bad one for somebody deciding whether to get one. The route keeps its name
+    because url_for("feed") is spread across every template.
+    """
+    if not auth.current_user():
+        return render_template("landing.html", allow_signups=ALLOW_SIGNUPS,
+                               version=APP_VERSION)
+
     tier_filter = request.args.get("tier", "all")
     show_samples = request.args.get("samples") == "1"
 
