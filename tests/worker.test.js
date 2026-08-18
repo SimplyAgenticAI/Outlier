@@ -76,7 +76,27 @@ function makeWorld(opts) {
     },
     alarms: { create: function () {}, onAlarm: { addListener: function () {} } },
     action: { setBadgeText: function () {}, setBadgeBackgroundColor: function () {} },
-    permissions: { contains: function (_o, cb) { cb(true); } }
+    permissions: { contains: function (_o, cb) { cb(true); } },
+    tabs: {
+      query: function (q) {
+        world.queried = q;
+        return Promise.resolve(opts.openTabs || []);
+      },
+      update: function (id, props) {
+        world.updatedTab = { id: id, props: props };
+        return Promise.resolve();
+      },
+      create: function (props) {
+        world.createdTab = props;
+        return Promise.resolve({ id: 99 });
+      }
+    },
+    windows: {
+      update: function (id, props) {
+        world.focusedWindow = { id: id, props: props };
+        return Promise.resolve();
+      }
+    }
   };
 
   global.fetch = function (url, init) {
@@ -205,6 +225,46 @@ Promise.resolve()
     return capture(world, 1).then(function (r) {
       check("the page is answered rather than left waiting", !!r, true);
       check("  and told it failed", r.ok !== true, true);
+    });
+  })
+  /* Open dashboard focuses the one that is open.
+   *
+   * It called window.open(url, "_blank"), and "_blank" means a brand new tab
+   * every time — so every trip back from Facebook left another dashboard
+   * behind and the operator was closing eight of them. */
+  .then(function () {
+    console.log();
+    console.log("Open dashboard reuses the tab that is already open");
+
+    function openDashboard(world) {
+      return new Promise(function (resolve) {
+        world.onMessage({ type: "OUTLIER_OPEN_DASHBOARD", path: "/" }, null, resolve);
+      });
+    }
+
+    var withTab = makeWorld({ openTabs: [{ id: 7, windowId: 3, url: "https://dash.test/groups" }] });
+    require(SRC);
+    return openDashboard(withTab).then(function (r) {
+      check("it reports reuse", r && r.reused, true);
+      check("the existing tab is activated", withTab.updatedTab.props.active, true);
+      check("and pointed at the requested page", withTab.updatedTab.props.url, "https://dash.test/");
+      check("its window is brought forward", withTab.focusedWindow.id, 3);
+      check("NO second dashboard is opened", withTab.createdTab === undefined, true);
+      check("the lookup is scoped to the dashboard origin",
+            withTab.queried.url, "https://dash.test/*");
+    });
+  })
+  .then(function () {
+    // Nothing open yet — it must still open one, or the button does nothing.
+    var noTab = makeWorld({ openTabs: [] });
+    delete require.cache[require.resolve(SRC)];
+    require(SRC);
+    return new Promise(function (resolve) {
+      noTab.onMessage({ type: "OUTLIER_OPEN_DASHBOARD", path: "/ideas?source=4" }, null, resolve);
+    }).then(function (r) {
+      check("with none open it opens one", r && r.reused, false);
+      check("at the right address", noTab.createdTab.url, "https://dash.test/ideas?source=4");
+      check("and nothing was activated", noTab.updatedTab === undefined, true);
     });
   })
   .then(function () {

@@ -208,6 +208,18 @@ function runScan(page, urlPath, opts) {
     createElementNS: function (ns, t) { return page.doc.el(t); },
     querySelector: function (s) { return page.root.querySelector(s); },
     querySelectorAll: function (s) { return page.root.querySelectorAll(s); },
+    // Elements set an id by property (el.id = "x") as often as by attribute,
+    // so both are checked — a lookup that only read attributes would report
+    // "no HUD here" every time and the duplicate guard would never fire.
+    getElementById: function (id) {
+      var all = (page.doc && page.doc.all) || [];
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.id === id) return el;
+        if (el.getAttribute && el.getAttribute("id") === id) return el;
+      }
+      return null;
+    },
     addEventListener: function () {}, removeEventListener: function () {}
   };
 

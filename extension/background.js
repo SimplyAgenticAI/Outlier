@@ -123,7 +123,63 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     testConnection().then(sendResponse);
     return true;
   }
+
+  if (message.type === "OUTLIER_OPEN_DASHBOARD") {
+    openDashboard(message.path || "/").then(sendResponse);
+    return true;
+  }
 });
+
+
+/* Focus the dashboard tab, or open one. Never a second copy.
+ *
+ * The HUD buttons used to call window.open(url, "_blank"), and "_blank" means
+ * "a brand new tab, always" — so every trip back from Facebook left another
+ * dashboard behind. Eight of them by lunchtime.
+ *
+ * A named window target (window.open(url, "tallgrass")) fixes it only when the
+ * existing tab was opened BY the extension: named targeting is scoped to the
+ * browsing context group, so a dashboard the user opened themselves by typing
+ * the address is invisible to it and gets duplicated anyway. Asking the
+ * service worker means the lookup is over real tabs and that distinction stops
+ * mattering.
+ *
+ * No new permission. tabs.query's url filter is allowed by host permissions
+ * for the origins being matched, and the manifest already lists every endpoint
+ * the dashboard is served from.
+ */
+async function openDashboard(path) {
+  const endpoint = (await getEndpoint()).replace(/\/+$/, "");
+  const target = endpoint + path;
+
+  let origin;
+  try {
+    origin = new URL(endpoint).origin;
+  } catch (error) {
+    return { ok: false, error: "Dashboard address is not a URL: " + endpoint };
+  }
+
+  try {
+    const tabs = await chrome.tabs.query({ url: origin + "/*" });
+    if (tabs.length) {
+      // The oldest one. Reusing the most recent would hop between tabs when
+      // more than one is somehow open, which reads as randomness.
+      const tab = tabs[0];
+      await chrome.tabs.update(tab.id, { active: true, url: target });
+      if (tab.windowId !== undefined) {
+        // The tab may be in a window that is not on top.
+        try { await chrome.windows.update(tab.windowId, { focused: true }); }
+        catch (error) { /* single-window setups, or the API is unavailable */ }
+      }
+      return { ok: true, reused: true, tabId: tab.id };
+    }
+  } catch (error) {
+    // Query refused: fall through and open one rather than doing nothing.
+  }
+
+  const created = await chrome.tabs.create({ url: target });
+  return { ok: true, reused: false, tabId: created && created.id };
+}
 
 
 /* One key refresh at a time, shared by everyone who asks. Batches run

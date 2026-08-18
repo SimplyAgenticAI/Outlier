@@ -2930,6 +2930,7 @@
   /* ------------------------------------------------------ HUD */
 
   var hud, hudBody, hudBtn;
+  var HUD_ID = "tallgrass-hud";
 
   function styleEl(el, styles) {
     // Assigning style properties directly rather than injecting a <style> tag,
@@ -2964,10 +2965,60 @@
     } catch (e) { /* private mode — position just won't persist */ }
   }
 
+  /* Ask the service worker to focus the dashboard rather than opening one.
+   *
+   * "_blank" always made a new tab, so every trip back from Facebook left
+   * another dashboard behind. The worker looks at real tabs and reuses the one
+   * that is already there — including a dashboard the user opened themselves,
+   * which a named window target cannot see.
+   *
+   * The fallback still uses a NAME rather than "_blank": if the worker is
+   * asleep or the message fails, one reused tab per browsing context group is
+   * still better than one per click.
+   */
+  var DASH_WINDOW_NAME = "tallgrass_dashboard";
+
+  function openDashboard(path) {
+    var opened = false;
+    function fallback() {
+      if (opened) return;
+      opened = true;
+      chrome.storage.local.get(["endpoint"], function (state) {
+        var base = (state.endpoint || "http://localhost:5050").replace(/\/+$/, "");
+        window.open(base + path, DASH_WINDOW_NAME);
+      });
+    }
+    try {
+      chrome.runtime.sendMessage(
+        { type: "OUTLIER_OPEN_DASHBOARD", path: path },
+        function (response) {
+          if (chrome.runtime.lastError || !response || !response.ok) fallback();
+          else opened = true;
+        }
+      );
+    } catch (error) {
+      fallback();
+    }
+  }
+
   function buildHud() {
+    // One HUD per page. buildHud appended unconditionally, so a second copy of
+    // the extension — an unpacked build alongside an installed one — put two
+    // panels on every page, each scanning and each sending.
+    //
+    // Two guards because they catch different things: `hud` covers this script
+    // being asked twice, the id lookup covers a SECOND script. Wrapped, because
+    // this runs against whatever DOM it is handed and getElementById is the
+    // kind of thing a minimal one leaves out.
+    if (hud) return;
+    try {
+      if (document.getElementById && document.getElementById(HUD_ID)) return;
+    } catch (error) { /* no lookup available — the `hud` guard still holds */ }
+
     var box = loadHudBox();
 
     hud = document.createElement("div");
+    hud.id = HUD_ID;
     styleEl(hud, {
       position: "fixed",
       bottom: box.bottom + "px", right: box.right + "px",
@@ -3194,11 +3245,7 @@
     });
 
     manual.addEventListener("click", function () { scanPosts(); flush(); });
-    dash.addEventListener("click", function () {
-      chrome.storage.local.get(["endpoint"], function (state) {
-        window.open(state.endpoint || "http://localhost:5050", "_blank");
-      });
-    });
+    dash.addEventListener("click", function () { openDashboard("/"); });
 
     rowBtns.appendChild(manual);
     rowBtns.appendChild(dash);
@@ -3663,10 +3710,7 @@
         fontSize: "0.95em", fontWeight: "650"
       });
       ideas.addEventListener("click", function () {
-        chrome.storage.local.get(["endpoint"], function (state) {
-          var base = state.endpoint || "http://localhost:5050";
-          window.open(base + "/ideas?source=" + encodeURIComponent(currentSourceId), "_blank");
-        });
+        openDashboard("/ideas?source=" + encodeURIComponent(currentSourceId));
       });
       hudBody.appendChild(ideas);
     }
