@@ -46,6 +46,10 @@ echo "--- self-update ---"
 node tests/updater.test.js
 echo "--- scoring accuracy rules ---"
 python tests/scoring.test.py
+echo "--- accounts, keys and sessions ---"
+python tests/auth.test.py
+echo "--- entitlement ---"
+python tests/billing.test.py
 echo "--- cross-user health ---"
 python tests/users.test.py
 echo "--- capture health canary ---"

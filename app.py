@@ -1,5 +1,6 @@
 import io
 import json
+import logging
 import math
 import os
 import re
@@ -59,6 +60,17 @@ SUPPORT_EMAIL = os.environ.get("SUPPORT_EMAIL", "macrandleacres@gmail.com")
 # that affects what is collected or who receives it — not for typos.
 LEGAL_UPDATED = "10 August 2026"
 
+# Under gunicorn the app's own logger is not configured by default, so
+# anything it writes is discarded. Nothing here logged at all, which meant the
+# only way to learn that production had failed was for a user to say so.
+# INFO to stdout is what Render collects.
+logging.basicConfig(
+    level=os.environ.get("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    stream=sys.stdout,
+)
+log = logging.getLogger("tallgrass")
+
 db.init_db()
 db.promote_sole_account()
 
@@ -78,6 +90,34 @@ app.config.update(
 INGEST_PATHS = ("/api/capture", "/api/ping")
 
 
+# Every page here renders text captured from strangers on Facebook. The
+# templates escape it and the client uses textContent throughout, but those are
+# rules a future edit can break silently. This is the layer that still holds if
+# one of them slips.
+#
+# script-src is strict rather than 'unsafe-inline' because the app has no inline
+# <script> anywhere — every page loads field.js and outlier.js by URL — so
+# injected script has nothing to attach to. Inline style attributes DO exist
+# (18 of them across the templates), hence 'unsafe-inline' for styles only:
+# style injection cannot execute, and the alternative is rewriting working
+# markup for a much smaller gain.
+#
+# img-src has to allow https: because post thumbnails are loaded straight from
+# Facebook's CDN rather than re-hosted, and that CDN's hostnames are neither
+# stable nor enumerable.
+CSP = "; ".join((
+    "default-src 'self'",
+    "base-uri 'self'",
+    "object-src 'none'",
+    "frame-ancestors 'none'",
+    "form-action 'self'",
+    "script-src 'self'",
+    "style-src 'self' 'unsafe-inline'",
+    "img-src 'self' data: https:",
+    "connect-src 'self'",
+))
+
+
 @app.after_request
 def add_cors_headers(response):
     if request.path in INGEST_PATHS:
@@ -90,6 +130,20 @@ def add_cors_headers(response):
     # to have vanished.
     if response.mimetype == "text/html":
         response.headers["Cache-Control"] = "no-store, must-revalidate"
+
+    response.headers["Content-Security-Policy"] = CSP
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    # frame-ancestors already covers this for current browsers; kept for the
+    # ones that only understand the older header.
+    response.headers["X-Frame-Options"] = "DENY"
+
+    # Only where HTTPS is actually terminated. Sending HSTS from localhost
+    # would pin a developer's browser to https://localhost and break the app
+    # for them until the max-age expired.
+    if os.environ.get("RENDER"):
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=31536000; includeSubDomains")
     return response
 
 
@@ -1311,10 +1365,16 @@ def stripe_webhook():
         request.get_data(), request.headers.get("Stripe-Signature", "")
     )
     if error:
+        # Worth a line in the log either way. A misconfigured secret and a
+        # forged call look identical from here, and both are silent otherwise
+        # — the first shows up as subscriptions that never activate, the
+        # second as somebody trying to grant themselves one.
+        log.warning("stripe webhook rejected: %s", error)
         return jsonify({"ok": False, "error": error}), 400
 
     kind = event["type"]
     obj = event["data"]["object"]
+    log.info("stripe webhook accepted: %s", kind)
 
     if kind == "checkout.session.completed":
         user_id = (obj.get("client_reference_id")

@@ -1,0 +1,51 @@
+# The suite already existed and was already good. Nothing ran it, which meant
+# a green run only ever proved that somebody remembered to type the command.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  suite:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # The extension tests and the syntax gate are both Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run the suite
+        # run.sh is the same entry point used locally, so CI cannot drift into
+        # testing something different from what a developer runs.
+        run: sh tests/run.sh
+
+      - name: Check the version was bumped
+        # Every change ships a version, and the manifest is the single source
+        # of truth for it. A PR that forgets is a build users cannot tell apart
+        # from the one before it.
+        if: github.event_name == 'pull_request'
+        run: |
+          git fetch --no-tags --depth=1 origin "$GITHUB_BASE_REF"
+          before=$(git show "origin/$GITHUB_BASE_REF:extension/manifest.json" \
+                   | python -c 'import json,sys; print(json.load(sys.stdin)["version"])')
+          after=$(python -c 'import json; print(json.load(open("extension/manifest.json"))["version"])')
+          echo "manifest version: $before -> $after"
+          if [ "$before" = "$after" ]; then
+            echo "::error::extension/manifest.json version is unchanged ($after)"
+            exit 1
+          fi
