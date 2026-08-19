@@ -69,6 +69,63 @@
   </ul>
 </section>
 
+{# Who is silently getting nothing. Per-user diagnostics existed; a view ACROSS
+   users did not, so the only experience anyone could see was their own. #}
+<section class="glass panel reveal">
+  <h2>Is it working for them?</h2>
+  <p class="sub">
+    {{ health.affected }} of {{ health.total }} account(s) are getting less than
+    the product promises. Nobody in this table has told you that.
+  </p>
+
+  {% if health.affected %}
+  <div class="uh-counts">
+    {% for key, label in problem_labels.items() %}
+    {% if health.counts.get(key) %}
+    <span class="uh-chip uh-{{ key }}">{{ health.counts[key] }} {{ label|lower }}</span>
+    {% endif %}
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <table class="sa-table uh-table">
+    <thead>
+      <tr><th>Account</th><th>Posts</th><th>Read %</th><th>Scoreable groups</th>
+          <th>Last capture</th><th>Problem</th></tr>
+    </thead>
+    <tbody>
+      {% for u in health.users %}
+      <tr class="{{ 'uh-row-bad' if u.problem }}">
+        <td>{{ u.email }}{% if u.is_admin %} <span class="uh-tag">admin</span>{% endif %}</td>
+        <td class="sa-num">{{ u.posts }}</td>
+        <td class="sa-num {{ 'sa-warn' if u.problem == 'blind' }}">
+          {{ u.read_rate if u.read_rate is not none else '—' }}{{ '%' if u.read_rate is not none }}
+        </td>
+        <td class="sa-num {{ 'sa-warn' if u.problem == 'unscored' }}">{{ u.scoreable_sources }}</td>
+        <td class="sa-num">
+          {% if u.days_since_capture is none %}never
+          {% elif u.days_since_capture == 0 %}today
+          {% else %}{{ u.days_since_capture }}d ago{% endif %}
+        </td>
+        <td>
+          {% if u.problem %}
+          <span class="uh-flag uh-{{ u.problem }}">{{ problem_labels[u.problem] }}</span>
+          {% else %}<span class="sa-yes">fine</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  {% for key, label in problem_labels.items() %}
+  {% if health.counts.get(key) %}
+  <p class="sa-verdict">
+    <b>{{ label }} ({{ health.counts[key] }}).</b> {{ problem_advice[key] }}
+  </p>
+  {% endif %}
+  {% endfor %}
+</section>
+
 <section class="glass panel reveal">
   <h2>Accounts</h2>
   {% if users %}

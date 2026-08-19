@@ -1825,8 +1825,13 @@ def admin():
 
     days = request.args.get("days", type=int) or 30
     days = max(1, min(days, 365))
+
+    import user_health
     return render_template(
         "admin.html",
+        health=user_health.report(),
+        problem_labels=user_health.PROBLEM_LABELS,
+        problem_advice=user_health.PROBLEM_ADVICE,
         traffic=db.traffic_summary(days),
         users=db.recent_users(50),
         # Presence only, never the values — an admin page is still a web page.

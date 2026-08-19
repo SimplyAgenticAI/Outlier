@@ -2472,3 +2472,19 @@ a.notif-item:hover { background: rgba(110, 231, 183, 0.06); }
 .ch-panel { margin-bottom: 18px; }
 .ch-degraded { border-color: rgba(224, 122, 95, 0.45); }
 .ch-unknown { opacity: 0.9; }
+
+/* Cross-user health on the admin page. */
+.uh-counts { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 16px; }
+.uh-chip {
+  padding: 4px 11px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--border); color: var(--text-muted);
+}
+.uh-chip.uh-blind, .uh-chip.uh-unscored { border-color: rgba(224,122,95,0.45); color: var(--ember); }
+.uh-table { margin-top: 6px; }
+.uh-row-bad td { background: rgba(224, 122, 95, 0.05); }
+.uh-flag { font-size: 12px; color: var(--ember); }
+.uh-flag.uh-stalled { color: var(--text-faint); }
+.uh-tag {
+  font-size: 10px; padding: 1px 6px; border-radius: 999px;
+  border: 1px solid var(--border); color: var(--text-faint);
+}
