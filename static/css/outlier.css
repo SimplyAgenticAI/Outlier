@@ -889,6 +889,20 @@ select.kind-select option { color: initial; }
 }
 @keyframes msgIn { from { opacity: 0; transform: translateY(9px); } to { opacity: 1; transform: none; } }
 
+/* A caret that trails the text while it is still being written, so a pause
+   between tokens reads as "still going" rather than "finished". The message
+   animates in once, on the first word — not on every delta. */
+.msg-body.is-streaming { animation: none; }
+.msg-body.is-streaming::after {
+  content: ""; display: inline-block; vertical-align: text-bottom;
+  width: 2px; height: 1.05em; margin-left: 3px;
+  background: var(--emerald); animation: sageCaret 1s steps(2) infinite;
+}
+@keyframes sageCaret { 0%, 50% { opacity: 1; } 50.01%, 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .msg-body.is-streaming::after { animation: none; }
+}
+
 .thinking { display: flex; gap: 5px; padding: 16px 18px; }
 .thinking span {
   width: 7px; height: 7px; border-radius: 50%; background: var(--emerald);

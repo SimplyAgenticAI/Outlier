@@ -925,35 +925,129 @@
       return wrap;
     }
 
+    var chatStop = document.getElementById("chat-stop");
+    var sageAbort = null;
+
+    function setAsking(asking) {
+      chatInput.disabled = asking;
+      chatSend.disabled = asking;
+      if (chatStop) chatStop.hidden = !asking;
+    }
+
+    // Server-sent events arrive in whatever sized pieces the network hands
+    // over, so frames are reassembled here rather than assumed to be whole.
+    function readEvents(reader, onEvent) {
+      var decoder = new TextDecoder();
+      var buffer = "";
+
+      function handle(frame) {
+        var line = frame.trim();
+        if (line.indexOf("data:") !== 0) return;
+        try {
+          onEvent(JSON.parse(line.slice(5).trim()));
+        } catch (error) {
+          /* A frame we can't parse is skipped rather than killing the stream. */
+        }
+      }
+
+      function pump() {
+        return reader.read().then(function (chunk) {
+          if (chunk.done) return;
+          buffer += decoder.decode(chunk.value, { stream: true });
+          var frames = buffer.split("\n\n");
+          // The last piece may be half a frame — hold it for the next read.
+          buffer = frames.pop();
+          frames.forEach(handle);
+          return pump();
+        });
+      }
+
+      return pump();
+    }
+
     function askSage(question) {
       if (!question) return;
 
       addMessage("user", question);
       chatInput.value = "";
-      chatInput.disabled = true;
-      chatSend.disabled = true;
+      setAsking(true);
       if (suggested) suggested.style.display = "none";
       chatStatus.className = "chat-status";
       chatStatus.textContent = "";
 
       var pending = thinkingBubble();
+      var body = null;
+      var failure = null;
 
-      post("/api/sage", { message: question })
-        .then(function (data) {
-          pending.remove();
-          if (!data.ok) throw new Error(data.error || "Sage could not answer");
-          addMessage("assistant", data.answer);
+      // The dots stay until the first real word, then the bubble becomes the
+      // answer and fills in place.
+      function ensureBody() {
+        if (body) return;
+        pending.innerHTML = "";
+        var who = document.createElement("span");
+        who.className = "msg-who";
+        who.textContent = "Sage";
+        pending.appendChild(who);
+        body = document.createElement("div");
+        body.className = "msg-body is-streaming";
+        pending.appendChild(body);
+      }
+
+      sageAbort = new AbortController();
+
+      fetch("/api/sage/stream", {
+        method: "POST",
+        headers: { "X-CSRF-Token": CSRF, "Content-Type": "application/json" },
+        body: JSON.stringify({ message: question }),
+        signal: sageAbort.signal
+      })
+        .then(function (response) {
+          if (response.status === 401) {
+            window.location.href = "/login";
+            throw new Error("Signed out");
+          }
+          if (!response.ok || !response.body) {
+            throw new Error("Server error (" + response.status + ")");
+          }
+          return readEvents(response.body.getReader(), function (event) {
+            if (event.type === "delta") {
+              ensureBody();
+              // textContent — model output is never trusted as markup.
+              body.textContent += event.text;
+              chat.scrollTop = chat.scrollHeight;
+            } else if (event.type === "error") {
+              failure = event.error;
+            }
+          });
+        })
+        .then(function () {
+          if (failure) throw new Error(failure);
+          if (!body) throw new Error("Sage returned an empty response");
         })
         .catch(function (error) {
-          pending.remove();
+          // A cancel is the user getting what they asked for, not a failure.
+          // Whatever already arrived stays on screen and stays in the history.
+          if (error.name === "AbortError") {
+            chatStatus.className = "chat-status";
+            chatStatus.textContent = "Stopped.";
+            return;
+          }
+          if (!body) pending.remove();
           chatStatus.className = "chat-status error";
           chatStatus.textContent = error.message;
         })
         .finally(function () {
-          chatInput.disabled = false;
-          chatSend.disabled = false;
+          if (body) body.classList.remove("is-streaming");
+          sageAbort = null;
+          setAsking(false);
           chatInput.focus();
         });
+    }
+
+    if (chatStop) {
+      chatStop.addEventListener("click", function () {
+        if (sageAbort) sageAbort.abort();
+      });
     }
 
     chatForm.addEventListener("submit", function (event) {

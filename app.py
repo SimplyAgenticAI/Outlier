@@ -7,8 +7,8 @@ import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
 
-from flask import (Flask, jsonify, redirect, render_template, request,
-                   send_file, session, url_for)
+from flask import (Flask, Response, jsonify, redirect, render_template, request,
+                   send_file, session, stream_with_context, url_for)
 
 import auth
 import billing
@@ -551,6 +551,64 @@ def api_sage():
                      "VALUES (?, 'assistant', ?)", (_uid(), answer))
 
     return jsonify({"ok": True, "answer": answer})
+
+
+@app.route("/api/sage/stream", methods=["POST"])
+@auth.login_required
+def api_sage_stream():
+    """Same answer as /api/sage, delivered as it is written.
+
+    Sage used to sit behind a spinner for the length of a whole Opus response.
+    The words exist long before the request finishes, so they are sent as they
+    arrive instead of being held back until the last one.
+    """
+    body = request.get_json(silent=True) or {}
+    question = (body.get("message") or "").strip()
+    if not question:
+        return jsonify({"ok": False, "error": "Ask something first"}), 400
+
+    uid = _uid()
+    with db.get_db() as conn:
+        prior = [dict(r) for r in conn.execute(
+            "SELECT role, content FROM sage_messages WHERE user_id = ? "
+            "ORDER BY id DESC LIMIT 12", (uid,)
+        ).fetchall()][::-1]
+
+    messages = [{"role": m["role"], "content": m["content"]} for m in prior]
+    messages.append({"role": "user", "content": question})
+
+    def events():
+        parts = []
+        try:
+            for event in sage.ask_stream(messages):
+                if event["type"] == "delta":
+                    parts.append(event["text"])
+                yield "data: " + json.dumps(event) + "\n\n"
+        finally:
+            # Runs on a clean finish AND on a cancelled request, where Flask
+            # closes this generator. Whatever the reader actually saw is what
+            # gets stored, so the transcript never disagrees with the screen.
+            answer = "".join(parts)
+            if answer:
+                with db.get_db() as conn:
+                    conn.execute(
+                        "INSERT INTO sage_messages (user_id, role, content) "
+                        "VALUES (?, 'user', ?)", (uid, question))
+                    conn.execute(
+                        "INSERT INTO sage_messages (user_id, role, content) "
+                        "VALUES (?, 'assistant', ?)", (uid, answer))
+
+    return Response(
+        stream_with_context(events()),
+        mimetype="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            # Render sits behind a buffering proxy that would hold the whole
+            # response and hand it over at the end — which is exactly the
+            # behaviour this endpoint exists to avoid.
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.route("/api/sage/clear", methods=["POST"])

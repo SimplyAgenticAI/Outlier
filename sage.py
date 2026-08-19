@@ -370,6 +370,92 @@ def ask(messages):
     return _ask_anthropic(config, messages)
 
 
+def _stream_anthropic(config, messages):
+    """Yield Sage's answer a piece at a time from Claude."""
+    try:
+        import anthropic
+    except ImportError:
+        yield {"type": "error",
+               "error": "The anthropic package is not installed. Run: pip install anthropic"}
+        return
+
+    client = anthropic.Anthropic(api_key=config["key"])
+    parts = []
+    try:
+        with client.messages.stream(
+            model=config["model"] or ANTHROPIC_MODEL,
+            max_tokens=4000,
+            system=[
+                {"type": "text", "text": SYSTEM},
+                # Same cached data block as the blocking path. Streaming does
+                # not change what is billed, only when the words arrive.
+                {"type": "text", "text": _context_block(),
+                 "cache_control": {"type": "ephemeral"}},
+            ],
+            thinking={"type": "adaptive"},
+            output_config={"effort": "medium"},
+            messages=messages,
+        ) as stream:
+            # text_stream carries only the visible answer. Thinking is not
+            # displayed, so there is nothing to filter out here.
+            for chunk in stream.text_stream:
+                parts.append(chunk)
+                yield {"type": "delta", "text": chunk}
+            final = stream.get_final_message()
+    except anthropic.AuthenticationError:
+        yield {"type": "error", "error": "That Anthropic key was rejected."}
+        return
+    except anthropic.RateLimitError:
+        yield {"type": "error", "error": "Rate limited by Anthropic — try again shortly."}
+        return
+    except anthropic.APIStatusError as exc:
+        yield {"type": "error", "error": f"Anthropic error ({exc.status_code}): {exc.message}"}
+        return
+    except anthropic.APIConnectionError:
+        yield {"type": "error", "error": "Could not reach Anthropic — check your connection."}
+        return
+
+    if final.stop_reason == "refusal":
+        yield {"type": "error", "error": "Sage declined to answer that."}
+        return
+
+    text = "".join(parts)
+    if not text:
+        yield {"type": "error", "error": "Sage returned an empty response."}
+        return
+
+    yield {"type": "done", "text": text}
+
+
+def ask_stream(messages):
+    """Stream an answer instead of making the reader wait for all of it.
+
+    Yields dicts: {"type": "delta", "text": ...} as words arrive, then exactly
+    one terminal event — {"type": "done", "text": <whole answer>} or
+    {"type": "error", "error": ...}. Never raises, for the same reason ask()
+    doesn't: a bad key belongs on screen, not in a 500.
+    """
+    config = get_config()
+    if not config["has_key"]:
+        yield {"type": "error",
+               "error": "No API key set. Add one in Settings to talk to Sage."}
+        return
+
+    if config["provider"] == "openai":
+        # OpenAI stays on the blocking path and is replayed as a single delta.
+        # The caller's contract is identical either way, so the UI needs no
+        # branch — it just fills in all at once rather than progressively.
+        answer, error = _ask_openai(config, messages)
+        if error:
+            yield {"type": "error", "error": error}
+            return
+        yield {"type": "delta", "text": answer}
+        yield {"type": "done", "text": answer}
+        return
+
+    yield from _stream_anthropic(config, messages)
+
+
 IDEAS_SCHEMA = {
     "type": "object",
     "properties": {
@@ -459,7 +545,11 @@ def _ideas_anthropic(config, messages):
 
     client = anthropic.Anthropic(api_key=config["key"])
     try:
-        response = client.messages.create(
+        # Streamed, then reassembled. The output is one JSON object, so there
+        # is no partial result worth showing — but an 8000-token non-streaming
+        # request sits on an idle connection long enough to hit the HTTP
+        # timeout, and the whole call is lost at the end of the wait.
+        with client.messages.stream(
             model=config["model"] or ANTHROPIC_MODEL,
             max_tokens=8000,
             system=IDEAS_SYSTEM,
@@ -469,7 +559,8 @@ def _ideas_anthropic(config, messages):
                 "format": {"type": "json_schema", "schema": IDEAS_SCHEMA},
             },
             messages=messages,
-        )
+        ) as stream:
+            response = stream.get_final_message()
     except anthropic.AuthenticationError:
         return None, "That Anthropic key was rejected."
     except anthropic.APIStatusError as exc:

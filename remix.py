@@ -375,7 +375,11 @@ def _remix_anthropic(cfg, user_content):
     import json
     client = anthropic.Anthropic(api_key=cfg["key"])
     try:
-        response = client.messages.create(
+        # Streamed, then reassembled. Variants come back as one JSON object, so
+        # there is nothing partial worth rendering — but at 8000 max_tokens a
+        # non-streaming request can idle past the HTTP timeout and lose the
+        # entire generation after the user already waited for it.
+        with client.messages.stream(
             model=MODEL,
             max_tokens=8000,
             system=SYSTEM,
@@ -385,7 +389,8 @@ def _remix_anthropic(cfg, user_content):
                 "format": {"type": "json_schema", "schema": VARIANT_SCHEMA},
             },
             messages=[{"role": "user", "content": user_content}],
-        )
+        ) as stream:
+            response = stream.get_final_message()
     except anthropic.RateLimitError:
         return None, "Rate limited by Anthropic — try again in a moment."
     except anthropic.AuthenticationError:

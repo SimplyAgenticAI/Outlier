@@ -60,6 +60,8 @@
            {{ 'disabled' if not configured }}>
     <button class="btn btn-primary" type="submit" id="chat-send"
             {{ 'disabled' if not configured }}>Ask</button>
+    {# Answers stream in, so there is now something to interrupt. #}
+    <button class="btn btn-ghost" type="button" id="chat-stop" hidden>Stop</button>
   </form>
   <div class="chat-status" id="chat-status"></div>
 </section>
