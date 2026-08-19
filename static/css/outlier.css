@@ -209,6 +209,31 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
   .spotlight::before { transition: none !important; }
 }
 
+/* ------------------------------------------------------- view transition */
+
+/* Opening a post is a page load, so the badge you clicked is carried across
+   the navigation instead of the feed blinking out and a detail page blinking
+   in. Progressive enhancement: browsers without the API navigate exactly as
+   they did before, and nothing here affects layout either way. */
+@view-transition { navigation: auto; }
+
+/* Only one badge exists on a detail page, so it can be named in CSS. On the
+   feed the name is assigned to the clicked card in JS, because a page full of
+   badges cannot all answer to it at once. */
+.detail-head .post-badge.big { view-transition-name: post-hero; }
+
+::view-transition-old(post-hero),
+::view-transition-new(post-hero) {
+  animation-duration: 0.42s;
+  animation-timing-function: var(--ease);
+}
+::view-transition-old(root),
+::view-transition-new(root) { animation-duration: 0.26s; }
+
+@media (prefers-reduced-motion: reduce) {
+  @view-transition { navigation: none; }
+}
+
 /* ---------------------------------------------------------------- hover FX */
 
 /* Spotlight — a soft light that tracks the cursor across glass surfaces.
@@ -383,6 +408,23 @@ h2 { font-size: 16px; margin: 0 0 12px; font-weight: 650; }
   font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.6px;
   color: var(--text-faint); margin-top: 5px; text-align: center;
   line-height: 1.25; max-width: 76px;
+}
+
+/* One ring of light thrown off as the arc finishes drawing — the moment the
+   score lands. Breakouts only, once, then it is gone: a feed where every card
+   pulsed would be telling you nothing. Added by JS on the timing of the ring. */
+.post-badge.beat::after {
+  content: ""; position: absolute; inset: -7px;
+  border-radius: 50%; pointer-events: none;
+  border: 2px solid var(--emerald-bright);
+  animation: badgeBeat 0.9s var(--ease) forwards;
+}
+@keyframes badgeBeat {
+  from { opacity: 0.8; transform: scale(0.93); }
+  to   { opacity: 0;   transform: scale(1.24); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .post-badge.beat::after { animation: none; display: none; }
 }
 
 /* Glow is a property of the score, not just the band. */
@@ -1163,8 +1205,23 @@ select.kind-select option { color: initial; }
   background: linear-gradient(90deg, rgba(224,122,95,0.2), rgba(224,122,95,0.34));
 }
 
+/* Breakouts only. The glowing stretch runs past where it lands and settles
+   back, so the bar reads as having real momentum behind it rather than
+   sliding politely to a stop like every other tier. --over-target and
+   --over-peak are set per card in JS, already clamped to the track. */
+.scale-over.surge {
+  animation: overshootSettle 1.05s var(--ease) 0.12s both;
+  transition: none;
+}
+@keyframes overshootSettle {
+  0%   { width: 0; }
+  58%  { width: var(--over-peak); }
+  100% { width: var(--over-target); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .scale-fill, .scale-over, .ring-fill { transition: none; }
+  .scale-over.surge { animation: none; width: var(--over-target); }
 }
 
 /* ---------------------------------------------------------------- auth */

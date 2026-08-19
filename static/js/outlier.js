@@ -63,7 +63,10 @@
       return;
     }
 
-    var duration = 900;
+    // A bigger number takes longer to climb. A 47x and a 1.2x counting at the
+    // same speed is the whole reason the feed reads flat — the number that
+    // deserves attention should visibly take more work to reach.
+    var duration = Math.max(700, Math.min(700 + Math.abs(target) * 17, 1500));
     var start = performance.now();
 
     function frame(now) {
@@ -102,21 +105,60 @@
       );
     });
 
+    // A breakout is the entire point of the product, so it gets a different
+    // arrival than a 1.2x post: the bar overruns the median and settles back,
+    // and the badge throws off one ring of light as the score lands.
+    var isBreakout = el.classList.contains("tier-breakout");
+
     // Delay so the width transition is visible after the card fades in.
     setTimeout(function () {
       el.querySelectorAll(".scale-fill").forEach(function (bar) {
         bar.style.width = bar.dataset.fill + "%";
       });
+
       el.querySelectorAll(".scale-over").forEach(function (bar) {
-        bar.style.width = bar.dataset.over + "%";
+        var target = parseFloat(bar.dataset.over);
+        if (isNaN(target)) return;
+
+        if (!isBreakout || reduceMotion) {
+          bar.style.width = target + "%";
+          return;
+        }
+
+        // The bar starts at the median notch (25%), so it can never be wider
+        // than the 75% remaining. Clamp the overshoot rather than letting a
+        // near-full bar run off the end of its own track.
+        var peak = Math.min(target + 3.5, 75);
+        bar.style.setProperty("--over-target", target + "%");
+        bar.style.setProperty("--over-peak", peak + "%");
+        bar.classList.add("surge");
       });
     }, 180);
+
+    if (isBreakout && !reduceMotion) {
+      var badge = el.querySelector(".post-badge[data-arc]");
+      // Fires as the ring finishes drawing, so the flare reads as the score
+      // landing rather than as decoration that happens to be on the page.
+      if (badge) setTimeout(function () { badge.classList.add("beat"); }, 1100);
+    }
   }
 
   if ("IntersectionObserver" in window) {
     var observer = new IntersectionObserver(function (entries) {
-      entries.forEach(function (entry, index) {
-        if (!entry.isIntersecting) return;
+      var arriving = entries.filter(function (entry) {
+        return entry.isIntersecting;
+      });
+
+      // IntersectionObserver makes no promise about the order of a batch, so
+      // a screenful used to cascade in whatever order the entries happened to
+      // arrive in. Sorting by document position is what makes the list read
+      // as assembling top-down instead of pieces lighting up at random.
+      arriving.sort(function (a, b) {
+        var relation = a.target.compareDocumentPosition(b.target);
+        return (relation & Node.DOCUMENT_POSITION_FOLLOWING) ? -1 : 1;
+      });
+
+      arriving.forEach(function (entry, index) {
         // Stagger within a batch so a screenful cascades instead of popping.
         setTimeout(function () { activate(entry.target); }, index * 55);
         observer.unobserve(entry.target);
@@ -142,6 +184,35 @@
   document.querySelectorAll("[data-countup]").forEach(function (el) {
     if (!el.closest(".reveal")) countUp(el);
   });
+
+  /* --------------------------------------------------- view transition */
+
+  // The card you click becomes the page it opens. Cross-document view
+  // transitions do the work; all this does is tell the browser which badge
+  // on a feed full of them is the one being carried across. Purely additive:
+  // where the API is missing the link just navigates, as it always did.
+  if (!reduceMotion && window.CSS && CSS.supports &&
+      CSS.supports("view-transition-name", "none")) {
+    document.addEventListener("click", function (event) {
+      var link = event.target.closest('a[href*="/post/"]');
+      if (!link) return;
+
+      var card = link.closest(".post-card");
+      if (!card) return;
+      var badge = card.querySelector(".post-badge");
+      if (!badge) return;
+
+      // A name has to be unique across the document while the transition
+      // runs, so any badge named by an earlier click is released first.
+      document.querySelectorAll("[data-vt-named]").forEach(function (prior) {
+        prior.style.viewTransitionName = "";
+        prior.removeAttribute("data-vt-named");
+      });
+
+      badge.style.viewTransitionName = "post-hero";
+      badge.setAttribute("data-vt-named", "");
+    });
+  }
 
   /* ------------------------------------------------------------ hover FX */
 
