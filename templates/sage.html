@@ -63,7 +63,10 @@
     {# Answers stream in, so there is now something to interrupt. #}
     <button class="btn btn-ghost" type="button" id="chat-stop" hidden>Stop</button>
   </form>
-  <div class="chat-status" id="chat-status"></div>
+  {# Carries the failure and the stopped-early notice. The answer itself is
+     deliberately not a live region — announcing every streamed token would be
+     unusable. #}
+  <div class="chat-status" id="chat-status" role="status" aria-live="polite"></div>
 </section>
 
 {% endblock %}

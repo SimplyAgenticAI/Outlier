@@ -186,7 +186,8 @@
     <button class="btn btn-primary" id="remix-btn" data-post-id="{{ post.id }}">
       Generate variants
     </button>
-    <div class="remix-status" id="remix-status"></div>
+    {# Remix runs long enough that silence is indistinguishable from failure. #}
+    <div class="remix-status" id="remix-status" role="status" aria-live="polite"></div>
     {% endif %}
 
     <div id="remix-output">

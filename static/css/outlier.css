@@ -1040,8 +1040,36 @@ select.kind-select option { color: initial; }
   .page { padding: 24px 18px 60px; }
 }
 @media (max-width: 620px) {
-  .post-card { grid-template-columns: 72px 1fr; }
-  .post-actions { grid-column: 2; flex-direction: row; }
+  .post-card { grid-template-columns: 72px 1fr; padding: 17px 15px; gap: 14px; }
+
+  /* The column shrank to 72px here and the badge did not, so a 92px badge
+     overran its own cell by 20px and sat on top of the first line of the
+     post. Everything inside it scales down with it. */
+  .post-card .post-badge { width: 72px; height: 72px; }
+  .post-card .post-badge .multiple { font-size: 19px; letter-spacing: -0.6px; }
+  .post-card .post-badge .times { font-size: 11px; }
+  .post-card .post-badge.is-unscored .raw-count { font-size: 15px; }
+  .post-card .badge-label { font-size: 7.5px; max-width: 66px; margin-top: 3px; }
+
+  /* The actions take the whole card width rather than sharing the text
+     column, which is what makes room for targets a thumb can actually hit. */
+  .post-actions { grid-column: 1 / -1; flex-direction: row; gap: 10px; }
+  .post-actions .icon-btn { width: 40px; height: 40px; }
+  .post-actions .icon-btn svg { width: 18px; height: 18px; }
+
+  /* 16px is not a tap target. The halo grows the hit area to 40px without
+     moving the dot that draws it, so the caption layout is untouched. */
+  .score-info { position: relative; }
+  .score-info::after { content: ""; position: absolute; inset: -12px; }
+
+  /* Four tiles at desktop proportions ran 261px tall — most of a phone screen
+     spent before the first post. */
+  .stat-row { gap: 10px; margin-bottom: 22px; }
+  .stat { padding: 13px 14px; }
+  .stat-value { font-size: 24px; }
+  .stat-unit { font-size: 15px; }
+  .stat-label { font-size: 11.5px; margin-top: 3px; }
+
   .detail-stats { grid-template-columns: repeat(2, 1fr); }
   .topbar-right .btn-ghost { display: none; }
 }

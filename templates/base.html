@@ -102,7 +102,10 @@
   <span class="sitefoot-note">Not affiliated with Meta or Facebook.</span>
 </footer>
 
-<div class="toast" id="toast"></div>
+{# Saving, deleting, loading samples and remixing all report through here, so
+   making the toast a live region is what makes those actions audible. Nothing
+   else has to change: every existing toast() call is now announced. #}
+<div class="toast" id="toast" role="status" aria-live="polite" aria-atomic="true"></div>
 
 {# One shared popup explains the score in plain language, filled with the
    clicked post's own numbers. Lives here so every page that shows a card can
