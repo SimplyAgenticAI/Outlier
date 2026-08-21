@@ -221,10 +221,47 @@ Promise.resolve()
     console.log();
     console.log("a rejection is still an answer");
     var world = makeWorld();
-    global.fetch = function () { return Promise.reject(new Error("boom")); };
+    var realFetch = global.fetch;
+    var sendAttempts = 0;
+    global.fetch = function (url, init) {
+      // The key mint is a fetch too — count only the batch itself.
+      if (url.indexOf("/api/capture") === -1) return realFetch(url, init);
+      sendAttempts++;
+      return Promise.reject(new Error("boom"));
+    };
     return capture(world, 1).then(function (r) {
       check("the page is answered rather than left waiting", !!r, true);
       check("  and told it failed", r.ok !== true, true);
+      // The reason was thrown away, so a batch failing mid-scan gave the
+      // operator nothing to act on.
+      check("the browser's own reason is reported",
+            /boom/.test(r.error || ""), true);
+      check("  and so is the fact that it retried",
+            /tried 3 times/.test(r.error || ""), true);
+      check("a dropped connection is retried, not abandoned", sendAttempts, 3);
+    });
+  })
+  .then(function () {
+    console.log();
+    console.log("a connection that drops once still delivers");
+    // The case actually seen: a long scan, one batch failing, posts left
+    // waiting. Capture is idempotent on fb_post_id, so going again is safe.
+    var world = makeWorld();
+    var realFetch = global.fetch;
+    var sendAttempts = 0;
+    global.fetch = function (url, init) {
+      if (url.indexOf("/api/capture") === -1) return realFetch(url, init);
+      sendAttempts++;
+      if (sendAttempts === 1) {
+        return Promise.reject(new Error("Failed to fetch"));
+      }
+      return realFetch(url, init);
+    };
+    return capture(world, 5).then(function (r) {
+      check("the batch lands on the retry", !!(r && r.ok), true);
+      check("  after exactly one failure", sendAttempts, 2);
+      check("  and the post arrives rather than waiting for a later sweep",
+            world.accepted, 1);
     });
   })
   /* Open dashboard focuses the one that is open.

@@ -210,6 +210,33 @@ async function handleCapture(message) {
     body: JSON.stringify({ source: message.source, posts: message.posts })
   });
 
+  /* One dropped connection should not strand a batch until the next sweep.
+   *
+   * A rejected fetch is a network-level failure — the request never completed,
+   * so the server either never saw it or never answered. Both are worth
+   * another go: capture is idempotent on fb_post_id, so a batch that did land
+   * before the connection dropped comes back counted as duplicates rather
+   * than inserted twice.
+   *
+   * This matters most late in a long scan, which is exactly when it was seen:
+   * an MV3 service worker can be evicted mid-request, and the fetch rejects
+   * with no status to react to.
+   */
+  const postBatchWithRetry = async (key) => {
+    let lastError;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await postBatch(key);
+      } catch (error) {
+        lastError = error;
+        if (attempt < 2) {
+          await new Promise((r) => setTimeout(r, 500 * (attempt + 1)));
+        }
+      }
+    }
+    throw lastError;
+  };
+
   try {
     const apiKey = await getApiKey();
     if (!apiKey) {
@@ -219,7 +246,7 @@ async function handleCapture(message) {
       };
     }
 
-    let response = await postBatch(apiKey);
+    let response = await postBatchWithRetry(apiKey);
 
     /* A stale key is recoverable, so recover from it here and now.
      *
@@ -257,8 +284,20 @@ async function handleCapture(message) {
     if (data.new) await bumpCounter(data.new);
     return data;
   } catch (error) {
-    // Dashboard not running is the common case — don't spam the console.
-    return { ok: false, error: "Could not reach the dashboard at " + endpoint };
+    /* Say what actually went wrong.
+     *
+     * This reported only "could not reach the dashboard", discarding the
+     * exception entirely — so a batch that failed 150 posts into a scan gave
+     * the operator nothing to act on, and no way to tell a dropped connection
+     * from a blocked request or an evicted worker. The reason the browser
+     * gives is short and it is the only evidence there is.
+     */
+    const reason = (error && error.message) ? error.message : String(error);
+    return {
+      ok: false,
+      error: "Could not reach the dashboard at " + endpoint +
+             " — " + reason + " (tried 3 times)"
+    };
   }
 }
 
