@@ -35,8 +35,8 @@ def main():
     tmp = tempfile.mkdtemp()
     os.environ["DATA_DIR"] = tmp
     os.environ["APP_SECRET"] = "test-only-secret"
-    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "MAIL_FROM",
-                "ADMIN_EMAILS"):
+    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD", "SMTP_PASS",
+                "MAIL_FROM", "MAIL_FROM_NAME", "SMTP_FROM_NAME", "ADMIN_EMAILS"):
         os.environ.pop(key, None)
 
     import db
@@ -53,6 +53,29 @@ def main():
     sent, error = mailer.send("a@b.c", "subject", "body")
     check("sending reports a failure rather than pretending", sent, False)
     check("  and names the reason", "not configured" in error, True)
+    check("and it names every missing piece",
+          mailer.config_summary()["missing"],
+          ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"])
+
+    print()
+    print("host, user and password alone are enough to be configured")
+    # The sibling app on this account already has credentials under these
+    # names. Copying them across must not also require inventing a MAIL_FROM.
+    os.environ["SMTP_HOST"] = "smtp.gmail.com"
+    os.environ["SMTP_USER"] = "someone@gmail.com"
+    os.environ["SMTP_PASS"] = "app-password"          # note: not SMTP_PASSWORD
+    check("SMTP_PASS is accepted as well as SMTP_PASSWORD",
+          mailer.config_summary()["missing"], [])
+    check("it reads as configured", mailer.is_configured(), True)
+    check("and the from-address defaults to the account itself",
+          mailer.from_address(), "Tallgrass <someone@gmail.com>")
+    os.environ["MAIL_FROM"] = "Tallgrass <no-reply@tallgrassapp.com>"
+    check("an explicit MAIL_FROM still wins",
+          mailer.from_address(), "Tallgrass <no-reply@tallgrassapp.com>")
+    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "MAIL_FROM"):
+        os.environ.pop(key, None)
+    check("and removing it all goes back to unconfigured",
+          mailer.is_configured(), False)
 
     print()
     print("a reset link is issued, and only its hash is stored")

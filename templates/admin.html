@@ -57,8 +57,10 @@
     {% else %}
       <b>No email is configured on this instance</b>, so nothing is sent
       automatically. Generate a link here and pass it on however you already
-      talk to them. Set <code>SMTP_HOST</code>, <code>SMTP_USER</code>,
-      <code>SMTP_PASSWORD</code> and <code>MAIL_FROM</code> to automate it.
+      talk to them.
+      {% if email.missing %}
+      To automate it, set {% for name in email.missing %}<code>{{ name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+      {% endif %}
     {% endif %}
   </p>
 

@@ -8,11 +8,16 @@ using speaks SMTP, so this works with Resend, Postmark, SendGrid, Fastmail or
 a self-hosted relay without adding a dependency or picking a winner.
 
 Configure with:
-    SMTP_HOST       smtp.resend.com, smtp.postmarkapp.com, ...
+    SMTP_HOST       smtp.gmail.com, smtp.resend.com, smtp.postmarkapp.com, ...
     SMTP_PORT       587 (STARTTLS, default) or 465 (implicit TLS)
-    SMTP_USER       provider username, often 'resend' or an API-key name
-    SMTP_PASSWORD   provider password or API key
-    MAIL_FROM       the From address, e.g. Tallgrass <no-reply@tallgrassapp.com>
+    SMTP_USER       provider username, or the full address for Gmail
+    SMTP_PASSWORD   provider password or API key (SMTP_PASS also accepted)
+    MAIL_FROM       optional. Defaults to SMTP_USER with a display name.
+
+SMTP_PASS is accepted as well as SMTP_PASSWORD, and MAIL_FROM is optional,
+because the sibling app on this account already has working credentials under
+those names — copying them across should not require renaming anything or
+inventing a from-address that has to be verified somewhere first.
 
 Unconfigured is a supported state, not an error. is_configured() is false, the
 caller falls back to the operator-assisted path, and nobody is left staring at
@@ -34,9 +39,32 @@ def _setting(name, default=""):
     return (os.environ.get(name) or default).strip()
 
 
+def _password():
+    """SMTP_PASSWORD, or SMTP_PASS as the sibling app spells it."""
+    return _setting("SMTP_PASSWORD") or _setting("SMTP_PASS")
+
+
+def from_address():
+    """Who the mail comes from.
+
+    MAIL_FROM when set. Otherwise the authenticating address itself, which is
+    the only address most providers will let you send as anyway — so host,
+    user and password alone are enough to be working.
+    """
+    explicit = _setting("MAIL_FROM")
+    if explicit:
+        return explicit
+
+    user = _setting("SMTP_USER")
+    if not user or "@" not in user:
+        return ""
+    name = _setting("MAIL_FROM_NAME") or _setting("SMTP_FROM_NAME") or "Tallgrass"
+    return "%s <%s>" % (name, user)
+
+
 def is_configured():
     """True when there is somewhere to send mail and a from-address to use."""
-    return bool(_setting("SMTP_HOST") and _setting("MAIL_FROM"))
+    return bool(_setting("SMTP_HOST") and from_address())
 
 
 def config_summary():
@@ -45,8 +73,15 @@ def config_summary():
         "configured": is_configured(),
         "host": _setting("SMTP_HOST"),
         "port": _setting("SMTP_PORT", "587"),
-        "from": _setting("MAIL_FROM"),
+        "from": from_address(),
         "authenticated": bool(_setting("SMTP_USER")),
+        # Named so a half-configured instance says which piece is missing
+        # rather than just refusing to send.
+        "missing": [name for name, present in (
+            ("SMTP_HOST", bool(_setting("SMTP_HOST"))),
+            ("SMTP_USER", bool(_setting("SMTP_USER"))),
+            ("SMTP_PASSWORD", bool(_password())),
+        ) if not present],
     }
 
 
@@ -63,10 +98,10 @@ def send(to, subject, body):
     host = _setting("SMTP_HOST")
     port = int(_setting("SMTP_PORT", "587") or 587)
     user = _setting("SMTP_USER")
-    password = _setting("SMTP_PASSWORD")
+    password = _password()
 
     message = EmailMessage()
-    message["From"] = _setting("MAIL_FROM")
+    message["From"] = from_address()
     message["To"] = to
     message["Subject"] = subject
     message.set_content(body)
