@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 
 from flask import (Flask, Response, jsonify, redirect, render_template, request,
                    send_file, session, stream_with_context, url_for)
+from werkzeug.exceptions import HTTPException
 
 import auth
 import billing
@@ -109,6 +110,14 @@ INGEST_PATHS = ("/api/capture", "/api/ping")
 # Where the last SMTP rejection is kept, so the admin page can show it.
 MAIL_ERROR_KEY = "last_mail_error"
 
+# Same idea for ingest. A capture failing is reported to the extension as a
+# bare status code, which is all the operator ever saw — the reason lived only
+# in a traceback nobody reads.
+CAPTURE_ERROR_KEY = "last_capture_error"
+
+# Anything else that crashes, from any page.
+UNHANDLED_ERROR_KEY = "last_unhandled_error"
+
 CSP = "; ".join((
     "default-src 'self'",
     "base-uri 'self'",
@@ -120,6 +129,37 @@ CSP = "; ".join((
     "img-src 'self' data: https:",
     "connect-src 'self'",
 ))
+
+
+@app.errorhandler(Exception)
+def record_unhandled(error):
+    """Keep the reason for a 500 somewhere the operator will find it.
+
+    A crash reached the extension as "Dashboard returned 500" and the browser
+    as a blank error page, with the traceback going only to a log nobody
+    opens. Both still happen — but the reason is now stored and shown on the
+    admin page, so a failure in the field can be diagnosed by the person it
+    happened to.
+    """
+    # HTTP errors are deliberate answers (404, 403, 413) and pass straight on.
+    if isinstance(error, HTTPException):
+        return error
+
+    log.exception("unhandled error on %s %s", request.method, request.path)
+    db.set_setting(
+        CAPTURE_ERROR_KEY if request.path == "/api/capture" else UNHANDLED_ERROR_KEY,
+        "%s — %s %s: %s: %s" % (
+            datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+            request.method, request.path, type(error).__name__, error),
+    )
+
+    if request.path.startswith("/api/"):
+        return jsonify({
+            "ok": False,
+            "error": "The dashboard hit an unexpected error storing that "
+                     "batch. The details are on the admin page.",
+        }), 500
+    return render_template("500.html", version=APP_VERSION), 500
 
 
 @app.after_request
@@ -1852,52 +1892,83 @@ def api_capture():
         author_counts = db.caption_author_counts(
             conn, api_user["id"], [p.get("body") for p in posts])
 
+        capture_failure = None
+
+        # One malformed post used to cost the whole batch.
+        #
+        # Anything raising inside this loop aborted the request with a 500, so
+        # fifty good posts were rejected because of one — and the extension,
+        # seeing a failed batch, put all fifty back on the queue to fail the
+        # same way on the next sweep. The post that cannot be stored is now
+        # skipped and named, and the other forty-nine land.
+        failed = []
+
         for post in posts:
             if not post.get("fb_post_id"):
                 continue
 
-            # Done before the id matters: the extension already computed
-            # fb_post_id and sent it, so clearing the body here cannot change
-            # the identity of the row or duplicate it on the next scan.
-            if db.is_viewer_name_body(post.get("body"), viewer_parts):
-                post["body"] = ""
-                post["body_from_image"] = 0
+            try:
+                # Done before the id matters: the extension already computed
+                # fb_post_id and sent it, so clearing the body here cannot
+                # change the identity of the row or duplicate it on the next
+                # scan.
+                if db.is_viewer_name_body(post.get("body"), viewer_parts):
+                    post["body"] = ""
+                    post["body_from_image"] = 0
 
-            # A post captured from the home or groups feed carries its own
-            # origin, because the post above it came from somewhere else.
-            # Filing a whole feed under one source would score unrelated
-            # posts against a shared median, which is the one thing this
-            # product must not do.
-            post_source = post.get("source")
-            if isinstance(post_source, dict) and post_source.get("fb_id"):
-                post_source_id = resolve(post_source)
-            else:
-                if source_id is None:
-                    source_id = resolve(source)
-                post_source_id = source_id
+                # A post captured from the home or groups feed carries its own
+                # origin, because the post above it came from somewhere else.
+                # Filing a whole feed under one source would score unrelated
+                # posts against a shared median, which is the one thing this
+                # product must not do.
+                post_source = post.get("source")
+                if isinstance(post_source, dict) and post_source.get("fb_id"):
+                    post_source_id = resolve(post_source)
+                else:
+                    if source_id is None:
+                        source_id = resolve(source)
+                    post_source_id = source_id
 
-            author_id = db.upsert_author(
-                conn,
-                name=post.get("author_name"),
-                profile_url=post.get("author_url"),
-            )
+                author_id = db.upsert_author(
+                    conn,
+                    name=post.get("author_name"),
+                    profile_url=post.get("author_url"),
+                )
 
-            # A caption that has already arrived under other people's names is
-            # not a caption.
-            #
-            # This needs no setting and no knowledge of whose name it is. Two
-            # different authors do not write the same one-word post, so a
-            # single token already seen under two or more authors is page
-            # furniture whatever it says — which is what catches the case the
-            # name filter misses when nobody has filled the field in.
-            _body = (post.get("body") or "").strip()
-            if db.furniture_caption(_body) and author_counts.get(_body, 0) >= 2:
-                post["body"] = ""
-                post["body_from_image"] = 0
+                # A caption that has already arrived under other people's names
+                # is not a caption.
+                #
+                # This needs no setting and no knowledge of whose name it is.
+                # Two different authors do not write the same one-word post, so
+                # a single token already seen under two or more authors is page
+                # furniture whatever it says — which is what catches the case
+                # the name filter misses when nobody has filled the field in.
+                _body = (post.get("body") or "").strip()
+                if db.furniture_caption(_body) and author_counts.get(_body, 0) >= 2:
+                    post["body"] = ""
+                    post["body_from_image"] = 0
 
-            if db.upsert_post(conn, post_source_id, author_id, post,
-                              user_id=api_user["id"]):
-                new_count += 1
+                if db.upsert_post(conn, post_source_id, author_id, post,
+                                  user_id=api_user["id"]):
+                    new_count += 1
+
+            except Exception as exc:              # noqa: BLE001 - recorded, not swallowed
+                # Named and counted, never silently dropped. The traceback goes
+                # to the log and the summary to the admin page, so a post that
+                # cannot be stored is a visible fact rather than a number that
+                # quietly fails to add up.
+                #
+                # The message is only BUILT here. Writing it needs its own
+                # connection, which would queue behind the write lock this
+                # block still holds — the same trap the capture-cap warning
+                # below documents. set_setting never raises, so getting this
+                # wrong loses the diagnostic silently.
+                failed.append(post.get("fb_post_id"))
+                capture_failure = "%s — %s on post %s: %s" % (
+                    datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC"),
+                    type(exc).__name__, post.get("fb_post_id"), exc)
+                log.exception("capture: post %s could not be stored",
+                              post.get("fb_post_id"))
 
         # The capture log points at the page-level source when there is one;
         # for a feed scan it points at whichever source the batch touched.
@@ -1918,10 +1989,21 @@ def api_capture():
     # have paid that stall and the warning would never once have fired.
     _warn_approaching_cap(api_user)
 
+    # Outside the transaction, for the reason given at the failure site.
+    if capture_failure:
+        db.set_setting(CAPTURE_ERROR_KEY, capture_failure)
+    if failed:
+        log.warning("capture: %d of %d posts could not be stored (%s)",
+                    len(failed), len(posts), ", ".join(str(f) for f in failed[:5]))
+
     return jsonify({
         "ok": True,
         "received": len(posts),
         "new": new_count,
+        # Stated rather than left to be inferred from a count that does not
+        # add up. The extension shows this so a partial batch is visible at
+        # the moment it happens.
+        "skipped": len(failed),
         "source_id": logged_source,
         # WHOSE dashboard these landed in.
         #
@@ -2150,6 +2232,10 @@ def admin():
         email=mailer.config_summary(),
         # The provider's own words about the last failed send, if any.
         mail_error=db.get_setting(MAIL_ERROR_KEY, ""),
+        # And the last thing that crashed, which the extension can only ever
+        # report to the operator as a status code.
+        capture_error=db.get_setting(CAPTURE_ERROR_KEY, ""),
+        unhandled_error=db.get_setting(UNHANDLED_ERROR_KEY, ""),
         # Presence only, never the values — an admin page is still a web page.
         stripe={
             "key": bool(os.environ.get("STRIPE_SECRET_KEY")),

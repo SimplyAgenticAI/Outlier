@@ -44,6 +44,8 @@ echo "--- service worker ---"
 node tests/worker.test.js
 echo "--- self-update ---"
 node tests/updater.test.js
+echo "--- capture resilience ---"
+python tests/capture.test.py
 echo "--- scoring accuracy rules ---"
 python tests/scoring.test.py
 echo "--- accounts, keys and sessions ---"

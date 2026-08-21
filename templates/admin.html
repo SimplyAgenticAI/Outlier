@@ -44,6 +44,31 @@
   </div>
 </div>
 
+{% if capture_error or unhandled_error %}
+{# A crash reaches the extension as a bare status code and the browser as an
+   error page. The reason existed only in a traceback nobody opens, so a
+   failure in the field could not be diagnosed by the person it happened to. #}
+<section class="glass panel reveal" style="margin-bottom:20px;
+         border-color:rgba(224,122,95,0.35)">
+  <h2 style="margin:0 0 10px;font-size:16px;color:var(--ember)">Recent errors</h2>
+  {% if capture_error %}
+  <p class="fine" style="margin:0 0 4px"><b>Last capture failure</b> — what the
+    extension saw as a 500 or a skipped post:</p>
+  <div style="font-family:ui-monospace,monospace;font-size:12px;
+              word-break:break-word;margin-bottom:12px">{{ capture_error }}</div>
+  {% endif %}
+  {% if unhandled_error %}
+  <p class="fine" style="margin:0 0 4px"><b>Last unhandled error</b>:</p>
+  <div style="font-family:ui-monospace,monospace;font-size:12px;
+              word-break:break-word">{{ unhandled_error }}</div>
+  {% endif %}
+  <p class="fine" style="margin:12px 0 0">
+    Full tracebacks are in the host's logs. These are kept so the reason is
+    visible without opening them.
+  </p>
+</section>
+{% endif %}
+
 {# Getting somebody back into their account. Reset tokens are stored hashed, so
    a link that has already been sent cannot be read back here — the only
    possible action is to issue a fresh one, which is what this does. #}
