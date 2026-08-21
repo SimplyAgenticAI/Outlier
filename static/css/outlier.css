@@ -1459,6 +1459,14 @@ select.kind-select option { color: initial; }
   font-size: 13px; color: var(--ember);
   background: rgba(224,122,95,0.1); border: 1px solid rgba(224,122,95,0.35);
 }
+
+/* Same shape as auth-error, but this one is good news — a completed password
+   reset arriving back at the sign-in page. */
+.auth-note {
+  padding: 11px 14px; border-radius: 9px; margin-bottom: 18px;
+  font-size: 13px; color: var(--emerald-bright);
+  background: rgba(52,211,153,0.1); border: 1px solid var(--border-lit);
+}
 .auth-alt { text-align: center; margin: 20px 0 0; font-size: 13px; color: var(--text-muted); }
 .auth-alt a { color: var(--emerald-bright); text-decoration: none; }
 .auth-alt a:hover { text-decoration: underline; }

@@ -20,6 +20,7 @@ import re
 import secrets
 import sqlite3
 import time
+from datetime import datetime, timedelta, timezone
 
 from flask import g, jsonify, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
@@ -294,7 +295,153 @@ def set_password(user_id, password):
             "UPDATE users SET password_hash = ? WHERE id = ?",
             (generate_password_hash(password), user_id),
         )
+        # Any reset link still in an inbox is now stale. Somebody who knows the
+        # current password has demonstrated control of the account, and an
+        # unspent link sitting in email is a second key to it.
+        conn.execute(
+            "UPDATE password_resets SET used_at = CURRENT_TIMESTAMP "
+            "WHERE user_id = ? AND used_at IS NULL", (user_id,),
+        )
     return None
+
+
+# ------------------------------------------------------------ password reset
+
+
+# Long enough to walk to another device and read an email, short enough that a
+# link found later in a shared inbox is already dead.
+RESET_TTL_MINUTES = 60
+
+# Per email address, over the standard window. Without this the form is a way
+# to have somebody's inbox filled on request.
+MAX_RESETS = 5
+_RESETS = {}
+
+
+def reset_throttled(email):
+    email = (email or "").strip().lower()
+    count, first_at = _RESETS.get(email, (0, 0))
+    if time.time() - first_at > ATTEMPT_WINDOW:
+        _RESETS.pop(email, None)
+        return False
+    return count >= MAX_RESETS
+
+
+def _record_reset(email):
+    count, first_at = _RESETS.get(email, (0, time.time()))
+    if time.time() - first_at > ATTEMPT_WINDOW:
+        count, first_at = 0, time.time()
+    _RESETS[email] = (count + 1, first_at)
+
+
+def create_reset_token(email):
+    """Issue a one-time reset token. Returns (raw_token, user) or (None, None).
+
+    (None, None) means no account — and the caller must NOT say so. A reset
+    form that answers differently for a known and an unknown address is a way
+    to test which emails have accounts here.
+
+    Only the hash is stored, for the same reason only the hash of an API key
+    is: reading the table must not yield a working link into every account.
+    """
+    email = (email or "").strip().lower()
+    if not email or reset_throttled(email):
+        return None, None
+
+    with db.get_db() as conn:
+        row = conn.execute(
+            "SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    if not row:
+        return None, None
+
+    _record_reset(email)
+
+    raw = secrets.token_urlsafe(32)
+    expires = datetime.now(timezone.utc) + timedelta(minutes=RESET_TTL_MINUTES)
+
+    with db.get_db() as conn:
+        # One live link at a time. Requesting a new one has to retire the old,
+        # or every request ever made stays usable until it expires.
+        conn.execute(
+            "UPDATE password_resets SET used_at = CURRENT_TIMESTAMP "
+            "WHERE user_id = ? AND used_at IS NULL", (row["id"],),
+        )
+        conn.execute(
+            "INSERT INTO password_resets (user_id, token_hash, expires_at) "
+            "VALUES (?, ?, ?)",
+            (row["id"], _hash_key(raw), expires.strftime("%Y-%m-%d %H:%M:%S")),
+        )
+
+    return raw, dict(row)
+
+
+def _live_reset(conn, raw):
+    """The unused, unexpired reset row for this token, or None."""
+    if not raw:
+        return None
+    row = conn.execute(
+        "SELECT * FROM password_resets WHERE token_hash = ?", (_hash_key(raw),)
+    ).fetchone()
+    if not row or row["used_at"]:
+        return None
+    # Compared as strings, both written as UTC 'YYYY-MM-DD HH:MM:SS'.
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    if row["expires_at"] <= now:
+        return None
+    return row
+
+
+def reset_token_valid(raw):
+    """Whether a link is still good, for deciding which page to render."""
+    with db.get_db() as conn:
+        return _live_reset(conn, raw) is not None
+
+
+def mark_reset_delivered(raw):
+    with db.get_db() as conn:
+        conn.execute(
+            "UPDATE password_resets SET delivered = 1 WHERE token_hash = ?",
+            (_hash_key(raw),),
+        )
+
+
+def consume_reset_token(raw, password):
+    """Spend a reset link on a new password. Returns (user_id, error).
+
+    The token is checked before the password is validated, so a short password
+    does not burn the link — the user gets to try again on the same one.
+    """
+    with db.get_db() as conn:
+        row = _live_reset(conn, raw)
+
+    if not row:
+        return None, ("That reset link has expired or already been used. "
+                      "Request a new one.")
+
+    if len(password or "") < MIN_PASSWORD_LENGTH:
+        return None, f"Password must be at least {MIN_PASSWORD_LENGTH} characters."
+
+    with db.get_db() as conn:
+        conn.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(password), row["user_id"]),
+        )
+        # Single use, and every sibling link dies with it.
+        conn.execute(
+            "UPDATE password_resets SET used_at = CURRENT_TIMESTAMP "
+            "WHERE user_id = ? AND used_at IS NULL", (row["user_id"],),
+        )
+
+    # Whoever was locked out is now the one who can get in. Clearing the
+    # failed-attempt counter stops the throttle from meeting them at the door
+    # with "too many attempts" straight after a successful reset.
+    with db.get_db() as conn:
+        user = conn.execute("SELECT email FROM users WHERE id = ?",
+                            (row["user_id"],)).fetchone()
+    if user:
+        _ATTEMPTS.pop(user["email"], None)
+
+    return row["user_id"], None
 
 
 # ---------------------------------------------------------------- session

@@ -14,6 +14,7 @@ from flask import (Flask, Response, jsonify, redirect, render_template, request,
 import auth
 import billing
 import db
+import mailer
 import outliers
 import remix
 import sage
@@ -1186,6 +1187,9 @@ def login():
 
     return render_template(
         "login.html", error=error, allow_signups=ALLOW_SIGNUPS,
+        # Set by a completed reset, so the page says the password changed
+        # rather than leaving somebody to guess whether it took.
+        reset_done=session.pop("reset_done", False),
         version=APP_VERSION,
     ), (400 if error else 200)
 
@@ -1227,6 +1231,150 @@ def register():
         form_username=(request.form.get("username") or "").strip(),
         version=APP_VERSION,
     ), (400 if error else 200)
+
+
+@app.route("/forgot", methods=["GET", "POST"])
+def forgot_password():
+    """Ask for a reset link.
+
+    Always answers the same way. Saying "no account with that email" here would
+    turn the form into a way to test which addresses have accounts, and the
+    person who genuinely mistyped their own address is helped just as well by
+    being told to check their inbox and try again.
+
+    Where email is not configured the request is still recorded and the owner
+    is notified, so somebody locked out is never left waiting on a message that
+    was never going to be sent.
+    """
+    if auth.current_user():
+        return redirect(url_for("feed"))
+
+    sent = False
+    if request.method == "POST":
+        email = (request.form.get("email") or "").strip()
+        raw, user = auth.create_reset_token(email)
+
+        if raw and user:
+            link = url_for("reset_password", token=raw, _external=True)
+            if mailer.is_configured():
+                ok, error = mailer.send(
+                    user["email"],
+                    "Reset your %s password" % APP_NAME,
+                    "Someone asked to reset the password for this "
+                    "%s account.\n\n"
+                    "Open this link to choose a new one:\n\n%s\n\n"
+                    "The link works once and expires in %d minutes.\n\n"
+                    "If this wasn't you, ignore this email — nothing has "
+                    "changed and the link can simply go unused."
+                    % (APP_NAME, link, auth.RESET_TTL_MINUTES),
+                )
+                if ok:
+                    auth.mark_reset_delivered(raw)
+                else:
+                    log.error("reset email failed for user %s: %s",
+                              user["id"], error)
+            else:
+                log.warning("reset requested but SMTP is not configured; "
+                            "link must be delivered by the operator")
+
+            # The owner is told either way. When mail is configured this is a
+            # log of who is struggling; when it is not, it is the only way the
+            # request reaches anyone at all.
+            db.notify_admins(
+                "password-reset",
+                "Password reset requested",
+                body=("%s asked to reset their password. %s"
+                      % (user["email"],
+                         "An email was sent."
+                         if mailer.is_configured()
+                         else "Email is NOT configured on this instance — "
+                              "open Admin to copy their reset link.")),
+                url="/admin",
+            )
+
+        sent = True
+
+    return render_template(
+        "forgot.html", sent=sent, version=APP_VERSION,
+        # So the page can be honest about how the link will arrive.
+        email_configured=mailer.is_configured(),
+        ttl_minutes=auth.RESET_TTL_MINUTES,
+    )
+
+
+@app.route("/reset/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    """Spend a reset link on a new password."""
+    if auth.current_user():
+        return redirect(url_for("feed"))
+
+    error = None
+    if request.method == "POST":
+        password = request.form.get("password") or ""
+        if password != (request.form.get("password_confirm") or ""):
+            error = "Passwords don't match."
+        else:
+            user_id, error = auth.consume_reset_token(token, password)
+            if user_id:
+                log.info("password reset completed for user %s", user_id)
+                # Deliberately not signed in here. Reaching the sign-in page
+                # with the new password is the proof it took, and it leaves
+                # one clear place where the account is entered.
+                session["reset_done"] = True
+                return redirect(url_for("login"))
+
+    return render_template(
+        "reset.html",
+        token=token,
+        error=error,
+        # A dead link says so on arrival rather than after a form is filled in.
+        valid=auth.reset_token_valid(token),
+        min_length=auth.MIN_PASSWORD_LENGTH,
+        ttl_minutes=auth.RESET_TTL_MINUTES,
+        version=APP_VERSION,
+    ), (400 if error else 200)
+
+
+@app.route("/api/admin/reset-link", methods=["POST"])
+@auth.login_required
+def api_admin_reset_link():
+    """Mint a reset link for an account, for the owner to pass on directly.
+
+    Stored tokens are hashed, so an existing link cannot be read back out of
+    the database — not by an attacker and not by the owner either. The only
+    thing anyone can do is issue a fresh one, which is what this does.
+
+    This is the path that works with no email configured at all: somebody
+    writes in saying they are locked out, the owner generates a link here and
+    sends it however they already talk to them.
+    """
+    if not _require_admin():
+        return jsonify({"ok": False, "error": "Admins only"}), 403
+
+    body = request.get_json(silent=True) or {}
+    email = (body.get("email") or "").strip().lower()
+    if not email:
+        return jsonify({"ok": False, "error": "Which account?"}), 400
+
+    # The throttle protects the public form from being used to flood an inbox.
+    # An owner deliberately helping one person is not that, and being told to
+    # wait fifteen minutes mid-conversation would be its own bug.
+    auth._RESETS.pop(email, None)
+
+    raw, user = auth.create_reset_token(email)
+    if not raw:
+        # Admin-only, so naming the miss is fine here — the enumeration
+        # concern applies to the public form, not to the owner's own console.
+        return jsonify({"ok": False,
+                        "error": "No account with that email."}), 404
+
+    log.info("admin issued a reset link for user %s", user["id"])
+    return jsonify({
+        "ok": True,
+        "email": user["email"],
+        "link": url_for("reset_password", token=raw, _external=True),
+        "minutes": auth.RESET_TTL_MINUTES,
+    })
 
 
 @app.route("/logout", methods=["POST"])
@@ -1952,6 +2100,10 @@ def admin():
         problem_advice=user_health.PROBLEM_ADVICE,
         traffic=db.traffic_summary(days),
         users=db.recent_users(50),
+        # Who is locked out right now, and whether this instance can even
+        # send them a link on its own.
+        pending_resets=db.pending_reset_requests(),
+        email=mailer.config_summary(),
         # Presence only, never the values — an admin page is still a web page.
         stripe={
             "key": bool(os.environ.get("STRIPE_SECRET_KEY")),

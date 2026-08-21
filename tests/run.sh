@@ -48,6 +48,8 @@ echo "--- scoring accuracy rules ---"
 python tests/scoring.test.py
 echo "--- accounts, keys and sessions ---"
 python tests/auth.test.py
+echo "--- password reset ---"
+python tests/reset.test.py
 echo "--- entitlement ---"
 python tests/billing.test.py
 echo "--- cross-user health ---"

@@ -51,6 +51,24 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE INDEX IF NOT EXISTS idx_users_keyprefix ON users(api_key_prefix);
 
+-- Password resets. Only the hash of the token is kept, for the same reason
+-- only the hash of an API key is: a database read must not hand somebody a
+-- working link into every account. `delivered` records whether an email
+-- actually went out, so an operator can see which requests still need a hand.
+CREATE TABLE IF NOT EXISTS password_resets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL,
+    token_hash  TEXT NOT NULL,
+    created_at  TEXT DEFAULT CURRENT_TIMESTAMP,
+    expires_at  TEXT NOT NULL,
+    used_at     TEXT,
+    delivered   INTEGER DEFAULT 0,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_resets_hash ON password_resets(token_hash);
+CREATE INDEX IF NOT EXISTS idx_resets_user ON password_resets(user_id);
+
 CREATE TABLE IF NOT EXISTS sources (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     fb_id         TEXT UNIQUE NOT NULL,
@@ -1062,6 +1080,26 @@ def traffic_summary(days=30):
                 "WHERE created_at >= datetime('now', ?) "
                 "GROUP BY path ORDER BY views DESC LIMIT 10", (since,))],
         }
+
+
+def pending_reset_requests(limit=20):
+    """Reset requests that were never spent, newest first.
+
+    `delivered` is 0 when no email went out — on an instance with no SMTP
+    configured that is every one of them, and this list is the only place the
+    request surfaces at all.
+    """
+    with get_db() as conn:
+        return [dict(r) for r in conn.execute(
+            """
+            SELECT r.id, r.user_id, r.created_at, r.expires_at, r.delivered,
+                   u.email
+            FROM password_resets r
+            JOIN users u ON u.id = r.user_id
+            WHERE r.used_at IS NULL
+            ORDER BY r.id DESC LIMIT ?
+            """, (limit,)
+        ).fetchall()]
 
 
 def recent_users(limit=25):

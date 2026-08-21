@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sign in — {{ app_name }}</title>
+<title>Reset your password — {{ app_name }}</title>
 <link rel="icon" type="image/svg+xml" href="{{ url_for('static', filename='favicon.svg') }}">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/outlier.css') }}">
 </head>
@@ -12,10 +12,6 @@
 <div class="ambient"></div>
 <canvas id="field" class="field" aria-hidden="true"></canvas>
 
-{# Just the form. The read/rank/write explainer used to sit beside it, back
-   when /login was the front door and this was the only page a stranger saw.
-   It now lives on the landing page at "/", where somebody deciding whether to
-   sign up actually lands, and this page is left to the one job it has. #}
 <main class="auth-shell">
   <div class="glass auth-card">
     <div class="auth-brand">
@@ -29,18 +25,36 @@
       <span class="brand-text"><span class="brand-name">{{ app_name }}</span><span class="brand-parent">{{ app_parent }}</span></span>
     </div>
 
-    <h1>Sign in</h1>
-    <p class="auth-sub">Find what broke out, and write the next one.</p>
-
-    {% if reset_done %}
-    <div class="auth-note">
-      <b>Password updated.</b> Sign in with your new one.
+    {% if sent %}
+    {# Identical whether or not the address has an account. Confirming it does
+       would make this form a way to test which emails are registered here. #}
+    <h1>Check your email</h1>
+    <p class="auth-sub">
+      If there's a {{ app_name }} account for that address, a reset link is on
+      its way. It works once and expires in {{ ttl_minutes }} minutes.
+    </p>
+    {% if not email_configured %}
+    {# Saying "check your email" and then never sending one is how somebody
+       ends up waiting all day. If this instance cannot send mail, the page
+       says who is actually going to get in touch. #}
+    <div class="auth-error" style="background:rgba(217,180,95,0.1);border-color:rgba(217,180,95,0.4)">
+      <b>This instance can't send email yet.</b>
+      Your request has been passed to the account owner, who will send your
+      reset link directly. If it's urgent, reply to however you normally reach
+      them.
     </div>
     {% endif %}
+    <p class="auth-alt">
+      Didn't arrive? Check spam, then
+      <a href="{{ url_for('forgot_password') }}">try again</a>.
+    </p>
 
-    {% if error %}
-    <div class="auth-error">{{ error }}</div>
-    {% endif %}
+    {% else %}
+    <h1>Reset your password</h1>
+    <p class="auth-sub">
+      Enter the email you signed up with and we'll send a link to choose a new
+      password.
+    </p>
 
     <form method="post" class="auth-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -48,24 +62,13 @@
         <span>Email</span>
         <input type="email" name="email" autocomplete="email" required autofocus>
       </label>
-      <label>
-        <span>Password</span>
-        <input type="password" name="password" autocomplete="current-password" required>
-      </label>
-      <button class="btn btn-primary auth-submit" type="submit">Sign in</button>
+      <button class="btn btn-primary auth-submit" type="submit">Send reset link</button>
     </form>
-
-    {# There was no way to start a reset from anywhere in the app, so somebody
-       who forgot their password had no route back in at all. #}
-    <p class="auth-alt">
-      <a href="{{ url_for('forgot_password') }}">Forgot your password?</a>
-    </p>
-
-    {% if allow_signups %}
-    <p class="auth-alt">
-      No account yet? <a href="{{ url_for('register') }}">Create one</a>
-    </p>
     {% endif %}
+
+    <p class="auth-alt">
+      Remembered it? <a href="{{ url_for('login') }}">Sign in</a>
+    </p>
 
     <p class="auth-legal">
       <a href="{{ url_for('privacy') }}">Privacy</a> ·

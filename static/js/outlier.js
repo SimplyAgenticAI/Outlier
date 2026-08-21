@@ -185,6 +185,65 @@
     if (!el.closest(".reveal")) countUp(el);
   });
 
+  /* ------------------------------------------------ admin: reset links */
+
+  var resetIssue = document.getElementById("reset-issue");
+  if (resetIssue) {
+    var resetEmail = document.getElementById("reset-email");
+    var resetMsg = document.getElementById("reset-issue-msg");
+
+    resetIssue.addEventListener("click", function () {
+      var email = (resetEmail.value || "").trim();
+      if (!email) {
+        resetMsg.className = "msg-line error";
+        resetMsg.textContent = "Which account?";
+        return;
+      }
+
+      resetIssue.disabled = true;
+      resetMsg.className = "msg-line";
+      resetMsg.textContent = "Generating…";
+
+      post("/api/admin/reset-link", { email: email })
+        .then(function (data) {
+          if (!data.ok) throw new Error(data.error || "Could not generate a link");
+
+          // The link is shown once and never stored anywhere readable, so it
+          // is rendered as selectable text rather than a link — clicking it
+          // here would spend it on the admin's own browser.
+          resetMsg.className = "msg-line";
+          resetMsg.textContent = "";
+
+          var line = document.createElement("div");
+          line.appendChild(document.createTextNode(
+            "One-time link for " + data.email + ", valid " + data.minutes +
+            " minutes. Send it to them, don't open it yourself:"));
+
+          var box = document.createElement("input");
+          box.type = "text";
+          box.readOnly = true;
+          box.value = data.link;
+          box.style.cssText =
+            "width:100%;margin-top:8px;padding:9px 12px;border-radius:9px;" +
+            "background:rgba(6,20,13,0.6);border:1px solid var(--border-lit);" +
+            "color:var(--emerald-bright);font-size:12.5px";
+          box.addEventListener("focus", function () { box.select(); });
+
+          line.appendChild(box);
+          resetMsg.appendChild(line);
+          box.focus();
+          toast("Reset link generated");
+        })
+        .catch(function (error) {
+          resetMsg.className = "msg-line error";
+          resetMsg.textContent = error.message;
+        })
+        .finally(function () {
+          resetIssue.disabled = false;
+        });
+    });
+  }
+
   /* --------------------------------------------------- view transition */
 
   // The card you click becomes the page it opens. Cross-document view

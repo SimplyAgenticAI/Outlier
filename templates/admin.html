@@ -44,6 +44,53 @@
   </div>
 </div>
 
+{# Getting somebody back into their account. Reset tokens are stored hashed, so
+   a link that has already been sent cannot be read back here — the only
+   possible action is to issue a fresh one, which is what this does. #}
+<section class="glass panel reveal" style="margin-bottom:20px">
+  <h2 style="margin:0 0 4px;font-size:16px">Password resets</h2>
+  <p class="fine" style="margin:0 0 14px">
+    {% if email.configured %}
+      Sending through <b>{{ email.host }}</b> as <b>{{ email['from'] }}</b>.
+      Reset emails go out automatically; use this when someone asks you
+      directly instead.
+    {% else %}
+      <b>No email is configured on this instance</b>, so nothing is sent
+      automatically. Generate a link here and pass it on however you already
+      talk to them. Set <code>SMTP_HOST</code>, <code>SMTP_USER</code>,
+      <code>SMTP_PASSWORD</code> and <code>MAIL_FROM</code> to automate it.
+    {% endif %}
+  </p>
+
+  <div class="demo-actions" style="align-items:center;gap:10px">
+    <input type="email" id="reset-email" placeholder="their@email.com"
+           style="flex:1;min-width:210px;padding:9px 12px;border-radius:9px;
+                  background:rgba(6,20,13,0.6);border:1px solid var(--border);
+                  color:var(--text);font-size:13.5px">
+    <button class="btn btn-primary" id="reset-issue">Generate link</button>
+  </div>
+  <div class="msg-line" id="reset-issue-msg" role="status" aria-live="polite"></div>
+
+  {% if pending_resets %}
+  <p class="fine" style="margin:16px 0 6px"><b>Outstanding requests</b></p>
+  <table class="admin-table">
+    <thead>
+      <tr><th>Account</th><th>Requested</th><th>Expires</th><th>Emailed</th></tr>
+    </thead>
+    <tbody>
+      {% for row in pending_resets %}
+      <tr>
+        <td>{{ row.email }}</td>
+        <td class="fine">{{ row.created_at }}</td>
+        <td class="fine">{{ row.expires_at }}</td>
+        <td class="fine">{{ 'yes' if row.delivered else 'no — needs you' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
 {# Whether money can actually be taken.
    The price ids ship in the code because they are public identifiers, but the
    secret key and webhook secret are environment variables and must be — a
