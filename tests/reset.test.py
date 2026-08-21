@@ -53,18 +53,48 @@ def main():
     sent, error = mailer.send("a@b.c", "subject", "body")
     check("sending reports a failure rather than pretending", sent, False)
     check("  and names the reason", "not configured" in error, True)
-    check("and it names every missing piece",
-          mailer.config_summary()["missing"],
-          ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"])
-    check("  and reports that nothing at all was found",
+    check("and it names the missing credentials",
+          mailer.config_summary()["missing"], ["SMTP_USER", "SMTP_PASSWORD"])
+    check("  and reports that no credential was found",
           mailer.config_summary()["any_set"], False)
+    check("the host is never the missing piece — it has a default",
+          mailer.host(), mailer.DEFAULT_HOST)
+
+    print()
+    print("a user and a password alone are enough")
+    # Everything else is defaulted, because every variable that has to be set
+    # by hand is another chance to set it on the wrong service or with the
+    # wrong capitalisation.
+    os.environ["SMTP_USER"] = "someone@gmail.com"
+    os.environ["SMTP_PASS"] = "app-password"          # note: not SMTP_PASSWORD
+    check("SMTP_PASS is accepted as well as SMTP_PASSWORD",
+          mailer.config_summary()["missing"], [])
+    check("it reads as configured", mailer.is_configured(), True)
+    check("the host defaults to Gmail", mailer.config_summary()["host"],
+          "smtp.gmail.com")
+    check("and the from-address defaults to the account itself",
+          mailer.from_address(), "Tallgrass <someone@gmail.com>")
+    os.environ["MAIL_FROM"] = "MacRandle Acres <someone@gmail.com>"
+    check("an explicit MAIL_FROM still wins",
+          mailer.from_address(), "MacRandle Acres <someone@gmail.com>")
+    os.environ.pop("MAIL_FROM", None)
+
+    print()
+    print("a user with no password is NOT configured")
+    # This reported itself as ready and then failed at authentication, which
+    # told somebody their reset link was on its way when nothing could send.
+    os.environ.pop("SMTP_PASS", None)
+    check("it is not configured", mailer.is_configured(), False)
+    check("and the password is named", mailer.config_summary()["missing"],
+          ["SMTP_PASSWORD"])
+    check("but it can tell a wrong value from an absent service",
+          mailer.config_summary()["any_set"], True)
 
     print()
     print("a username that is not an address is diagnosed, not ignored")
-    # Resend and SendGrid authenticate as 'resend' / 'apikey'. Every variable
-    # is present, yet there is no address to send from — the case that would
+    # Resend and SendGrid authenticate as 'resend' / 'apikey'. Both credentials
+    # are present, yet there is no address to send from — the case that would
     # otherwise report nothing missing while still refusing to send.
-    os.environ["SMTP_HOST"] = "smtp.sendgrid.net"
     os.environ["SMTP_USER"] = "apikey"
     os.environ["SMTP_PASS"] = "SG.xxxx"
     summary = mailer.config_summary()
@@ -73,25 +103,6 @@ def main():
     check("and MAIL_FROM is named as the gap", summary["missing"], ["MAIL_FROM"])
     os.environ["MAIL_FROM"] = "Tallgrass <no-reply@tallgrassapp.com>"
     check("setting it completes the config", mailer.is_configured(), True)
-    check("  with nothing left missing", mailer.config_summary()["missing"], [])
-    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "MAIL_FROM"):
-        os.environ.pop(key, None)
-
-    print()
-    print("host, user and password alone are enough to be configured")
-    # The sibling app on this account already has credentials under these
-    # names. Copying them across must not also require inventing a MAIL_FROM.
-    os.environ["SMTP_HOST"] = "smtp.gmail.com"
-    os.environ["SMTP_USER"] = "someone@gmail.com"
-    os.environ["SMTP_PASS"] = "app-password"          # note: not SMTP_PASSWORD
-    check("SMTP_PASS is accepted as well as SMTP_PASSWORD",
-          mailer.config_summary()["missing"], [])
-    check("it reads as configured", mailer.is_configured(), True)
-    check("and the from-address defaults to the account itself",
-          mailer.from_address(), "Tallgrass <someone@gmail.com>")
-    os.environ["MAIL_FROM"] = "Tallgrass <no-reply@tallgrassapp.com>"
-    check("an explicit MAIL_FROM still wins",
-          mailer.from_address(), "Tallgrass <no-reply@tallgrassapp.com>")
     for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "MAIL_FROM"):
         os.environ.pop(key, None)
     check("and removing it all goes back to unconfigured",

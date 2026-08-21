@@ -35,8 +35,21 @@ log = logging.getLogger("tallgrass.mail")
 TIMEOUT = 15
 
 
+# Gmail, because that is what this account actually sends through. Hardcoded
+# so the only thing that has to exist in the environment is the one value that
+# genuinely cannot live in a git repository — the password. A hostname is not
+# a secret, and every variable that does not have to be set by hand is one
+# fewer chance to set it on the wrong service or with the wrong capitalisation.
+DEFAULT_HOST = "smtp.gmail.com"
+DEFAULT_PORT = "587"
+
+
 def _setting(name, default=""):
     return (os.environ.get(name) or default).strip()
+
+
+def host():
+    return _setting("SMTP_HOST") or DEFAULT_HOST
 
 
 def _password():
@@ -63,17 +76,24 @@ def from_address():
 
 
 def is_configured():
-    """True when there is somewhere to send mail and a from-address to use."""
-    return bool(_setting("SMTP_HOST") and from_address())
+    """True when a message could actually be delivered.
+
+    The password is part of this now. It was not, so an instance with a host
+    and a user but no password reported itself as configured and then failed
+    at authentication — telling somebody their reset link was on its way when
+    nothing could possibly send.
+    """
+    return bool(host() and _setting("SMTP_USER") and _password()
+                and from_address())
 
 
 def config_summary():
     """Presence only, for the admin page. Never the password."""
-    host = _setting("SMTP_HOST")
     user = _setting("SMTP_USER")
 
+    # SMTP_HOST is no longer listed: it has a working default, so it can never
+    # be the thing that is missing.
     missing = [name for name, present in (
-        ("SMTP_HOST", bool(host)),
         ("SMTP_USER", bool(user)),
         ("SMTP_PASSWORD", bool(_password())),
     ) if not present]
@@ -90,15 +110,16 @@ def config_summary():
 
     return {
         "configured": is_configured(),
-        "host": host,
-        "port": _setting("SMTP_PORT", "587"),
+        "host": host(),
+        "port": _setting("SMTP_PORT", DEFAULT_PORT),
         "from": from_address(),
         "authenticated": bool(user),
         "missing": missing,
-        # Whether anything at all was found. Empty across the board means the
+        # Whether a credential was found at all. The host is excluded because
+        # it now always has a value: empty user AND password means the
         # variables are not on this service — most likely set on a different
         # one — which is a different problem from a value being wrong.
-        "any_set": bool(host or user or _password()),
+        "any_set": bool(user or _password()),
     }
 
 
@@ -112,8 +133,8 @@ def send(to, subject, body):
     if not is_configured():
         return False, "Email is not configured on this instance."
 
-    host = _setting("SMTP_HOST")
-    port = int(_setting("SMTP_PORT", "587") or 587)
+    server_host = host()
+    port = int(_setting("SMTP_PORT", DEFAULT_PORT) or DEFAULT_PORT)
     user = _setting("SMTP_USER")
     password = _password()
 
@@ -127,13 +148,13 @@ def send(to, subject, body):
         context = ssl.create_default_context()
         # 465 is TLS from the first byte; 587 opens plain and upgrades.
         if port == 465:
-            with smtplib.SMTP_SSL(host, port, timeout=TIMEOUT,
+            with smtplib.SMTP_SSL(server_host, port, timeout=TIMEOUT,
                                   context=context) as server:
                 if user:
                     server.login(user, password)
                 server.send_message(message)
         else:
-            with smtplib.SMTP(host, port, timeout=TIMEOUT) as server:
+            with smtplib.SMTP(server_host, port, timeout=TIMEOUT) as server:
                 server.starttls(context=context)
                 if user:
                     server.login(user, password)
@@ -141,8 +162,8 @@ def send(to, subject, body):
     except Exception as exc:                      # noqa: BLE001 - reported, not raised
         # The address is not logged. A failed send is an operational fact; who
         # it was for is the user's business.
-        log.warning("smtp send failed via %s:%s — %s", host, port, exc)
+        log.warning("smtp send failed via %s:%s — %s", server_host, port, exc)
         return False, "Could not send the email: %s" % exc
 
-    log.info("sent %r via %s:%s", subject, host, port)
+    log.info("sent %r via %s:%s", subject, server_host, port)
     return True, None

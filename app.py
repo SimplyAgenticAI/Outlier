@@ -1274,8 +1274,19 @@ def forgot_password():
                     log.error("reset email failed for user %s: %s",
                               user["id"], error)
             else:
-                log.warning("reset requested but SMTP is not configured; "
-                            "link must be delivered by the operator")
+                # Names the exact variables rather than just reporting the
+                # state, so the fix is readable from Render's log tab without
+                # having to sign in to the admin page to find out which.
+                summary = mailer.config_summary()
+                log.warning(
+                    "reset requested but email is NOT configured — missing %s "
+                    "(host=%s, user=%s, from=%s). The link must be delivered "
+                    "by the operator from /admin.",
+                    ", ".join(summary["missing"]) or "nothing?",
+                    summary["host"],
+                    summary["authenticated"] and "set" or "EMPTY",
+                    summary["from"] or "EMPTY",
+                )
 
             # The owner is told either way. When mail is configured this is a
             # log of who is struggling; when it is not, it is the only way the
