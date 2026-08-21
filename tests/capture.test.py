@@ -124,6 +124,66 @@ def main():
     check("and the post it happened on", "p25" in recorded, True)
 
     print()
+    print("junk captions are blanked on the way in, not left for a sweep")
+    # Every one of these tests already existed — in clean_captions, which only
+    # runs when the operator presses a button. So a scan re-imported exactly
+    # what the last sweep removed, and the fix lasted until the next scroll.
+    def body_of(fb_id):
+        with db.get_db() as conn:
+            row = conn.execute("SELECT body FROM posts WHERE fb_post_id = ?",
+                               (fb_id,)).fetchone()
+        return row["body"] if row else None
+
+    junk = post(200)
+    junk["body"] = "madgz4okPuJ2eku32l0HaoXRzutZH"
+    real = post(201)
+    real["body"] = "Three things I stopped doing that doubled my referrals"
+    oneword = post(202)
+    oneword["body"] = "Congratulations"
+    domain = post(203)
+    domain["body"] = "eventbrite.com"
+    link = post(204)
+    link["body"] = "https://example.com/a-real-link"
+    send([junk, real, oneword, domain, link])
+
+    check("a generated id is cleared", body_of("p200"), "")
+    check("real writing is untouched", body_of("p201"),
+          "Three things I stopped doing that doubled my referrals")
+    # A one-word caption cannot be judged on shape alone — "Congratulations"
+    # and "Jeff" are the same shape, and only one of them is a name.
+    check("an ordinary one-word caption survives", body_of("p202"),
+          "Congratulations")
+    check("a bare domain is cleared", body_of("p203"), "")
+    check("a link somebody chose to post survives", body_of("p204"),
+          "https://example.com/a-real-link")
+
+    print()
+    print("words read out of a graphic are the author's own")
+    graphic = post(205)
+    graphic["body"] = "madgz4okPuJ2eku32l0HaoXRzutZH"
+    graphic["body_from_image"] = 1
+    send([graphic])
+    check("a long token from an image is NOT cleared",
+          body_of("p205"), "madgz4okPuJ2eku32l0HaoXRzutZH")
+
+    print()
+    print("a name that is already a known author is cleared")
+    # "Jeff" arrives as a caption because Facebook prints it, not because
+    # anybody wrote it. The evidence is that Jeff is already an author here.
+    authored = post(206)
+    authored["author_name"] = "Jeff Randle"
+    authored["body"] = "A real post with actual writing in it"
+    send([authored])
+
+    stray = post(207)
+    stray["author_name"] = "Someone Else"
+    stray["body"] = "Jeff"
+    send([stray])
+    check("the stray name is cleared", body_of("p207"), "")
+    check("  while the post itself is kept",
+          body_of("p206"), "A real post with actual writing in it")
+
+    print()
     print("a crash outside the loop is still an answer, not a blank 500")
     real_counts = db.caption_author_counts
     db.caption_author_counts = lambda *a, **k: (_ for _ in ()).throw(

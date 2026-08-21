@@ -930,6 +930,73 @@ def _name_parts(conn, user_id, names):
     return parts
 
 
+def caption_junk_kind(body, from_image, known_names, repeated):
+    """Why this caption is chrome rather than writing, or None if it is real.
+
+    One definition, used at ingest AND by the cleanup sweep. It lived only
+    inside clean_captions, so every one of these tests ran when the operator
+    pressed a button and none of them ran when a post arrived — which meant a
+    scan re-imported exactly the captions the last sweep had removed, and the
+    junk was only ever as gone as the last time somebody remembered to clear
+    it. Two copies of this logic would drift; there is one.
+
+    Returns "repeated" | "domain" | "token" | "name" | None.
+    """
+    body = (body or "").strip()
+
+    # Anything with a space is writing and is never touched here.
+    if not body or " " in body:
+        return None
+
+    # An explicit link is something a person chose to post. Only a BARE domain
+    # is a preview-card label.
+    low = body.lower()
+    if "/" in body or low.startswith("www.") or low.startswith("http"):
+        return None
+
+    # Checked before the shape tests, and regardless of body_from_image: a word
+    # that appeared under several different authors is furniture even if it was
+    # read out of a graphic.
+    if low in (repeated or ()):
+        return "repeated"
+
+    if _BARE_DOMAIN_RE.match(body):
+        return "domain"
+
+    # Words read out of a graphic are the author's own, whatever shape they
+    # take. A quote card transcribed as one long unbroken run of capitals is
+    # real copy and must survive this.
+    if from_image:
+        return None
+
+    if (_LONG_TOKEN_RE.match(body)
+            and body[0] not in "@#"
+            # Mixed case is the signature. All-caps is a shout or a
+            # transcription, never one of these.
+            and re.search(r"[A-Z]", body) and re.search(r"[a-z]", body)):
+        return "token"
+
+    if (_WORD_RE.match(body)
+            and body.strip(".,:;!?").lower() in (known_names or ())):
+        return "name"
+
+    return None
+
+
+def ingest_caption_context(conn, user_id):
+    """The two sets caption_junk_kind needs, fetched once for a whole batch.
+
+    Both are queries over everything the account has captured, so they are
+    asked once per request rather than once per post — the same reason
+    caption_author_counts exists.
+    """
+    return {
+        "known_names": _name_parts(conn, user_id, []),
+        "repeated": {b.strip().lower()
+                     for b in repeated_caption_bodies(conn, user_id)},
+    }
+
+
 def clean_captions(user_id, names=None):
     """Blank stored bodies that are chrome rather than writing.
 
@@ -956,42 +1023,8 @@ def clean_captions(user_id, names=None):
         ).fetchall()
 
         for row in rows:
-            body = (row["body"] or "").strip()
-            # Anything with a space is writing and is never touched here.
-            if not body or " " in body:
-                continue
-
-            # An explicit link is something a person chose to post. Only a
-            # BARE domain is a preview-card label.
-            low = body.lower()
-            if "/" in body or low.startswith("www.") or low.startswith("http"):
-                continue
-
-            # Words read out of a graphic are the author's own, whatever shape
-            # they take. A quote card transcribed as one long unbroken run of
-            # capitals is real copy and must survive this.
-            from_image = bool(row["body_from_image"])
-
-            kind = None
-            # Checked before the shape tests, and regardless of body_from_image:
-            # a word that appeared under three different authors is furniture
-            # even if it was read out of a graphic.
-            if body.lower() in repeated:
-                kind = "repeated"
-            elif _BARE_DOMAIN_RE.match(body):
-                kind = "domain"
-            elif (not from_image
-                  and _LONG_TOKEN_RE.match(body)
-                  and body[0] not in "@#"
-                  # Mixed case is the signature. All-caps is a shout or a
-                  # transcription, never one of these.
-                  and re.search(r"[A-Z]", body) and re.search(r"[a-z]", body)):
-                kind = "token"
-            elif (not from_image
-                  and _WORD_RE.match(body)
-                  and body.strip(".,:;!?").lower() in known_names):
-                kind = "name"
-
+            kind = caption_junk_kind(
+                row["body"], bool(row["body_from_image"]), known_names, repeated)
             if not kind:
                 continue
 

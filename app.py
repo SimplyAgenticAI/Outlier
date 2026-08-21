@@ -1892,6 +1892,12 @@ def api_capture():
         author_counts = db.caption_author_counts(
             conn, api_user["id"], [p.get("body") for p in posts])
 
+        # The same tests the cleanup sweep runs, applied as posts arrive.
+        # They only ever ran when the operator pressed "Clean captions", so a
+        # scan re-imported the junk the last sweep had removed and the fix
+        # lasted exactly until the next scroll.
+        caption_context = db.ingest_caption_context(conn, api_user["id"])
+
         capture_failure = None
 
         # One malformed post used to cost the whole batch.
@@ -1945,6 +1951,20 @@ def api_capture():
                 # the name filter misses when nobody has filled the field in.
                 _body = (post.get("body") or "").strip()
                 if db.furniture_caption(_body) and author_counts.get(_body, 0) >= 2:
+                    post["body"] = ""
+                    post["body_from_image"] = 0
+
+                # Generated ids and stray names, caught on the way in rather
+                # than left for a sweep. A unique token can never be caught by
+                # the multi-author test above — it appears exactly once, under
+                # one author — so nothing was catching these at all.
+                junk = db.caption_junk_kind(
+                    post.get("body"),
+                    bool(post.get("body_from_image")),
+                    caption_context["known_names"],
+                    caption_context["repeated"],
+                )
+                if junk:
                     post["body"] = ""
                     post["body_from_image"] = 0
 
