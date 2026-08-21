@@ -219,6 +219,28 @@ def main():
           b"locked@example.com" in real.data, False)
 
     print()
+    print("a send that fails is not reported as a send that worked")
+    # Configured is not the same as delivered. Pointing at a host that cannot
+    # be reached is the closest stand-in for a rejected Gmail password.
+    auth._RESETS.clear()
+    os.environ["SMTP_HOST"] = "127.0.0.1"
+    os.environ["SMTP_PORT"] = "9"          # discard port: refuses immediately
+    os.environ["SMTP_USER"] = "someone@example.com"
+    os.environ["SMTP_PASS"] = "not-a-real-password"
+    check("it believes it is configured", mailer.is_configured(), True)
+    failed = client.post("/forgot", data={"email": "locked@example.com"})
+    check("the page still renders", failed.status_code, 200)
+    check("but it does NOT tell them to check their inbox and wait",
+          b"This instance can't send email yet" in failed.data, True)
+    with db.get_db() as conn:
+        latest = conn.execute(
+            "SELECT delivered FROM password_resets ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+    check("and the request is recorded as undelivered", latest["delivered"], 0)
+    for key in ("SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS"):
+        os.environ.pop(key, None)
+
+    print()
     print("the reset page states a dead link on arrival")
     dead = client.get("/reset/definitely-not-a-real-token")
     check("the page still renders", dead.status_code, 200)

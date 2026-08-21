@@ -1250,12 +1250,15 @@ def forgot_password():
         return redirect(url_for("feed"))
 
     sent = False
+    delivery_failed = False
     if request.method == "POST":
         email = (request.form.get("email") or "").strip()
         raw, user = auth.create_reset_token(email)
 
         if raw and user:
             link = url_for("reset_password", token=raw, _external=True)
+            delivered = False
+            failure = None
             if mailer.is_configured():
                 ok, error = mailer.send(
                     user["email"],
@@ -1269,9 +1272,11 @@ def forgot_password():
                     % (APP_NAME, link, auth.RESET_TTL_MINUTES),
                 )
                 if ok:
+                    delivered = True
                     auth.mark_reset_delivered(raw)
                 else:
-                    log.error("reset email failed for user %s: %s",
+                    failure = error
+                    log.error("reset email FAILED for user %s: %s",
                               user["id"], error)
             else:
                 # Names the exact variables rather than just reporting the
@@ -1288,27 +1293,39 @@ def forgot_password():
                     summary["from"] or "EMPTY",
                 )
 
-            # The owner is told either way. When mail is configured this is a
-            # log of who is struggling; when it is not, it is the only way the
-            # request reaches anyone at all.
+            # The owner is told what actually happened, not what was supposed
+            # to happen. This said "An email was sent" whenever email was
+            # merely CONFIGURED, so a send that failed at the SMTP server was
+            # reported to the owner as a success while the user waited on an
+            # email that did not exist. Configured is not the same as sent.
+            if delivered:
+                note = "An email was sent."
+            elif failure:
+                note = ("The email FAILED to send: %s — open Admin to "
+                        "generate a link and pass it on directly." % failure)
+            else:
+                note = ("Email is NOT configured on this instance — open "
+                        "Admin to copy their reset link.")
+
             db.notify_admins(
                 "password-reset",
-                "Password reset requested",
-                body=("%s asked to reset their password. %s"
-                      % (user["email"],
-                         "An email was sent."
-                         if mailer.is_configured()
-                         else "Email is NOT configured on this instance — "
-                              "open Admin to copy their reset link.")),
+                "Password reset requested"
+                + ("" if delivered else " — NOT DELIVERED"),
+                body="%s asked to reset their password. %s"
+                     % (user["email"], note),
                 url="/admin",
             )
+            delivery_failed = bool(failure)
 
         sent = True
 
     return render_template(
         "forgot.html", sent=sent, version=APP_VERSION,
-        # So the page can be honest about how the link will arrive.
-        email_configured=mailer.is_configured(),
+        # So the page can be honest about how the link will arrive. A send
+        # that failed is reported the same way as no email at all: from the
+        # user's side those are the same event, and "check your inbox" is a
+        # lie in both cases.
+        email_configured=mailer.is_configured() and not delivery_failed,
         ttl_minutes=auth.RESET_TTL_MINUTES,
     )
 
