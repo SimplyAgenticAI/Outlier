@@ -58,8 +58,22 @@
       <b>No email is configured on this instance</b>, so nothing is sent
       automatically. Generate a link here and pass it on however you already
       talk to them.
-      {% if email.missing %}
-      To automate it, set {% for name in email.missing %}<code>{{ name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+      {% if not email.any_set %}
+      {# Nothing at all was found, which usually means the variables are on a
+         different Render service rather than wrong on this one. #}
+      <br><b>This service has no SMTP variables at all.</b>
+      Not one of <code>SMTP_HOST</code>, <code>SMTP_USER</code> or
+      <code>SMTP_PASS</code> is set here — check you added them to this
+      service and not another one.
+      {% elif email.missing %}
+      <br>Found: <code>SMTP_HOST</code> = <b>{{ email.host or '(empty)' }}</b>,
+      <code>SMTP_USER</code> {{ 'is set' if email.authenticated else 'is EMPTY' }}.
+      Still needed: {% for name in email.missing %}<code>{{ name }}</code>{% if not loop.last %}, {% endif %}{% endfor %}.
+      {% if 'MAIL_FROM' in email.missing %}
+      <br>Everything is present, but <code>SMTP_USER</code> isn't an email
+      address, so there's no address to send <i>from</i>. Set
+      <code>MAIL_FROM</code> to the address this should come from.
+      {% endif %}
       {% endif %}
     {% endif %}
   </p>

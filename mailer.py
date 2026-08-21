@@ -69,19 +69,36 @@ def is_configured():
 
 def config_summary():
     """Presence only, for the admin page. Never the password."""
+    host = _setting("SMTP_HOST")
+    user = _setting("SMTP_USER")
+
+    missing = [name for name, present in (
+        ("SMTP_HOST", bool(host)),
+        ("SMTP_USER", bool(user)),
+        ("SMTP_PASSWORD", bool(_password())),
+    ) if not present]
+
+    # A from-address that cannot be derived is its own failure, and it is the
+    # one that does not show up as an absent variable: SMTP_USER can be set
+    # and still not be usable as a sender, because providers like Resend and
+    # SendGrid authenticate with a literal username ('resend', 'apikey')
+    # rather than an address. Without this the panel could report nothing
+    # missing while still refusing to send, which is the worst kind of
+    # diagnostic — one that says everything is fine and is wrong.
+    if not missing and not from_address():
+        missing.append("MAIL_FROM")
+
     return {
         "configured": is_configured(),
-        "host": _setting("SMTP_HOST"),
+        "host": host,
         "port": _setting("SMTP_PORT", "587"),
         "from": from_address(),
-        "authenticated": bool(_setting("SMTP_USER")),
-        # Named so a half-configured instance says which piece is missing
-        # rather than just refusing to send.
-        "missing": [name for name, present in (
-            ("SMTP_HOST", bool(_setting("SMTP_HOST"))),
-            ("SMTP_USER", bool(_setting("SMTP_USER"))),
-            ("SMTP_PASSWORD", bool(_password())),
-        ) if not present],
+        "authenticated": bool(user),
+        "missing": missing,
+        # Whether anything at all was found. Empty across the board means the
+        # variables are not on this service — most likely set on a different
+        # one — which is a different problem from a value being wrong.
+        "any_set": bool(host or user or _password()),
     }
 
 

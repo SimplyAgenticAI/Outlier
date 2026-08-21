@@ -56,6 +56,26 @@ def main():
     check("and it names every missing piece",
           mailer.config_summary()["missing"],
           ["SMTP_HOST", "SMTP_USER", "SMTP_PASSWORD"])
+    check("  and reports that nothing at all was found",
+          mailer.config_summary()["any_set"], False)
+
+    print()
+    print("a username that is not an address is diagnosed, not ignored")
+    # Resend and SendGrid authenticate as 'resend' / 'apikey'. Every variable
+    # is present, yet there is no address to send from — the case that would
+    # otherwise report nothing missing while still refusing to send.
+    os.environ["SMTP_HOST"] = "smtp.sendgrid.net"
+    os.environ["SMTP_USER"] = "apikey"
+    os.environ["SMTP_PASS"] = "SG.xxxx"
+    summary = mailer.config_summary()
+    check("it is not configured", summary["configured"], False)
+    check("but something was clearly set", summary["any_set"], True)
+    check("and MAIL_FROM is named as the gap", summary["missing"], ["MAIL_FROM"])
+    os.environ["MAIL_FROM"] = "Tallgrass <no-reply@tallgrassapp.com>"
+    check("setting it completes the config", mailer.is_configured(), True)
+    check("  with nothing left missing", mailer.config_summary()["missing"], [])
+    for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "MAIL_FROM"):
+        os.environ.pop(key, None)
 
     print()
     print("host, user and password alone are enough to be configured")
