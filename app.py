@@ -106,6 +106,9 @@ INGEST_PATHS = ("/api/capture", "/api/ping")
 # img-src has to allow https: because post thumbnails are loaded straight from
 # Facebook's CDN rather than re-hosted, and that CDN's hostnames are neither
 # stable nor enumerable.
+# Where the last SMTP rejection is kept, so the admin page can show it.
+MAIL_ERROR_KEY = "last_mail_error"
+
 CSP = "; ".join((
     "default-src 'self'",
     "base-uri 'self'",
@@ -1274,10 +1277,23 @@ def forgot_password():
                 if ok:
                     delivered = True
                     auth.mark_reset_delivered(raw)
+                    db.set_setting(MAIL_ERROR_KEY, "")
                 else:
                     failure = error
                     log.error("reset email FAILED for user %s: %s",
                               user["id"], error)
+                    # Kept where the owner will actually look. Reading the
+                    # provider's own rejection out of a hosting dashboard's
+                    # log tab is a step too many when the app can just show
+                    # it — and the message the user sees is deliberately
+                    # generic, so without this the reason is nowhere.
+                    db.set_setting(
+                        MAIL_ERROR_KEY,
+                        "%s — %s" % (
+                            datetime.now(timezone.utc).strftime(
+                                "%Y-%m-%d %H:%M UTC"),
+                            error),
+                    )
             else:
                 # Names the exact variables rather than just reporting the
                 # state, so the fix is readable from Render's log tab without
@@ -2132,6 +2148,8 @@ def admin():
         # send them a link on its own.
         pending_resets=db.pending_reset_requests(),
         email=mailer.config_summary(),
+        # The provider's own words about the last failed send, if any.
+        mail_error=db.get_setting(MAIL_ERROR_KEY, ""),
         # Presence only, never the values — an admin page is still a web page.
         stripe={
             "key": bool(os.environ.get("STRIPE_SECRET_KEY")),

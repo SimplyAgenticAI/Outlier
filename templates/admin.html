@@ -78,6 +78,23 @@
     {% endif %}
   </p>
 
+  {% if mail_error %}
+  {# The last thing the mail server actually said. Without this the reason
+     lives only in the hosting dashboard's log tab, and the message the user
+     sees is deliberately generic — so it would be nowhere the owner looks. #}
+  <div class="auth-error" style="margin:0 0 14px">
+    <b>The last email failed to send.</b>
+    <div style="margin-top:6px;font-family:ui-monospace,monospace;font-size:12px;
+                word-break:break-word">{{ mail_error }}</div>
+    <div class="fine" style="margin-top:8px">
+      <b>535 / Username and Password not accepted</b> means
+      <code>SMTP_PASS</code> is not a Gmail App Password.
+      <b>Connection refused</b> or a timeout means <code>SMTP_HOST</code> or
+      <code>SMTP_PORT</code> is wrong.
+    </div>
+  </div>
+  {% endif %}
+
   <div class="demo-actions" style="align-items:center;gap:10px">
     <input type="email" id="reset-email" placeholder="their@email.com"
            style="flex:1;min-width:210px;padding:9px 12px;border-radius:9px;
